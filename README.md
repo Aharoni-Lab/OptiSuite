@@ -14,3 +14,5 @@ DaHeng_Camera_Test: single frame camera capture
 stage_control_061625: attempt to integrate PyQt and the stage
 
 stage_motion_test_061625L: no GUI, attempt to use the stage functions directly from list of public DLL functions
+
+DaHeng_Camera_Test_winforms: Integration of camera using winforms only for image processing. Slow and error prone due to array bit manupulations
