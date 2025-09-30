@@ -1,0 +1,9 @@
+#gitignore file to avoid pushing files that are too big
+
+VC Example/
+
+venv/
+
+.vs/ #these are visual studio cache files
+
+*.tar

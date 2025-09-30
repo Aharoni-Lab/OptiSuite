@@ -1,0 +1,8 @@
+{
+    "type": 1,
+    "unit": 0,
+    "motor_angle": 1.8,
+    "subdivision": 2,
+    "pitch": 1.0,
+    "travel": 100.0
+}
