@@ -4,6 +4,14 @@ VC Example/
 
 venv/
 
+*.egg-info/
+
+.env/
+
 .vs/ #these are visual studio cache files
 
 *.tar
+
+*.pyd #ignore these, artifacts from installing python stuff like OpenCV
+
+__pycache__/
