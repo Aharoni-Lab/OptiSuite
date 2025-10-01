@@ -5,6 +5,8 @@ import os
 import System
 from System.Windows.Forms import Application, Form, Label, Button,TextBox
 
+#note: installed python 3.11 on lab computer
+
 file_path = None  # This will hold the actual loaded path
 
 try:
@@ -17,8 +19,12 @@ try:
 
 except Exception as e:
     print(f"Failed to load from CWD: {e}")
-    # Try the hardcoded backup path
-    fallback_path = r"C:\Users\Melody\Documents\Melody School\UCLA\OCS Research\Python versions\OCS_op_new_052825\SC3U.dll"
+    #hardcoded backup path, version Melody laptop
+    #fallback_path = r"C:\Users\Melody\Documents\Melody School\UCLA\OCS Research\Python versions\OCS_op_new_052825\SC3U.dll"
+    
+    #hardcoded backup path, version current laptop
+    fallback_path = r"C:\Users\stimscope1\Documents\OptiSuite"
+    
     if not os.path.exists(fallback_path):
         raise FileNotFoundError(f"SC3U.dll not found at fallback path: {fallback_path}")
     clr.AddReference(os.path.abspath(fallback_path))
@@ -30,6 +36,9 @@ from SC3Us import SC3U
 class MyForm(Form):
     def __init__(self):
         super().__init__()
+
+        #experimental: removed al the self. txt int his section, blank window opened up 
+        # (no gui) when the program was ran
         
         self.Text="Python with C# Control"
         self.Width=1000
@@ -90,28 +99,33 @@ class MyForm(Form):
         
 
     def on_btnConnect_click(self, sender, event):
+        print("Connect button was clicked")
         # The handling method for the button click event
         file_path = os.path.join(os.getcwd(), 'SC3U.dll')
-        print(file_path)
+        #print(file_path)
         
         #NOTE TO SELF: THE LEFT PORT ON YOUR COMPUTER IS COM6, THE RIGHT IS COM3
         #check port if on a different device
-        self.my_control.ConnectPort(3) 
+        self.my_control.ConnectPort(4) 
 
         self.lblStatus.Text="Connection Status"+str(self.my_control.ConnectStatus)
 
+    #parameter setting button which does not set anything/pull up the parameter setting window
+    #need to hit connect to do that 
     def on_btnSetParam_click(self, sender, event):
         if self.my_control.ConnectStatus==True:
-            self.my_control.SetType(0, 1)                                      # Set parameters for linear stage
-            self.my_control.SetUnit(0, 0)                                       # Set mm as the unit
-            self.my_control.SetMotorAngle(0, 0.9)                       # Set the motor angle to 1.8
-            self.my_control.SetSubsection(0, 2)                           # Set the subdivision to 2
-            self.my_control.SetPitch(0, 1)                                     # Set the screw pitch to 1
-            self.my_control.SetTravel(0, 50)                                 # Set the travel range to 50
-            self.my_control.SaveParam(0)                                   # Save the parameters
+            print("Set parameters button was clicked")
+            # self.my_control.SetType(0, 1)                                      # Set parameters for linear stage
+            # self.my_control.SetUnit(0, 0)                                       # Set mm as the unit
+            # self.my_control.SetMotorAngle(0, 0.9)                       # Set the motor angle to 1.8
+            # self.my_control.SetSubsection(0, 2)                           # Set the subdivision to 2
+            # self.my_control.SetPitch(0, 1)                                     # Set the screw pitch to 1
+            # self.my_control.SetTravel(0, 50)                                 # Set the travel range to 50
+            # self.my_control.SaveParam(0)                                   # Save the parameters
             
     def on_btnRun_click(self, sender, event):
         if self.my_control.ConnectStatus==True:
+            print("Run button was clicked")
             self.my_control.RunToPosition(0,float(self.TxtPosition.Text)-self.my_control.GetCurrentPosition(0))
 
 if __name__=="__main__":
