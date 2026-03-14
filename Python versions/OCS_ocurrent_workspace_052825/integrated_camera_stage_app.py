@@ -38,7 +38,7 @@ try:
     print(f"Loaded SC3U.dll from: {cwd_path}")
 except Exception as e:
     print(f"Failed to load from CWD: {e}")
-    fallback_path = r"C:\Users\stimscope1\Documents\OptiSuite\Python versions\OCS_op_new_052825\SC3U.dll"
+    fallback_path = r"C:\Users\stimscope1\Documents\OptiSuite\Python versions\OCS_current_workspace_052825"
     if not os.path.exists(fallback_path):
         raise FileNotFoundError(f"SC3U.dll not found at fallback path: {fallback_path}")
     clr.AddReference(os.path.abspath(fallback_path))
@@ -55,6 +55,7 @@ class StageWorker(QObject):
     operation_completed = pyqtSignal(str)
     
     def __init__(self):
+        #super inherits from parent class, QObject
         super().__init__()
         self.stage_control = None
         self.mutex = QMutex()
