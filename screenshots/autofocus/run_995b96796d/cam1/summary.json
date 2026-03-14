@@ -1,0 +1,20 @@
+{
+  "rounds": [
+    {
+      "span": 3.0,
+      "step": 0.5,
+      "best_z": 61.88,
+      "best_score": 0.021752379834651947,
+      "best_img": "af_cmdZ61_880_measZ61_880_cam1_VEN-505-36U3M-M01_20260227_173234.png"
+    },
+    {
+      "span": 0.6,
+      "step": 0.2,
+      "best_z": 61.88,
+      "best_score": 0.021752379834651947,
+      "best_img": null
+    }
+  ],
+  "best_z": 61.88,
+  "best_score": 0.021752379834651947
+}
