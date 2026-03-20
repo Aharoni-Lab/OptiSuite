@@ -1,0 +1,4 @@
+//normalize white to 1
+//if there's 20% diff between black and white, it is focused
+//only care about color diff not edge
+//scanline
