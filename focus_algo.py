@@ -4,6 +4,7 @@ import numpy as np
 
 # Define points as (local_x, local_y) relative to the center
 # Every two points (0&1, 2&3, etc.) will form one line
+# Stub
 g2_x = -3.2
 g3_x = 2.5
 g4_x = -0.56
