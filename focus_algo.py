@@ -251,7 +251,7 @@ def calculate_focus_scores(image_path, corners):
     #recalculate side_length using the distance between the right reference corner and left reference corner
     if right_ref_corner is not None and left_ref_corner is not None:
         side_length = np.sqrt((right_ref_corner[0] - left_ref_corner[0])**2 + (right_ref_corner[1] - left_ref_corner[1])**2)
-        side_length = 0.15923566879 * side_length * 1.006
+        side_length = 0.15923566879 * side_length * 1.007
 
     scores = {}
 
@@ -322,12 +322,31 @@ def calculate_focus_scores(image_path, corners):
     
     return scores
 
+
+def find_best_focus_group(scores_list):
+    # We need at least 2 scores to compare
+    if len(scores_list) < 2:
+        return 0
+
+    for i in range(1, len(scores_list)):
+        # If the score starts going UP, the previous index was the "bottom"
+        if scores_list[i] > scores_list[i-1] * 1.1 or scores_list[i] < 0.2:
+            return i - 1
+            
+    # If it never goes up, the last element is the minimum
+    return len(scores_list) - 1
+
+
+
 # Process images
 images = [
     'af_Z61_670_175208_20260227_175208.png',
     'af_Z62_070_183718_20260227_183719.png',
-    'af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png'
+    'af_Z61_870_175210_20260227_175210.png'
 ]
+
+
+
 
 for image_path in images:
     corners = find_square_corners(image_path)
@@ -338,6 +357,12 @@ for image_path in images:
             print(f"Scores for {image_path}: {scores}")
         else:
             print(f"Failed to calculate scores for {image_path}")
+
+        # find the index in the scores where the descending order of scores changes to ascending order, 
+        # that is the index of the best focus group
+        scores_list = [scores[i] for i in range(len(scores))]
+        best_focus_group = find_best_focus_group(scores_list)
+        print(f"Best focus group for {image_path}: {best_focus_group}")
 
     else:
         print(f"No square detected for {image_path}")
