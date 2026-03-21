@@ -1,51 +1,81 @@
 import cv2
 import numpy as np
 
-
+DEBUG_MODE = False
 # Define points as (local_x, local_y) relative to the center
 # Every two points (0&1, 2&3, etc.) will form one line
-# Stub
 g2_x = -3.2
 g3_x = 2.5
 g4_x = -0.56
 g5_x = 0.87
-g6_x = 0.12
+g6_x = 0.11
+left_ref_coord = (2.64, 0.5)
+right_ref_coord = (-3.64, 0.5)
 group_positions = {
+    
     0: (g2_x, 0.35),     1: (g2_x, -0.37),
     2: (g2_x, -1.31),    3: (g2_x, -1.96),
     4: (g2_x, -2.8),    5: (g2_x, -3.40),
     
     6: (g3_x, 0.43),     7: (g3_x, 0.01),
     8: (g3_x, -0.5),    9: (g3_x, -0.88),
-    10: (g3_x, -1.33),    11: (g3_x, -1.66),
+    10: (g3_x, -1.37),    11: (g3_x, -1.70),
     12: (g3_x, -2.08-0.05),    13: (g3_x, -2.38-0.05),
     14: (g3_x, -2.73-0.05),    15: (g3_x, -3.01-0.05),
     16: (g3_x, -3.32-0.07),    17: (g3_x, -3.57-0.07),
     
-    18: (g4_x, -1.84-0.03),    19: (g4_x, -2.04-0.03),
-    20: (g4_x, -2.26-0.05),    21: (g4_x, -2.44-0.05),
-    22: (g4_x, -2.63-0.05),    23: (g4_x, -2.79-0.05),
-    24: (g4_x, -2.97-0.05),    25: (g4_x, -3.1-0.05),
-    26: (g4_x, -3.26-0.05),    27: (g4_x, -3.39-0.05),
+    18: (0.79, -3.15-0.057),     19: (0.79, -3.37-0.057),
+    20: (g4_x, -1.84-0.03),    21: (g4_x, -2.04-0.03),
+    22: (g4_x, -2.26-0.05),    23: (g4_x, -2.44-0.05),
+    24: (g4_x, -2.63-0.05),    25: (g4_x, -2.79-0.05),
+    26: (g4_x, -2.97-0.05),    27: (g4_x, -3.1-0.05),
+    28: (g4_x, -3.26-0.05),    29: (g4_x, -3.39-0.05),
 
-    28: (g5_x, -1.838-0.03),    29: (g5_x, -1.944-0.03),
-    30: (g5_x, -2.072-0.038),    31: (g5_x, -2.168-0.038),
-    32: (g5_x, -2.277-0.04),    33: (g5_x, -2.365-0.04),
-    34: (g5_x, -2.468-0.037),    35: (g5_x, -2.538-0.044),
-    36: (g5_x, -2.64-0.04),    37: (g5_x, -2.696-0.04),
-    38: (g5_x, -2.782-0.045),    39: (g5_x, -2.836-0.045),
+    30: (g5_x, -1.838-0.03),    31: (g5_x, -1.944-0.03),
+    32: (g5_x, -2.072-0.038),    33: (g5_x, -2.168-0.038),
+    34: (g5_x, -2.277-0.04),    35: (g5_x, -2.365-0.04),
+    36: (g5_x, -2.468-0.037),    37: (g5_x, -2.538-0.044),
+    38: (g5_x, -2.64-0.04),    39: (g5_x, -2.696-0.04),
+    40: (g5_x, -2.782-0.045),    41: (g5_x, -2.836-0.045),
     
-    40: (g6_x, -2.453),    41: (g6_x, -2.49),
-    42: (g6_x, -2.557),    43: (g6_x, -2.59),
-    44: (g6_x, -2.648),    45: (g6_x, -2.681),
-    46: (g6_x-0.003, -2.735),    47: (g6_x-0.003, -2.755),
-    48: (g6_x-0.005, -2.81),    49: (g6_x-0.005, -2.83),
-
-    50: (-3.64, 0.5),    51: (2.64, 0.5)
+    42: (0.44, -2.78-0.01),     43: (0.44, -2.82-0.01),
+    44: (g6_x, -2.453),    45: (g6_x, -2.49),
+    46: (g6_x, -2.557),    47: (g6_x, -2.59),
+    48: (g6_x, -2.648),    49: (g6_x, -2.681),
+    50: (g6_x-0.003, -2.735),    51: (g6_x-0.003, -2.755),
+    52: (g6_x-0.005, -2.81),    53: (g6_x-0.005, -2.83),
 
 }
 
-
+score_table = {
+    0: 2.2,
+    1: 2.3,
+    2: 2.4,
+    3: 3.1,
+    4: 3.2,
+    5: 3.3,
+    6: 3.4,
+    7: 3.5,
+    8: 3.6,
+    9: 4.1,
+    10: 4.2,
+    11: 4.3,
+    12: 4.4,
+    13: 4.5,
+    14: 4.6,
+    15: 5.1,
+    16: 5.2,
+    17: 5.3,
+    18: 5.4,
+    19: 5.5,
+    20: 5.6,
+    21: 6.1,
+    22: 6.2,
+    23: 6.3,
+    24: 6.4,
+    25: 6.5,
+    26: 6.6
+}
 
 
 def find_square_corners(image_path):
@@ -84,15 +114,18 @@ def find_square_corners(image_path):
         corners = square_corners.reshape(-1, 2)
         print("Detected Corners:\n", corners)
 
-        # Draw for visual confirmation
-        for (x, y) in corners:
-            cv2.circle(img, (x, y), 8, (0, 255, 0), -1)
-        cv2.drawContours(img, [square_corners], -1, (255, 0, 0), 3)
-        
-        cv2.namedWindow("Success", cv2.WINDOW_NORMAL) 
-        cv2.imshow("Success", img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        if DEBUG_MODE:
+            # Draw for visual confirmation
+            for (x, y) in corners:
+                cv2.circle(img, (x, y), 8, (0, 255, 0), -1)
+            cv2.drawContours(img, [square_corners], -1, (255, 0, 0), 3)
+            
+            cv2.namedWindow("Success", cv2.WINDOW_NORMAL) 
+            cv2.imshow("Success", img)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+        corners[:, 1] = img.shape[0] - corners[:, 1] - 1
         return corners
     else:
         # Debugging: show the thresholded image if it fails
@@ -119,16 +152,26 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     with side length = side_length/4.
     """
     
-    # Define search region centered at midpoint of position[50] and position[51]
-    region_center_local = region_center
-    
+    #convert the center x and center y to the screen coordinate by translating by the image height and flipping the y coordinate
+    center_x = center_x
+    center_y = gray.shape[0] - center_y - 1
     # Convert to pixel coordinates (apply side_length scaling)
-    region_center_scaled = (region_center_local[0] * side_length, region_center_local[1] * side_length)
+    region_center_scaled = (region_center[0] * side_length, region_center[1] * side_length)
     
     # Get the actual pixel position accounting for the coordinate flip
     region_center_img = get_rotated_pt(center_x, center_y, -region_center_scaled[0], -region_center_scaled[1], angle)
     region_size_px = region_size * side_length
-    
+
+    if DEBUG_MODE:
+        # Debug: Draw the region on the image
+        debug_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        cv2.rectangle(debug_img, (int(region_center_img[0] - region_size_px), int(region_center_img[1] - region_size_px)),                   (int(region_center_img[0] + region_size_px), int(region_center_img[1] + region_size_px)), (0, 255, 0), 2)
+        cv2.circle(debug_img, region_center_img, 5, (0, 0, 255), -1)
+        cv2.namedWindow("Debug Region", cv2.WINDOW_NORMAL)
+        cv2.imshow("Debug Region", debug_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
     # Extract region bounds
     x1 = int(region_center_img[0] - region_size_px)
     x2 = int(region_center_img[0] + region_size_px)
@@ -165,8 +208,11 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
         max_idx = np.argmin(corner_dist)
         corner_local = corner_coords[max_idx]
         
-        # Convert back to image coordinates
+        # Convert back to screen coordinates
         corner_img = (corner_local[1] + x1, corner_local[0] + y1)
+        # convert back to standard coordinates by translating by the image height 
+        # and flipping the y coordinate
+        corner_img = (corner_img[0], gray.shape[0] - 1 - corner_img[1])
         
         return corner_img
     else:
@@ -198,25 +244,26 @@ def calculate_focus_scores(image_path, corners):
     center_y = (min_y + max_y) / 2
     side_length = np.sqrt((corners[0][0] - corners[1][0])**2 + (corners[0][1] - corners[1][1])**2)  # approximate side length
     #find corner with max y
-    top_corner = corners[np.argmin(corners[:, 1])]
+    top_corner = corners[np.argmax(corners[:, 1])]
     left_corner = corners[np.argmin(corners[:, 0])]
     right_corner = corners[np.argmax(corners[:, 0])]
-    bottom_corner = corners[np.argmax(corners[:, 1])]
+    bottom_corner = corners[np.argmin(corners[:, 1])]
     #find unit vector that point from right corner to top corner
-    unit_vector = (top_corner - right_corner) / np.linalg.norm(top_corner - right_corner)
-    #find angle of unit vector with y axis
-    angle = np.arctan2(unit_vector[1], unit_vector[0]) + np.pi / 2
-    right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, group_positions[50], 1.0/5.0)
-    left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, group_positions[51], 1.0/5.0)
+    unit_vector = (top_corner - left_corner) / np.linalg.norm(top_corner - left_corner)
+    #find angle of unit vector with y axis, negate because the screen coordinate system is flipped
+    angle = -np.arctan2(unit_vector[1], unit_vector[0])
+    # left and right ref corner are in standard coordinates 
+    right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, right_ref_coord, 1.0/5.0)
+    left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, left_ref_coord, 1.0/5.0)
+    ref_vector = np.array(right_ref_corner) - np.array(left_ref_corner)
+    ref_unit_vector = ref_vector / np.linalg.norm(ref_vector)
+    ref_normal_vector = np.array([-ref_unit_vector[1], ref_unit_vector[0]])
+    dist = np.sqrt(ref_vector[0]**2 + ref_vector[1]**2)
     #recalculate angle using the right reference corner and left reference corner
     #calculate unit vector from right reference corner to left reference corner
     if right_ref_corner is not None and left_ref_corner is not None:
-        ref_vector = np.array(left_ref_corner) - np.array(right_ref_corner)
-        ref_unit_vector = ref_vector / np.linalg.norm(ref_vector)
-        #find normal to the ref_unit_vector (rotate by 90 degrees)
-        ref_normal_vector = np.array([-ref_unit_vector[1], ref_unit_vector[0]])
         #find angle of ref_normal_vector with y axis
-        angle = np.arctan2(ref_normal_vector[1], ref_normal_vector[0]) + np.pi / 2
+        angle = -np.arctan2(ref_unit_vector[1], ref_unit_vector[0])
     else:
         print("Warning: Could not find reference corners. Using initial angle estimation.")
 
@@ -224,21 +271,9 @@ def calculate_focus_scores(image_path, corners):
     #the center should be 0.579617834395 * distance from right reference corner to left reference corner away from 
     #the left reference corner in the direction of the unit vector from left reference corner to right reference corner
     if right_ref_corner is not None and left_ref_corner is not None:
-            # 1. Calculate the vector from left to right
-            # Vector = Target - Source
-            vec_x = right_ref_corner[0] - left_ref_corner[0]
-            vec_y = right_ref_corner[1] - left_ref_corner[1]
-            
-            # 2. Calculate the total distance between them
-            dist = np.sqrt(vec_x**2 + vec_y**2)
             
             # 3. Find the unit vector (direction only)
             if dist > 0:
-                u_x = vec_x / dist
-                u_y = vec_y / dist
-                #calculate normal vector to the unit vector (rotate by 90 degrees)
-                n_x = -u_y
-                n_y = u_x
                 
                 # 4. Calculate the offset distance based on your ratio
                 # Ratio: 0.579617834395
@@ -246,13 +281,16 @@ def calculate_focus_scores(image_path, corners):
                 offset_dist_y = 0.15923566879 * dist * 0.5
                 
                 # 5. New center = Left Corner + (Direction * Offset)
-                center_x = left_ref_corner[0] + (u_x * offset_dist_x) + (n_x * offset_dist_y)
-                center_y = left_ref_corner[1] + (u_y * offset_dist_x) + (n_y * offset_dist_y)
+                center_x = left_ref_corner[0] + (ref_unit_vector[0] * offset_dist_x) - (ref_normal_vector[0] * offset_dist_y)
+                center_y = left_ref_corner[1] + (ref_unit_vector[1] * offset_dist_x) - (ref_normal_vector[1] * offset_dist_y)
+
+                # convert back to screen coordinates by translating by the image height and flipping the y coordinate
+                center_y = gray.shape[0] - 1 - center_y
 
     #recalculate side_length using the distance between the right reference corner and left reference corner
     if right_ref_corner is not None and left_ref_corner is not None:
-        side_length = np.sqrt((right_ref_corner[0] - left_ref_corner[0])**2 + (right_ref_corner[1] - left_ref_corner[1])**2)
-        side_length = 0.15923566879 * side_length * 1.007
+        # magical scaling factor 
+        side_length = 0.15923566879 * dist * 1.007
 
     scores = {}
 
@@ -298,6 +336,9 @@ def calculate_focus_scores(image_path, corners):
         
 
     # Display the result
+    # convert the right reference corner and left reference corner to screen coordinates by translating by the image height and flipping the y coordinate
+    right_ref_corner = (right_ref_corner[0], gray.shape[0] - right_ref_corner[1] - 1)
+    left_ref_corner = (left_ref_corner[0], gray.shape[0] - left_ref_corner[1] - 1)
     cv2.circle(img, right_ref_corner, 8, (255, 0, 255), -1)  # magenta for right reference corner
     cv2.circle(img, left_ref_corner, 8, (255, 255, 0), -1)  # cyan for left reference corner
     #draw region of interest for reference corner
@@ -305,8 +346,8 @@ def calculate_focus_scores(image_path, corners):
     left_region_size_px = int((1.0/5.0) * side_length)
     #region centered at the transformed and rotated group_position[50] and group_position[51] coordinates
     #cast to int for cv2.rectangle
-    right_scaled_pt = (int(group_positions[50][0] * side_length), int(group_positions[50][1] * side_length))
-    left_scaled_pt = (int(group_positions[51][0] * side_length), int(group_positions[51][1] * side_length))
+    right_scaled_pt = (int(right_ref_coord[0] * side_length), int(right_ref_coord[1] * side_length))
+    left_scaled_pt = (int(left_ref_coord[0] * side_length), int(left_ref_coord[1] * side_length))
     right_rotated_pt = get_rotated_pt(center_x, center_y, -right_scaled_pt[0], -right_scaled_pt[1], angle)
     left_rotated_pt = get_rotated_pt(center_x, center_y, -left_scaled_pt[0], -left_scaled_pt[1], angle)
     cv2.rectangle(img, (int(right_rotated_pt[0] - right_region_size_px), int(right_rotated_pt[1] - right_region_size_px)),                  (int(right_rotated_pt[0] + right_region_size_px), int(right_rotated_pt[1] + right_region_size_px)), (255, 0, 255), 2)
@@ -327,15 +368,15 @@ def calculate_focus_scores(image_path, corners):
 def find_best_focus_group(scores_list):
     # We need at least 2 scores to compare
     if len(scores_list) < 2:
-        return 0
+        return score_table[0]  # Default to the first group if we can't compare
 
     for i in range(1, len(scores_list)):
         # If the score starts going UP, the previous index was the "bottom"
         if scores_list[i] > scores_list[i-1] * 1.1 or scores_list[i] < 0.2:
-            return i - 1
+            return score_table[i-1]  # Return the score of the last group before it went up or dropped too low
             
-    # If it never goes up, the last element is the minimum
-    return len(scores_list) - 1
+    # If it never goes up, the first element is the minimum
+    return score_table[0]
 
 
 
