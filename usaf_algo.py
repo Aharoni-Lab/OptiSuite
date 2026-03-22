@@ -15,7 +15,7 @@ import numpy as np
 
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = False
+DEBUG_MODE = True
 PREVIEW_MODE = True
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
@@ -175,13 +175,13 @@ def get_rotated_pt(cx, cy, local_x, local_y, angle):
 
 
 
-def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, region_center, region_size):
+def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, region_center, region_size, prefer_dir = 0):
     """
     Find the location of a white corner on black background within a square region.
     The region is centered at region_center in usaf coordinate
     with dim of square = region size * side_length, and rotated by angle from the standard coordinate system.
     """
-    
+    prefer_dir = 0
     # convert the center x and center y from standard coordinates to the screen coordinate 
     # by translating by the image height and flipping the y coordinate
     center_x = center_x
@@ -192,16 +192,6 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     region_center_img = get_rotated_pt(center_x, center_y, -region_center_scaled[0], -region_center_scaled[1], angle)
     #calculate the region size in pixels
     region_size_px = region_size * side_length
-
-    if DEBUG_MODE:
-        # Debug: Draw the region on the image
-        debug_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        cv2.rectangle(debug_img, (int(region_center_img[0] - region_size_px), int(region_center_img[1] - region_size_px)),                   (int(region_center_img[0] + region_size_px), int(region_center_img[1] + region_size_px)), (0, 255, 0), 2)
-        cv2.circle(debug_img, region_center_img, 5, (0, 0, 255), -1)
-        cv2.namedWindow("Debug Region", cv2.WINDOW_NORMAL)
-        cv2.imshow("Debug Region", debug_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
 
     # Extract region bounds
     x1 = int(region_center_img[0] - region_size_px)
@@ -220,29 +210,43 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     if region.size == 0:
         return None
     
-    # Find white pixels (intensity > 200) on black background
-    white_thresh = 200
-    white_binary = cv2.threshold(region, white_thresh, 255, cv2.THRESH_BINARY)[1]
+    # Apply Shi-Tomasi corner detection on white pixels
+    corners_shi_tomasi = cv2.goodFeaturesToTrack(region.astype(np.uint8), 4, 0.01, 10)
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001)
+    cv2.cornerSubPix(region.astype(np.uint8), corners_shi_tomasi, (15, 15), (-1, -1), criteria)
     
-    # Apply Harris corner detection on white pixels
-    corners_harris = cv2.cornerHarris(white_binary.astype(np.uint8), 2, 3, 0.04)
-    corners_harris = cv2.dilate(corners_harris, None)
-    
-    # Find corner coordinates from Harris response
-    corner_coords = np.argwhere(corners_harris > 0.01 * corners_harris.max())
-    
-    if len(corner_coords) > 0:
+    if DEBUG_MODE:
+        # Create a BGR version of the crop for color drawing
+        print("prefer_dir: ", prefer_dir)
+        debug_img = cv2.cvtColor(region, cv2.COLOR_GRAY2BGR)
+        for corner in corners_shi_tomasi:
+            cv2.circle(debug_img, (int(corner[0][0]), int(corner[0][1])), 1, (0, 0, 255), -1)
+        cv2.namedWindow("Debug Region", cv2.WINDOW_NORMAL)
+        cv2.imshow("Debug Region", debug_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+    if len(corners_shi_tomasi) > 0:
         # Return the corner closest to the center of the region
-        corner_x = corner_coords[:, 1]  # x-coordinates
-        corner_y = corner_coords[:, 0]  # y-coordinates
-        corner_dist = np.sqrt((corner_x - region.shape[1] / 2) ** 2 + (corner_y - region.shape[0] / 2) ** 2)
-        max_idx = np.argmin(corner_dist)
-        corner_local = corner_coords[max_idx]
+        corner_x = corners_shi_tomasi[:, 0, 0]  # x-coordinates
+        corner_y = corners_shi_tomasi[:, 0, 1]  # y-coordinates
+        if prefer_dir == 0:                     #prefer center
+            corner_dist = np.sqrt((corner_x - region.shape[1] / 2) ** 2 + (corner_y - region.shape[0] / 2) ** 2)
+            search_idx = np.argmin(corner_dist)
+        elif prefer_dir == 3:                   #prefer top
+            search_idx = np.argmin(corner_y)
+        elif prefer_dir == 7:                   #prefer bottom
+            search_idx = np.argmax(corner_y)
+        elif prefer_dir == 1:                   #prefer left
+            search_idx = np.argmax(corner_x)
+        elif prefer_dir == 5:                   #prefer right
+            search_idx = np.argmin(corner_x)
+        corner_local = corners_shi_tomasi[search_idx, 0]
         
         # Convert back to screen coordinates
-        corner_img = (corner_local[1] + x1, corner_local[0] + y1)
+        corner_img = (corner_local[0] + x1, corner_local[1] + y1)
         # convert back to standard coordinates
-        corner_img = (corner_img[0], gray.shape[0] - 1 - corner_img[1])
+        corner_img = (int(corner_img[0]), int(gray.shape[0] - 1 - corner_img[1]))
         
         return corner_img
     else:
@@ -373,8 +377,8 @@ def coordinate_calibration(gray, corners):
 
     #Seconary coordinate calibration using the reference corners
     # left and right ref corner are in standard coordinates 
-    right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, right_ref_coord, 1.0/5.0)
-    left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, left_ref_coord, 1.0/5.0)
+    right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, right_ref_coord, 1.0/5.0, ((orientation) * 2 + 2 + 1) % 8)
+    left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, left_ref_coord, 1.0/5.0, ((orientation) * 2 + 2- 1) % 8)
     ref_vector = np.array(right_ref_corner) - np.array(left_ref_corner)
     ref_unit_vector = ref_vector / np.linalg.norm(ref_vector)
     ref_normal_vector = np.array([-ref_unit_vector[1], ref_unit_vector[0]])
