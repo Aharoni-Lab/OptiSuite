@@ -15,8 +15,8 @@ import numpy as np
 
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = True
-PREVIEW_MODE = True
+DEBUG_MODE = False
+PREVIEW_MODE = False
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
 
@@ -251,9 +251,17 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
 
 
 def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
+    '''
+    calculate the orientation of the target by comparing the average of the scanline element
+    '''
     normal_vector = np.array([-unit_vector[1], unit_vector[0]])
     normal_vector = normal_vector / np.linalg.norm(normal_vector)
 
+    # The marking of orientation are based on the orientation where
+    # the top left is the top direction
+    # the top right is the right direction
+    # the bottom right is the bottom direction
+    # the bottom left is the left direction
     scanline_length = 0.7 * side_length
     scanline_start = np.zeros((4, 2))
     scanline_start[1] = (center_x + scanline_length * unit_vector[0], center_y + scanline_length * unit_vector[1])        #right
@@ -270,6 +278,7 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
     h, w = gray.shape[:2]
     center = np.array([center_x, center_y])
 
+    # Calculate how much we need to scale the line to hit each boundary
     for i in range(len(scanline_end)):
         pt = scanline_end[i]
         diff = pt - center
@@ -325,13 +334,17 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
 
     # find the index of the minimum value
     min_index = np.argmin(average)
-    print(f"Minimum index: {min_index}")
+    if DEBUG_MODE:
+        print(f"Minimum index: {min_index}")
     # return the corresponding orientation
     return min_index
 
 
 
 def coordinate_calibration(gray, corners):
+    '''
+    Calibrates the coordinate system using the corners of the square
+    '''
     # Initial coordinate calibration using the corners of the square
     corners = np.array(corners)
     min_x = np.min(corners[:, 0])
@@ -357,6 +370,7 @@ def coordinate_calibration(gray, corners):
     angle = angle + orientation * np.pi / 2
 
 
+
     #Seconary coordinate calibration using the reference corners
     # left and right ref corner are in standard coordinates 
     right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, right_ref_coord, 1.0/5.0)
@@ -369,7 +383,7 @@ def coordinate_calibration(gray, corners):
     if right_ref_corner is not None and left_ref_corner is not None:
         #find angle of ref_normal_vector with y axis, negate because the screen coordinate system is flipped for top case
         angle = np.arctan2(np.abs(ref_unit_vector[1]), np.abs(ref_unit_vector[0]))
-        if orientation == 0:
+        if orientation == 0:                     #top case
             angle = -angle
         elif orientation == 3:                   #left case
             angle = angle - np.pi
@@ -378,7 +392,8 @@ def coordinate_calibration(gray, corners):
         elif orientation == 1:                   #right case
             angle = angle
 
-        print(f"Angle: {angle / np.pi * 180}")
+        if DEBUG_MODE:
+            print(f"Angle: {angle / np.pi * 180}")
 
         #recalculate center_x and center_y using the right reference corner and left reference corner
         #the center should be 0.579617834395 * distance from right reference corner to left reference corner away from 

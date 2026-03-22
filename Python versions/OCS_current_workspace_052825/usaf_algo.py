@@ -559,6 +559,6 @@ def find_usaf_score(image_path):
 
 
 
-for image_path in images:
-    find_usaf_score(image_path)
+# for image_path in images:
+#     find_usaf_score(image_path)
     
