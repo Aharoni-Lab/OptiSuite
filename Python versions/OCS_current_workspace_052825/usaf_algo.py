@@ -310,8 +310,9 @@ def calculate_focus_scores(image_path, corners):
         #the left reference corner in the direction of the unit vector from left reference corner to right reference corner
         if dist > 0:
             # Calculate the offset distance in usaf axis but standard scale based on ratio
-            offset_dist_x = 0.420382165605 * dist
-            offset_dist_y = 0.15923566879 * dist * 0.5
+            sum_length = left_ref_coord[0] + np.abs(right_ref_coord[0])
+            offset_dist_x = left_ref_coord[0] * dist / sum_length
+            offset_dist_y = 1.00 * dist * 0.5 / sum_length
             center_x = left_ref_corner[0] + (ref_unit_vector[0] * offset_dist_x) - (ref_normal_vector[0] * offset_dist_y)
             center_y = left_ref_corner[1] + (ref_unit_vector[1] * offset_dist_x) - (ref_normal_vector[1] * offset_dist_y)
             # convert from standard coordinate back to screen coordinates
@@ -319,7 +320,7 @@ def calculate_focus_scores(image_path, corners):
 
             #recalculate side_length using the distance between the right reference corner and left reference corner
             # evil magic scaling factor 1.007
-            side_length = 0.15923566879 * dist * 1.007
+            side_length = 1.00 * dist * 1.007 / sum_length
     else:
         print("Warning: Could not find reference corners. Using initial angle estimation.")
 
