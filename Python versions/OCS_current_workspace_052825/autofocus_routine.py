@@ -13,6 +13,7 @@ from typing import Callable, Iterable, Optional
 #from autofocus.py file
 import autofocus as af
 
+
 # @ means the variable is a class variable
 @dataclass(frozen=True)
 class AutofocusPoint:
@@ -167,6 +168,9 @@ class AutofocusRoutine:
             with open(Path(out_dir) / "summary.json", "w", encoding="utf-8") as f:
                 json.dump({"rounds": round_summaries, "best_z": float(best_z), "best_score": float(best_score)}, f, indent=2)
             self.log(f"[AF] best round z={best_z:.3f} score={best_score:.6g} img={round_best_img}")
+
+            # score the best image with the usaf target and return the smallest group/element that image resolves
+            [group, element] = af.find_usaf_score(Path(round_best_img))
 
         if not self._is_cancelled():
             self.log(f"[AF] returning to best z={best_z:.3f}")

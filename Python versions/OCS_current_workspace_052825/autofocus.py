@@ -10,6 +10,8 @@ import numpy as np
 #PIL is Python Imaging Library, for image processing
 from PIL import Image
 
+from usaf_algo import find_usaf_score
+
 
 MetricName = Literal["laplacian_var", "tenengrad", "brenner"]
 

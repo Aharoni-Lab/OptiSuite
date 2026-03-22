@@ -71,33 +71,33 @@ group_positions = {
 
 #score table to covert score to group and element number
 score_table = {
-    0: 2.2,
-    1: 2.3,
-    2: 2.4,
-    3: 3.1,
-    4: 3.2,
-    5: 3.3,
-    6: 3.4,
-    7: 3.5,
-    8: 3.6,
-    9: 4.1,
-    10: 4.2,
-    11: 4.3,
-    12: 4.4,
-    13: 4.5,
-    14: 4.6,
-    15: 5.1,
-    16: 5.2,
-    17: 5.3,
-    18: 5.4,
-    19: 5.5,
-    20: 5.6,
-    21: 6.1,
-    22: 6.2,
-    23: 6.3,
-    24: 6.4,
-    25: 6.5,
-    26: 6.6
+    0: [2,2],
+    1: [2,3],
+    2: [2,4],
+    3: [3,1],
+    4: [3,2],
+    5: [3,3],
+    6: [3,4],
+    7: [3,5],
+    8: [3,6],
+    9: [4,1],
+    10: [4,2],
+    11: [4,3],
+    12: [4,4],
+    13: [4,5],
+    14: [4,6],
+    15: [5,1],
+    16: [5,2],
+    17: [5,3],
+    18: [5,4],
+    19: [5,5],
+    20: [5,6],
+    21: [6,1],
+    22: [6,2],
+    23: [6,3],
+    24: [6,4],
+    25: [6,5],
+    26: [6,6]
 }
 
 
@@ -417,21 +417,48 @@ def find_best_focus_group(scores_list):
 
 
 
-for image_path in images:
+def find_usaf_score(image_path):
+    '''
+    Find the usaf focus score for a given image path, which is the best focus group number 
+    based on the defined scanlines and the detected corners for coordinate calibration.
+    input: image path
+    output: best focus group number and element number
+    '''
     corners = find_square_corners(image_path)
     if corners is not None:
         # Calculate focus scores
         scores = calculate_focus_scores(image_path, corners)
-        if scores is not None:
+        if scores is not None and DEBUG_MODE:
             print(f"Scores for {image_path}: {scores}")
-        else:
-            print(f"Failed to calculate scores for {image_path}")
 
         # find the index in the scores where the descending order of scores changes to ascending order, 
         # that is the index of the best focus group
         scores_list = [scores[i] for i in range(len(scores))]
         best_focus_group = find_best_focus_group(scores_list)
-        print(f"Best focus group for {image_path}: {best_focus_group}")
+        return best_focus_group
 
     else:
         print(f"No square detected for {image_path}")
+        return None
+
+
+
+
+
+
+# for image_path in images:
+#     corners = find_square_corners(image_path)
+#     if corners is not None:
+#         # Calculate focus scores
+#         scores = calculate_focus_scores(image_path, corners)
+#         if scores is not None and DEBUG_MODE:
+#             print(f"Scores for {image_path}: {scores}")
+
+#         # find the index in the scores where the descending order of scores changes to ascending order, 
+#         # that is the index of the best focus group
+#         scores_list = [scores[i] for i in range(len(scores))]
+#         best_focus_group = find_best_focus_group(scores_list)
+#         print(f"Best focus group for {image_path}: {best_focus_group[0]}, element {best_focus_group[1]}")
+
+#     else:
+#         print(f"No square detected for {image_path}")
