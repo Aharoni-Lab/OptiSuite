@@ -16,7 +16,7 @@ import numpy as np
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
 DEBUG_MODE = False
-PREVIEW_MODE = False
+PREVIEW_MODE = True
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
 
@@ -522,7 +522,8 @@ def find_best_focus_group(scores_list):
     '''
     # We need at least 2 scores to compare
     if len(scores_list) < 2:
-        return score_table[0]
+        print("Not enough scores to compare")
+        return None
 
     for i in range(1, len(scores_list)):
         # If the score starts going UP, the previous index was the "bottom"
@@ -531,7 +532,8 @@ def find_best_focus_group(scores_list):
             return score_table[i-1]  
         
     # If it never goes up, return first element
-    return score_table[0]
+    print("No score goes up")
+    return score_table[26]
 
 
 
