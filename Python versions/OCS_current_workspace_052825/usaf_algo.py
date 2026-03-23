@@ -216,6 +216,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     # Apply Shi-Tomasi corner detection on white pixels
     corners_shi_tomasi = cv2.goodFeaturesToTrack(region.astype(np.uint8), 10, 0.01, 4)
     copy_corners = corners_shi_tomasi.copy()
+    # Subpixel refinement if needed
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001)
     cv2.cornerSubPix(region.astype(np.uint8), corners_shi_tomasi, (10, 10), (-1, -1), criteria)
     
@@ -231,7 +232,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
         cv2.destroyAllWindows()
 
     if len(corners_shi_tomasi) > 0:
-        # Return the corner closest to the center of the region
+        # Return the corner closest to the preference direction
         corner_x = corners_shi_tomasi[:, 0, 0]  # x-coordinates
         corner_y = corners_shi_tomasi[:, 0, 1]  # y-coordinates
         if prefer_dir == 0:                     #prefer center
@@ -310,10 +311,6 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
     scanline_end = scanline_end.astype(int)
 
     if DEBUG_MODE:
-        window_name = "Scans"
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window_name, 800, 800)
-
         # Convert grayscale to BGR so we can draw in color
         img_copy = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) 
 
@@ -323,7 +320,9 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
             # Now (0,0,255) will actually show up as Red
             cv2.line(img_copy, start_point, end_point, (0,0,255), 4)
 
-        cv2.imshow(window_name, img_copy)
+        cv2.namedWindow("Scans", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Scans", 800, 800)
+        cv2.imshow("Scans", img_copy)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
@@ -333,7 +332,6 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
         start_point = tuple(scanline_start[i])
         # Create a mask for the line
         mask = np.zeros_like(gray, dtype=np.uint8)
-        cv2.line(mask, start_point, end_point, 255, 4)
         cv2.line(mask, start_point, end_point, 255, 4)
         # Get pixel values along the line from normalized_gray
         line_pixels = gray[mask > 0]
@@ -480,7 +478,7 @@ def calculate_focus_scores(image_path):
             brightest = np.max(line_pixels)
             darkest = np.min(line_pixels)
             diff = brightest - darkest
-            score = diff if diff > 0.2 else 0
+            score = diff
         else:
             score = 0
 
@@ -564,8 +562,6 @@ def find_usaf_score(image_path):
     best_focus_group = find_best_focus_group(scores_list)
     print(f"Best focus group for {image_path}: {best_focus_group[0]}, element {best_focus_group[1]}")
     return best_focus_group
-
-
 
 
 
