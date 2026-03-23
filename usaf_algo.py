@@ -16,7 +16,7 @@ import numpy as np
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
 DEBUG_MODE = False
-PREVIEW_MODE = False
+PREVIEW_MODE = True
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
 
