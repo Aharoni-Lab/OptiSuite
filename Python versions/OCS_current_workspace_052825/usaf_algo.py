@@ -15,16 +15,19 @@ import numpy as np
 
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = True
+DEBUG_MODE = False
 PREVIEW_MODE = True
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
 
 # Process images
 images = [
-    'af_Z61_670_175208_20260227_175208.png',
-    'af_Z62_070_183718_20260227_183719.png',
-    'af_Z61_870_175210_20260227_175210.png'
+    'test_image_g4e4.png',
+    'test_image_g6e6.png',
+    'test_image_g5e4.png',
+    'test_image_g3e6.png',
+    'test_image_g3e6_(1).png',
+    'test_image_g6e1.png'
 ]
 
 # scanline definition in usaf coordinate
@@ -181,7 +184,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     The region is centered at region_center in usaf coordinate
     with dim of square = region size * side_length, and rotated by angle from the standard coordinate system.
     """
-    prefer_dir = 0
+   
     # convert the center x and center y from standard coordinates to the screen coordinate 
     # by translating by the image height and flipping the y coordinate
     center_x = center_x
@@ -211,15 +214,16 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
         return None
     
     # Apply Shi-Tomasi corner detection on white pixels
-    corners_shi_tomasi = cv2.goodFeaturesToTrack(region.astype(np.uint8), 4, 0.01, 10)
+    corners_shi_tomasi = cv2.goodFeaturesToTrack(region.astype(np.uint8), 10, 0.01, 4)
+    copy_corners = corners_shi_tomasi.copy()
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001)
-    cv2.cornerSubPix(region.astype(np.uint8), corners_shi_tomasi, (15, 15), (-1, -1), criteria)
+    cv2.cornerSubPix(region.astype(np.uint8), corners_shi_tomasi, (10, 10), (-1, -1), criteria)
     
     if DEBUG_MODE:
-        # Create a BGR version of the crop for color drawing
         print("prefer_dir: ", prefer_dir)
+        # Create a BGR version of the crop for color drawing
         debug_img = cv2.cvtColor(region, cv2.COLOR_GRAY2BGR)
-        for corner in corners_shi_tomasi:
+        for corner in copy_corners:
             cv2.circle(debug_img, (int(corner[0][0]), int(corner[0][1])), 1, (0, 0, 255), -1)
         cv2.namedWindow("Debug Region", cv2.WINDOW_NORMAL)
         cv2.imshow("Debug Region", debug_img)
@@ -238,9 +242,9 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
         elif prefer_dir == 7:                   #prefer bottom
             search_idx = np.argmax(corner_y)
         elif prefer_dir == 1:                   #prefer left
-            search_idx = np.argmax(corner_x)
-        elif prefer_dir == 5:                   #prefer right
             search_idx = np.argmin(corner_x)
+        elif prefer_dir == 5:                   #prefer right
+            search_idx = np.argmax(corner_x)
         corner_local = corners_shi_tomasi[search_idx, 0]
         
         # Convert back to screen coordinates
