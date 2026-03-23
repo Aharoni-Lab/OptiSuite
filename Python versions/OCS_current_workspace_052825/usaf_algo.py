@@ -16,17 +16,17 @@ import numpy as np
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
 DEBUG_MODE = False
-PREVIEW_MODE = True
+PREVIEW_MODE = False
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
 
 # Process images
 images = [
-    'test_image_g4e4.png',
+    #'test_image_g4e4.png',
     'test_image_g6e6.png',
     'test_image_g5e4.png',
-    'test_image_g3e6.png',
-    'test_image_g3e6_(1).png',
+    #'test_image_g3e6.png',
+    #'test_image_g3e6_(1).png',
     'test_image_g6e1.png'
 ]
 
@@ -68,9 +68,9 @@ group_positions = {
     42: (0.44, -2.78-0.01),     43: (0.44, -2.82-0.01),
     44: (g6_x, -2.453),         45: (g6_x, -2.49),
     46: (g6_x, -2.557),         47: (g6_x, -2.59),
-    48: (g6_x, -2.648),         49: (g6_x, -2.681),
+    48: (g6_x, -2.654),         49: (g6_x, -2.681),
     50: (g6_x-0.003, -2.735),   51: (g6_x-0.003, -2.755),
-    52: (g6_x-0.005, -2.81),    53: (g6_x-0.005, -2.83),
+    52: (g6_x-0.005, -2.812),    53: (g6_x-0.005, -2.83),
 }
 
 #score table to covert score to group and element number
