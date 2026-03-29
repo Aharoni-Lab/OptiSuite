@@ -15,7 +15,7 @@ import numpy as np
 
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = False
+DEBUG_MODE = True
 PREVIEW_MODE = True
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
@@ -23,11 +23,14 @@ right_ref_coord = (-3.64, 0.5)
 # Process images
 images = [
     #'test_image_g4e4.png',
-    'test_image_g6e6.png',
-    'test_image_g5e4.png',
+    #'test_image_g6e6.png',
+    #'test_image_g5e4.png',
     #'test_image_g3e6.png',
     #'test_image_g3e6_(1).png',
-    'test_image_g6e1.png'
+    #'test_image_g6e1.png',
+    'SingleWell.png'
+    #'harvardSetup_filterOnCube.bmp'
+    #'Image0001.bmp'
 ]
 
 # scanline definition in usaf coordinate
@@ -37,7 +40,7 @@ g2_x = -3.2
 g3_x = 2.5
 g4_x = -0.56
 g5_x = 0.87
-g6_x = 0.11
+g6_x = 0.112
 group_positions = {
     
     0: (g2_x, 0.35),            1: (g2_x, -0.37),
@@ -74,34 +77,36 @@ group_positions = {
 }
 
 #score table to covert score to group and element number
+#first group number
+g1 = 2
 score_table = {
-    0: [2,2],
-    1: [2,3],
-    2: [2,4],
-    3: [3,1],
-    4: [3,2],
-    5: [3,3],
-    6: [3,4],
-    7: [3,5],
-    8: [3,6],
-    9: [4,1],
-    10: [4,2],
-    11: [4,3],
-    12: [4,4],
-    13: [4,5],
-    14: [4,6],
-    15: [5,1],
-    16: [5,2],
-    17: [5,3],
-    18: [5,4],
-    19: [5,5],
-    20: [5,6],
-    21: [6,1],
-    22: [6,2],
-    23: [6,3],
-    24: [6,4],
-    25: [6,5],
-    26: [6,6]
+    0: [g1,2],
+    1: [g1,3],
+    2: [g1,4],
+    3: [g1+1,1],
+    4: [g1+1,2],
+    5: [g1+1,3],
+    6: [g1+1,4],
+    7: [g1+1,5],
+    8: [g1+1,6],
+    9: [g1+2,1],
+    10: [g1+2,2],
+    11: [g1+2,3],
+    12: [g1+2,4],
+    13: [g1+2,5],
+    14: [g1+2,6],
+    15: [g1+3,1],
+    16: [g1+3,2],
+    17: [g1+3,3],
+    18: [g1+3,4],
+    19: [g1+3,5],
+    20: [g1+3,6],
+    21: [g1+4,1],
+    22: [g1+4,2],
+    23: [g1+4,3],
+    24: [g1+4,4],
+    25: [g1+4,5],
+    26: [g1+4,6]
 }
 
 
