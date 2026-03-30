@@ -15,11 +15,18 @@ import numpy as np
 
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = True
+DEBUG_MODE = False
 PREVIEW_MODE = True
+FLIPED_TARGET = True
+#toggle subpixel refinement best for large target
+SUBPIXEL = True
+#first group number
+G1 = 2
+
+
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
-fliped_target = False
+
 
 # Global list to store all valid square polygons found during corner detection
 valid_squares = []
@@ -27,14 +34,14 @@ retry_count = 0
 
 # Process images
 images = [
-    #'test_image_g4e4.png',
-    #'test_image_g6e6_copy.png'
-    #'test_image_g5e4.png',
-    #'test_image_g3e6.png',
-    #'test_image_g3e6_(1).png'
-    #'test_image_g6e1.png',
-    #'SingleWell.png'
-    #'harvardSetup_filterOnCube.bmp'
+    'test_image_g4e4.png',
+    'test_image_g6e6_copy.png',
+    'test_image_g5e4.png',
+    'test_image_g3e6.png',
+    'test_image_g3e6_(1).png',
+    'test_image_g6e1.png',
+    'SingleWell.png',
+    'harvardSetup_filterOnCube.bmp',
     'Image0001.bmp'
 ]
 
@@ -82,41 +89,39 @@ group_positions = {
 }
 
 #score table to covert score to group and element number
-#first group number
-g1 = 2
 score_table = {
-    0: [g1,2],
-    1: [g1,3],
-    2: [g1,4],
-    3: [g1+1,1],
-    4: [g1+1,2],
-    5: [g1+1,3],
-    6: [g1+1,4],
-    7: [g1+1,5],
-    8: [g1+1,6],
-    9: [g1+2,1],
-    10: [g1+2,2],
-    11: [g1+2,3],
-    12: [g1+2,4],
-    13: [g1+2,5],
-    14: [g1+2,6],
-    15: [g1+3,1],
-    16: [g1+3,2],
-    17: [g1+3,3],
-    18: [g1+3,4],
-    19: [g1+3,5],
-    20: [g1+3,6],
-    21: [g1+4,1],
-    22: [g1+4,2],
-    23: [g1+4,3],
-    24: [g1+4,4],
-    25: [g1+4,5],
-    26: [g1+4,6]
+    0: [G1,2],
+    1: [G1,3],
+    2: [G1,4],
+    3: [G1+1,1],
+    4: [G1+1,2],
+    5: [G1+1,3],
+    6: [G1+1,4],
+    7: [G1+1,5],
+    8: [G1+1,6],
+    9: [G1+2,1],
+    10: [G1+2,2],
+    11: [G1+2,3],
+    12: [G1+2,4],
+    13: [G1+2,5],
+    14: [G1+2,6],
+    15: [G1+3,1],
+    16: [G1+3,2],
+    17: [G1+3,3],
+    18: [G1+3,4],
+    19: [G1+3,5],
+    20: [G1+3,6],
+    21: [G1+4,1],
+    22: [G1+4,2],
+    23: [G1+4,3],
+    24: [G1+4,4],
+    25: [G1+4,5],
+    26: [G1+4,6]
 }
 
 
 
-def is_valid_square(approx, gray, white_threshold=200, angle_tolerance=5, side_ratio_tolerance=1.3):
+def is_valid_square(approx, gray, white_threshold=200, angle_tolerance=5, side_ratio_tolerance=1.1):
     '''
     Check if the approximated polygon is a valid square with:
     - Ratio between max and min side length between 1 and 1.5
@@ -287,7 +292,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     # Convert region center from usaf coordinates to screen coordinates
     region_center_scaled = (region_center[0] * side_length, region_center[1] * side_length)
     # translate and rotate to get screen coordinates of the region center
-    flip = -1 if fliped_target else 1
+    flip = -1 if FLIPED_TARGET else 1
     region_center_img = get_rotated_pt(center_x, center_y, flip * region_center_scaled[0], -region_center_scaled[1], angle)
     #calculate the region size in pixels
     region_size_px = max(region_size * side_length, 13)
@@ -312,7 +317,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     # Apply Shi-Tomasi corner detection on white pixels
     corners_shi_tomasi = cv2.goodFeaturesToTrack(region.astype(np.uint8), 20, 0.01, 4)
     # Subpixel refinement if needed
-    if region.shape[0] > 30 and region.shape[1] > 30:             # If the region is small, skip subpixel refinement
+    if region.shape[0] > 30 and region.shape[1] > 30 and SUBPIXEL:             # If the region is small, skip subpixel refinement
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001)
         cv2.cornerSubPix(region.astype(np.uint8), corners_shi_tomasi, (10, 10), (-1, -1), criteria)
     copy_corners = corners_shi_tomasi.copy()
@@ -447,7 +452,6 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
         else:
             average[i] = 0
 
-    print("Scanline averages: ", average)
     # find the index of the minimum value
     min_index = np.argmin(average)
     if DEBUG_MODE:
@@ -496,7 +500,7 @@ def coordinate_calibration(gray, corners):
     if right_ref_corner is not None and left_ref_corner is not None:
         ref_vector = np.array(right_ref_corner) - np.array(left_ref_corner)
         ref_unit_vector = ref_vector / np.linalg.norm(ref_vector)
-        flip = 1 if fliped_target else -1
+        flip = 1 if FLIPED_TARGET else -1
         ref_normal_vector = flip * np.array([-ref_unit_vector[1], ref_unit_vector[0]])
         dist = np.sqrt(ref_vector[0]**2 + ref_vector[1]**2)
         #recalculate angle using the right reference corner and left reference corner
@@ -577,7 +581,8 @@ def calculate_focus_scores(image_path):
 
         if output_list is None:
             retry_count = retry_count + 1
-            print(f"Retrying coordinate calibration with next best square... Attempt {retry_count}")
+            if DEBUG_MODE:
+                print(f"Retrying coordinate calibration with next best square... Attempt {retry_count}")
             continue
 
         [center_x, center_y, angle, side_length, right_ref_corner, left_ref_corner] = output_list
@@ -599,7 +604,7 @@ def calculate_focus_scores(image_path):
             # Convert from pixel usaf coordinate to screen coordinate
             # x were fliped b/c the usaf target is fliped
             # y were fliped b/c the screen coordinate system
-            flip = -1 if fliped_target else 1
+            flip = -1 if FLIPED_TARGET else 1
             pt_a = get_rotated_pt(center_x, center_y, flip * loc_a[0], -loc_a[1], angle)
             pt_b = get_rotated_pt(center_x, center_y, flip * loc_b[0], -loc_b[1], angle)
 
@@ -631,7 +636,8 @@ def calculate_focus_scores(image_path):
             break
 
         retry_count = retry_count + 1
-        print(f"Found out image scanline, Retrying with next best square... Attempt {retry_count}")
+        if DEBUG_MODE:
+            print(f"Found out image scanline, Retrying with next best square... Attempt {retry_count}")
 
     if retry_count == valid_squares.__len__():
         print(f"Failed to find valid square after {retry_count} attempts")
@@ -654,7 +660,7 @@ def calculate_focus_scores(image_path):
         # cast to int for cv2.rectangle
         right_scaled_pt = (int(right_ref_coord[0] * side_length), int(right_ref_coord[1] * side_length))
         left_scaled_pt = (int(left_ref_coord[0] * side_length), int(left_ref_coord[1] * side_length))
-        flip = -1 if fliped_target else 1
+        flip = -1 if FLIPED_TARGET else 1
         right_rotated_pt = get_rotated_pt(center_x, center_y, flip * right_scaled_pt[0], -right_scaled_pt[1], angle)
         left_rotated_pt = get_rotated_pt(center_x, center_y, flip * left_scaled_pt[0], -left_scaled_pt[1], angle)
         cv2.rectangle(img, (int(right_rotated_pt[0] - right_region_size_px), int(right_rotated_pt[1] - right_region_size_px)),                  (int(right_rotated_pt[0] + right_region_size_px), int(right_rotated_pt[1] + right_region_size_px)), (255, 0, 255), 2)
@@ -705,7 +711,12 @@ def find_usaf_score(image_path):
     '''
 
     # Calculate focus scores
-    scores = calculate_focus_scores(image_path)
+    try:
+        scores = calculate_focus_scores(image_path)
+    except Exception as e:
+        print(f"Failed to calculate focus scores for {image_path}: {e}")
+        return None
+    
     if scores is not None and DEBUG_MODE:
         print(f"Scores for {image_path}: {scores}")
 
