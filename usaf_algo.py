@@ -40,7 +40,7 @@ images = [
     # 'test_image_g3e6.png',
     # 'test_image_g3e6_(1).png',
     # 'test_image_g6e1.png',
-     'SingleWell.png'
+    # 'SingleWell.png'
     # 'harvardSetup_filterOnCube.bmp',
     # 'Image0001.bmp'
 ]
