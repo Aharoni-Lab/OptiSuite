@@ -15,9 +15,9 @@ import numpy as np
 
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = False
+DEBUG_MODE = True
 PREVIEW_MODE = True
-FLIPED_TARGET = True
+FLIPED_TARGET = False
 #toggle subpixel refinement best for large target
 SUBPIXEL = True
 #first group number
@@ -34,15 +34,15 @@ retry_count = 0
 
 # Process images
 images = [
-    'test_image_g4e4.png',
-    'test_image_g6e6_copy.png',
-    'test_image_g5e4.png',
-    'test_image_g3e6.png',
-    'test_image_g3e6_(1).png',
-    'test_image_g6e1.png',
-    'SingleWell.png',
-    'harvardSetup_filterOnCube.bmp',
-    'Image0001.bmp'
+    # 'test_image_g4e4.png',
+    # 'test_image_g6e6_copy.png',
+    # 'test_image_g5e4.png',
+    # 'test_image_g3e6.png',
+    # 'test_image_g3e6_(1).png',
+    # 'test_image_g6e1.png',
+     'SingleWell.png'
+    # 'harvardSetup_filterOnCube.bmp',
+    # 'Image0001.bmp'
 ]
 
 # scanline definition in usaf coordinate
@@ -326,6 +326,8 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
         # Return the corner closest to the preference direction
         corner_x = corners_shi_tomasi[:, 0, 0]  # x-coordinates
         corner_y = corners_shi_tomasi[:, 0, 1]  # y-coordinates
+        print("x: ", corner_x, "y: ", corner_y)
+
         if prefer_dir == 0:                     #prefer center
             corner_dist = np.sqrt((corner_x - region.shape[1] / 2) ** 2 + (corner_y - region.shape[0] / 2) ** 2)
             search_idx = np.argmin(corner_dist)
@@ -338,7 +340,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
         elif prefer_dir == 5:                   #prefer right
             search_idx = np.argmax(corner_x)
         corner_local = corners_shi_tomasi[search_idx, 0]
-
+        print("index: ", search_idx, "corner: ", corner_local)
 
         if DEBUG_MODE:
             print("prefer_dir: ", prefer_dir)
@@ -349,6 +351,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
                 if i_ctr != search_idx:
                     cv2.circle(debug_img, (int(corner[0][0]), int(corner[0][1])), 1, (0, 0, 255), -1)
                 i_ctr += 1
+                print(f"Corner {i_ctr}: ({corner[0][0]}, {corner[0][1]})")
             cv2.circle(debug_img, (int(corner_local[0]), int(corner_local[1])), 1, (0, 200, 0), -1)
             cv2.namedWindow("Debug Region", cv2.WINDOW_NORMAL)
             cv2.imshow("Debug Region", debug_img)
@@ -494,8 +497,9 @@ def coordinate_calibration(gray, corners):
 
     #Seconary coordinate calibration using the reference corners
     # left and right ref corner are in standard coordinates 
-    right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, right_ref_coord, 1.0/5.0, ((orientation) * 2 + 2 + 1) % 8)
-    left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, left_ref_coord, 1.0/5.0, ((orientation) * 2 + 2- 1) % 8)
+    flip = -1 if FLIPED_TARGET else 1
+    right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, right_ref_coord, 1.0/5.0, ((orientation) * 2 + 2 - flip) % 8)
+    left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, left_ref_coord, 1.0/5.0, ((orientation) * 2 + 2 + flip) % 8)
 
     if right_ref_corner is not None and left_ref_corner is not None:
         ref_vector = np.array(right_ref_corner) - np.array(left_ref_corner)
