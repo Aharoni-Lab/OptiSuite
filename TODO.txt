@@ -40,6 +40,25 @@ of the previous element or the score is less than 0.2, stop and return the index
 number.
 
 
+I made some adjustment, but
+Image0001.bmp is unresolved because the target was cliped on the top edge, the algoirthm require the top two corner for high precision mapping
+current algorithm could not retry a smaller target because it detected wrong corner and all scanline are on image, poor scanline mapping
+Some Limitation on the Algorithm:
+No square that do not belong to a usaf target on the image
+No white pixels directly on top of the usaf target square
+the image of the square and target need be complete especially the top part
+
+I also created some constants on top of my code, 
+FLIPED_TARGET is true if target is fliped, 
+SUBPIXEL toggle subpixel refinement and is best for large target on the image, 
+G1 is the first group number on your target, default 2
+
+
+
+
+
+
+
 
 
 

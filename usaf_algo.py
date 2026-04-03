@@ -19,7 +19,7 @@ DEBUG_MODE = True
 PREVIEW_MODE = True
 FLIPED_TARGET = False
 #toggle subpixel refinement best for large target
-SUBPIXEL = True
+SUBPIXEL = False
 #first group number
 G1 = 2
 
@@ -41,8 +41,8 @@ images = [
     # 'test_image_g3e6_(1).png',
     # 'test_image_g6e1.png',
     # 'SingleWell.png'
-    # 'harvardSetup_filterOnCube.bmp',
-    # 'Image0001.bmp'
+    # 'harvardSetup_filterOnCube.bmp'
+     'Image0001.bmp'
 ]
 
 # scanline definition in usaf coordinate
@@ -469,6 +469,15 @@ def coordinate_calibration(gray, corners):
     Calibrates the coordinate system using the corners of the square
     '''
 
+
+    # if any corner is on the edge of the image, return None to trigger retry with next best square
+    for corner in corners:
+        if corner[0] <= 0 or corner[0] >= gray.shape[1] - 1 or corner[1] <= 0 or corner[1] >= gray.shape[0] - 1:
+            if DEBUG_MODE:
+                print("Corner on edge detected, retrying with next best square...")
+            return None
+
+
     # Initial coordinate calibration using the corners of the square
     corners = np.array(corners)
     min_x = np.min(corners[:, 0])
@@ -478,10 +487,20 @@ def coordinate_calibration(gray, corners):
     center_x = (min_x + max_x) / 2
     center_y = (min_y + max_y) / 2
     side_length = np.linalg.norm(corners[0] - corners[1])
-    top_corner = corners[np.argmax(corners[:, 1])]
-    left_corner = corners[np.argmin(corners[:, 0])]
-    right_corner = corners[np.argmax(corners[:, 0])]
-    bottom_corner = corners[np.argmin(corners[:, 1])]
+
+    index = np.argmax(corners[:, 1])
+    top_corner = corners[index]
+    # remove the top corner from corners
+    corners = np.delete(corners, index, axis=0)
+    index = np.argmin(corners[:, 0])
+    left_corner = corners[index]
+    corners = np.delete(corners, index, axis=0)
+    index = np.argmax(corners[:, 0])
+    right_corner = corners[index]
+    corners = np.delete(corners, index, axis=0)
+    index = np.argmin(corners[:, 1])
+    bottom_corner = corners[index]
+
     #find unit vector that point from left corner to top corner
     unit_vector = (top_corner - left_corner) / np.linalg.norm(top_corner - left_corner)
     #find angle of unit vector with y axis, negate because the screen coordinate system is flipped
@@ -572,6 +591,7 @@ def calculate_focus_scores(image_path):
     global retry_count
     retry_count = 0
     retry_condition = False
+    retry_origin = False
     scores = {}
 
     while retry_count < valid_squares.__len__():
@@ -579,7 +599,7 @@ def calculate_focus_scores(image_path):
         img = clean_img.copy()
         retry_condition = False
 
-        corners = valid_squares[retry_count].reshape(-1, 2)
+        corners = valid_squares[retry_count].reshape(-1, 2).copy()
         corners[:, 1] = img.shape[0] - corners[:, 1] - 1
         output_list = coordinate_calibration(gray, corners)
 
@@ -590,6 +610,22 @@ def calculate_focus_scores(image_path):
             continue
 
         [center_x, center_y, angle, side_length, right_ref_corner, left_ref_corner] = output_list
+
+
+
+        # get the outer coordinate from the center coordinate
+        if retry_count == 1 and not retry_origin:
+            flip = -1 if FLIPED_TARGET else 1
+            # convert from usaf coordinate to pixel scale
+            center_offset = np.array([-1.009, 7.791]) * side_length
+            center_offset = get_rotated_pt(0, 0, center_offset[0] * flip, -center_offset[1], angle)
+            center_x = center_x + center_offset[0]
+            center_y = center_y + center_offset[1]
+            side_length = side_length * 3.918
+            retry_origin = True
+        else:
+            retry_origin = False
+
 
         
 
@@ -612,7 +648,7 @@ def calculate_focus_scores(image_path):
             pt_a = get_rotated_pt(center_x, center_y, flip * loc_a[0], -loc_a[1], angle)
             pt_b = get_rotated_pt(center_x, center_y, flip * loc_b[0], -loc_b[1], angle)
 
-            #if the pts fall outside the image, retry with the next best square
+            # if the pts fall outside the image, retry with the next best square
             if pt_a[0] < 0 or pt_a[0] >= gray.shape[1] or pt_a[1] < 0 or pt_a[1] >= gray.shape[0] or \
             pt_b[0] < 0 or pt_b[0] >= gray.shape[1] or pt_b[1] < 0 or pt_b[1] >= gray.shape[0]:
                 retry_condition = True
@@ -639,7 +675,9 @@ def calculate_focus_scores(image_path):
         if not retry_condition:
             break
 
-        retry_count = retry_count + 1
+        if retry_origin == False:
+            retry_count = retry_count + 1
+        
         if DEBUG_MODE:
             print(f"Found out image scanline, Retrying with next best square... Attempt {retry_count}")
 
