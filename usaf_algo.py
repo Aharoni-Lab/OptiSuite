@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import math
 
 
 
@@ -22,6 +23,10 @@ FLIPED_TARGET = False
 SUBPIXEL = False
 #first group number
 G1 = 2
+
+RETRY_OUTER = True
+RETRY_OFF_IMAGE = True
+AUTO_ADJUST = False
 
 
 left_ref_coord = (2.64, 0.5)
@@ -614,7 +619,7 @@ def calculate_focus_scores(image_path):
 
 
         # get the outer coordinate from the center coordinate
-        if retry_count == 1 and not retry_origin:
+        if retry_count == 1 and not retry_origin and RETRY_OUTER:
             flip = -1 if FLIPED_TARGET else 1
             # convert from usaf coordinate to pixel scale
             center_offset = np.array([-1.009, 7.791]) * side_length
@@ -649,10 +654,45 @@ def calculate_focus_scores(image_path):
             pt_b = get_rotated_pt(center_x, center_y, flip * loc_b[0], -loc_b[1], angle)
 
             # if the pts fall outside the image, retry with the next best square
-            if pt_a[0] < 0 or pt_a[0] >= gray.shape[1] or pt_a[1] < 0 or pt_a[1] >= gray.shape[0] or \
-            pt_b[0] < 0 or pt_b[0] >= gray.shape[1] or pt_b[1] < 0 or pt_b[1] >= gray.shape[0]:
+            if (pt_a[0] < 0 or pt_a[0] >= gray.shape[1] or pt_a[1] < 0 or pt_a[1] >= gray.shape[0] or \
+            pt_b[0] < 0 or pt_b[0] >= gray.shape[1] or pt_b[1] < 0 or pt_b[1] >= gray.shape[0]) and RETRY_OFF_IMAGE:
                 retry_condition = True
                 break
+
+
+
+            # Adjust points until both are white
+            pt_a = np.array(pt_a, dtype=float)
+            pt_b = np.array(pt_b, dtype=float)
+            initial_d = np.linalg.norm(pt_a - pt_b)
+            increment = 0.04 * initial_d
+            max_cum = 0.5 * initial_d
+            cum = 0
+            threshold = 0.5
+            while cum < max_cum and AUTO_ADJUST:
+                x1 = int(round(pt_a[0]))
+                y1 = int(round(pt_a[1]))
+                x2 = int(round(pt_b[0]))
+                y2 = int(round(pt_b[1]))
+                color_a = normalized_gray[y1, x1] if 0 <= x1 < normalized_gray.shape[1] and 0 <= y1 < normalized_gray.shape[0] else 0
+                color_b = normalized_gray[y2, x2] if 0 <= x2 < normalized_gray.shape[1] and 0 <= y2 < normalized_gray.shape[0] else 0
+                if color_a > threshold and color_b > threshold:
+                    break
+                delta = pt_b - pt_a
+                dist_ab = np.linalg.norm(delta)
+                if dist_ab > 0:
+                    direction = delta / dist_ab
+                    if color_a <= threshold:
+                        pt_a = pt_a + direction * increment
+                        cum += increment
+                    if color_b <= threshold:
+                        pt_b = pt_b - direction * increment
+                        cum += increment
+            # Now pt_a and pt_b are adjusted
+
+            pt_a = (int(round(pt_a[0])), int(round(pt_a[1])))
+            pt_b = (int(round(pt_b[0])), int(round(pt_b[1])))
+
 
             # Create a mask for the line
             mask = np.zeros_like(gray, dtype=np.uint8)
