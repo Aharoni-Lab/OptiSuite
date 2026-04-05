@@ -16,17 +16,18 @@ import math
 
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = True
+DEBUG_MODE = False
 PREVIEW_MODE = True
-FLIPED_TARGET = False
+FLIPED_TARGET = True
 #toggle subpixel refinement best for large target
 SUBPIXEL = False
 #first group number
 G1 = 2
 
+
 RETRY_OUTER = True
 RETRY_OFF_IMAGE = True
-AUTO_ADJUST = False
+AUTO_ADJUST = True
 
 
 left_ref_coord = (2.64, 0.5)
@@ -45,9 +46,9 @@ images = [
     # 'test_image_g3e6.png',
     # 'test_image_g3e6_(1).png',
     # 'test_image_g6e1.png',
-    # 'SingleWell.png'
-    # 'harvardSetup_filterOnCube.bmp'
-     'Image0001.bmp'
+    # 'SingleWell.png',
+    'harvardSetup_filterOnCube.bmp'
+    # 'Image0001.bmp'
 ]
 
 # scanline definition in usaf coordinate
