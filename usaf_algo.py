@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import math
+from pathlib import Path
+
 
 
 
@@ -16,17 +18,17 @@ import math
 
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = False
+DEBUG_MODE = True
 PREVIEW_MODE = True
 FLIPED_TARGET = True
 #toggle subpixel refinement best for large target
-SUBPIXEL = False
+SUBPIXEL = True
 #first group number
 G1 = 2
 
 
 RETRY_OUTER = True
-RETRY_OFF_IMAGE = True
+RETRY_OFF_IMAGE = False
 AUTO_ADJUST = True
 
 
@@ -41,13 +43,13 @@ retry_count = 0
 # Process images
 images = [
     # 'test_image_g4e4.png',
-    # 'test_image_g6e6_copy.png',
+    'test_image_g6e6.png'
     # 'test_image_g5e4.png',
     # 'test_image_g3e6.png',
     # 'test_image_g3e6_(1).png',
     # 'test_image_g6e1.png',
     # 'SingleWell.png',
-    'harvardSetup_filterOnCube.bmp'
+    # 'harvardSetup_filterOnCube.bmp'
     # 'Image0001.bmp'
 ]
 
@@ -309,6 +311,9 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     y1 = int(region_center_img[1] - region_size_px)
     y2 = int(region_center_img[1] + region_size_px)
     
+    # if the region is out of image return none
+    if x2 >= gray.shape[1] or x1 < 0 or y2 >= gray.shape[0] or y1 < 0:
+        return None
     # Clip to image bounds
     x1 = max(0, x1)
     x2 = min(gray.shape[1], x2)
@@ -346,7 +351,6 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
         elif prefer_dir == 5:                   #prefer right
             search_idx = np.argmax(corner_x)
         corner_local = corners_shi_tomasi[search_idx, 0]
-        print("index: ", search_idx, "corner: ", corner_local)
 
         if DEBUG_MODE:
             print("prefer_dir: ", prefer_dir)
@@ -571,9 +575,109 @@ def coordinate_calibration(gray, corners):
 
 
 
-def calculate_focus_scores(image_path):
+def point_in_bbox(point, bbox):
+    '''
+    Check if a point (x, y) falls within a bounding box (x1, y1, x2, y2).
+    
+    Args:
+        point: Tuple (x, y)
+        bbox: Tuple (x1, y1, x2, y2)
+    
+    Returns:
+        bool: True if point is inside bbox, False otherwise
+    '''
+    x, y = point
+    x1, y1, x2, y2 = bbox
+    return x1 <= x <= x2 and y1 <= y <= y2
+
+
+def find_replacement_keypoints(point, yolo_detections):
+    '''
+    Check if a point falls within any YOLO bounding box and return replacement keypoints if found.
+    
+    Args:
+        point: Tuple (x, y) in screen coordinates
+        yolo_detections: List of dict with 'bbox' and 'keypoints' keys
+    
+    Returns:
+        tuple: (replacement_point_a, replacement_point_b) or (None, None) if no match
+    '''
+    for detection in yolo_detections:
+        bbox = detection['bbox']
+        keypoints = detection['keypoints']
+        
+        if point_in_bbox(point, bbox):
+            # Return the 2 keypoints for this detection
+            if len(keypoints) >= 2:
+                return keypoints[0], keypoints[1]
+            elif len(keypoints) == 1:
+                return None, None
+    
+    return None, None
+
+
+def apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray, increment=None, max_cum=None):
+    '''
+    Apply point adjustment algorithm to move points toward white regions.
+    
+    Args:
+        pt_a: First point as numpy array
+        pt_b: Second point as numpy array
+        normalized_gray: Normalized grayscale image
+        increment: Step size (default: 0.04 * initial_distance)
+        max_cum: Maximum cumulative movement (default: 0.5 * initial_distance)
+    
+    Returns:
+        tuple: (adjusted_pt_a, adjusted_pt_b) as tuples of ints
+    '''
+    pt_a = np.array(pt_a, dtype=float)
+    pt_b = np.array(pt_b, dtype=float)
+    
+    initial_d = np.linalg.norm(pt_a - pt_b)
+    if increment is None:
+        increment = 0.04 * initial_d
+    if max_cum is None:
+        max_cum = 0.5 * initial_d
+    
+    cum = 0
+    threshold = 0.5
+    
+    while cum < max_cum and AUTO_ADJUST:
+        x1 = int(round(pt_a[0]))
+        y1 = int(round(pt_a[1]))
+        x2 = int(round(pt_b[0]))
+        y2 = int(round(pt_b[1]))
+        
+        color_a = normalized_gray[y1, x1] if 0 <= x1 < normalized_gray.shape[1] and 0 <= y1 < normalized_gray.shape[0] else 0
+        color_b = normalized_gray[y2, x2] if 0 <= x2 < normalized_gray.shape[1] and 0 <= y2 < normalized_gray.shape[0] else 0
+        
+        if color_a > threshold and color_b > threshold:
+            break
+        
+        delta = pt_b - pt_a
+        dist_ab = np.linalg.norm(delta)
+        
+        if dist_ab > 0:
+            direction = delta / dist_ab
+            if color_a <= threshold:
+                pt_a = pt_a + direction * increment
+                cum += increment
+            if color_b <= threshold:
+                pt_b = pt_b - direction * increment
+                cum += increment
+    
+    return (int(round(pt_a[0])), int(round(pt_a[1]))), (int(round(pt_b[0])), int(round(pt_b[1])))
+
+
+def calculate_focus_scores(image_path, yolo_detections=None):
     '''
     Calculate the focus scores for each group element based on the defined scanlines and the detected corners for coordinate calibration.
+    If YOLO detections are provided, replace scanline endpoints that fall within YOLO bounding boxes with YOLO keypoints.
+    
+    Args:
+        image_path: Path to the image
+        yolo_detections: Optional list of YOLO detections with 'bbox' and 'keypoints' keys
+    
     Return a ordered dictionary of scores for each group element, where the key is the group element number and the value is the focus score.
     '''
     img = cv2.imread(image_path)
@@ -634,7 +738,7 @@ def calculate_focus_scores(image_path):
 
 
         
-
+        yolo_repl = False
         # Iterate through the dictionary in pairs
         # range(0, len, 2) gives us 0, 2, 4...
         for i in range(0, len(group_positions), 2):
@@ -660,40 +764,24 @@ def calculate_focus_scores(image_path):
                 retry_condition = True
                 break
 
+            # ====== YOLO INTEGRATION: Check and replace points if they fall within YOLO bounding boxes ======
+            if yolo_detections is not None and len(yolo_detections) > 0:
+                # Check if pt_a falls within any YOLO box
+                repl_a, repl_b = find_replacement_keypoints(pt_a, yolo_detections)
+                if repl_a is not None:
+                    pt_a = repl_a
+                    pt_b = repl_b
+                    yolo_repl = True
+                else:
+                    yolo_repl = False
 
-
+            # point adjustment algorithm:
             # Adjust points until both are white
-            pt_a = np.array(pt_a, dtype=float)
-            pt_b = np.array(pt_b, dtype=float)
-            initial_d = np.linalg.norm(pt_a - pt_b)
-            increment = 0.04 * initial_d
-            max_cum = 0.5 * initial_d
-            cum = 0
-            threshold = 0.5
-            while cum < max_cum and AUTO_ADJUST:
-                x1 = int(round(pt_a[0]))
-                y1 = int(round(pt_a[1]))
-                x2 = int(round(pt_b[0]))
-                y2 = int(round(pt_b[1]))
-                color_a = normalized_gray[y1, x1] if 0 <= x1 < normalized_gray.shape[1] and 0 <= y1 < normalized_gray.shape[0] else 0
-                color_b = normalized_gray[y2, x2] if 0 <= x2 < normalized_gray.shape[1] and 0 <= y2 < normalized_gray.shape[0] else 0
-                if color_a > threshold and color_b > threshold:
-                    break
-                delta = pt_b - pt_a
-                dist_ab = np.linalg.norm(delta)
-                if dist_ab > 0:
-                    direction = delta / dist_ab
-                    if color_a <= threshold:
-                        pt_a = pt_a + direction * increment
-                        cum += increment
-                    if color_b <= threshold:
-                        pt_b = pt_b - direction * increment
-                        cum += increment
-            # Now pt_a and pt_b are adjusted
+            pt_a_adj, pt_b_adj = apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray)
 
-            pt_a = (int(round(pt_a[0])), int(round(pt_a[1])))
-            pt_b = (int(round(pt_b[0])), int(round(pt_b[1])))
-
+            # Update the points with adjusted values
+            pt_a = pt_a_adj
+            pt_b = pt_b_adj
 
             # Create a mask for the line
             mask = np.zeros_like(gray, dtype=np.uint8)
@@ -705,9 +793,10 @@ def calculate_focus_scores(image_path):
                 brightest = np.max(line_pixels)
                 darkest = np.min(line_pixels)
                 diff = brightest - darkest
-                score = diff
+                score = -diff if yolo_repl else diff  # Invert score if replaced by YOLO to prioritize them
             else:
                 score = 0
+
 
             scores[i // 2] = score
             # Draw the line on the image
@@ -773,9 +862,18 @@ def find_best_focus_group(scores_list):
         print("Not enough scores to compare")
         return None
 
-    for i in range(1, len(scores_list)):
+    last_yolo_index = 1
+    for i in range(0, len(scores_list)): 
+        if scores_list[i] < -0.2:
+            last_yolo_index = i + 1
+
+    if last_yolo_index == len(scores_list):
+        print("all resolved")
+        return score_table[26]
+    
+    for i in range(last_yolo_index, len(scores_list)):     
         # If the score starts going UP, the previous index was the "bottom"
-        if scores_list[i] > scores_list[i-1] * 1.1 or scores_list[i] < 0.2:
+        if abs(scores_list[i]) > abs(scores_list[i-1]) * 1.1 or abs(scores_list[i]) < 0.2:
             # Return the score of the last group before it went up or dropped too low
             return score_table[i-1]  
         
@@ -785,17 +883,22 @@ def find_best_focus_group(scores_list):
 
 
 
-def find_usaf_score(image_path):
+def find_usaf_score(image_path, yolo_detections=None):
     '''
     Find the usaf focus score for a given image path, which is the best focus group number 
     based on the defined scanlines and the detected corners for coordinate calibration.
-    input: image path
-    output: best focus group number and element number
+    
+    Args:
+        image_path: Path to the image
+        yolo_detections: Optional YOLO detections to replace scanline points
+    
+    Returns:
+        Tuple of (group_number, element_number) indicating best focus group
     '''
 
     # Calculate focus scores
     try:
-        scores = calculate_focus_scores(image_path)
+        scores = calculate_focus_scores(image_path, yolo_detections)
     except Exception as e:
         print(f"Failed to calculate focus scores for {image_path}: {e}")
         return None
@@ -811,7 +914,56 @@ def find_usaf_score(image_path):
     return best_focus_group
 
 
+def find_usaf_score_with_yolo(image_path, model_path, imgsz=2048):
+    '''
+    Complete pipeline: Run YOLO detection and then USAF scoring with YOLO integration.
+    
+    Args:
+        image_path: Path to the image
+        model_path: Path to the YOLO model
+        imgsz: Image size for YOLO inference
+    
+    Returns:
+        Tuple of:
+        - (group_number, element_number): Best focus group
+        - detections: List of YOLO detections used
+    '''
+    # Import YOLO-related functions from test_model
+    from test_model import extract_yolo_detections
+    
+    try:
+        # Extract YOLO detections
+        detections, result, img = extract_yolo_detections(image_path, model_path, imgsz)
+        print(f"\nYOLO detected {len(detections)} objects")
+        for i, det in enumerate(detections):
+            print(f"  Object {i}: bbox={det['bbox']}, keypoints={det['keypoints']}")
+        
+        # Run USAF scoring with YOLO detections
+        best_focus_group = find_usaf_score(image_path, detections)
+        
+        return best_focus_group, detections
+    
+    except Exception as e:
+        print(f"Failed in combined YOLO+USAF pipeline: {e}")
+        return None, None
 
+
+
+# Example usage:
+# Run original USAF algorithm without YOLO
+print("=" * 60)
+print("Running USAF Algorithm (Original - No YOLO)")
+print("=" * 60)
 for image_path in images:
     find_usaf_score(image_path)
+
+# Optional: Run combined YOLO + USAF pipeline
+# Uncomment below to use YOLO-integrated version
+# print("\n" + "=" * 60)
+# print("Running USAF Algorithm with YOLO Integration")
+# print("=" * 60)
+# model_path = Path("models\\best7.pt")
+# for image_path in images:
+#     best_focus_group, detections = find_usaf_score_with_yolo(image_path, model_path, imgsz=2048)
+
     
