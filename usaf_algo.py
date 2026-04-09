@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import math
 from pathlib import Path
-
+from yolo_model import extract_yolo_detections, visualize_detections
 
 
 
@@ -18,18 +18,19 @@ from pathlib import Path
 
 #anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = True
+DEBUG_MODE = False
 PREVIEW_MODE = True
 FLIPED_TARGET = True
-#toggle subpixel refinement best for large target
 SUBPIXEL = True
-#first group number
 G1 = 2
 
-
+YOLO_DETECT = True
 RETRY_OUTER = True
 RETRY_OFF_IMAGE = False
 AUTO_ADJUST = True
+ADJUST_THRESH = 0.8
+
+MODEL_PATH = Path("./models/best10.pt")
 
 
 left_ref_coord = (2.64, 0.5)
@@ -42,14 +43,15 @@ retry_count = 0
 
 # Process images
 images = [
-    # 'test_image_g4e4.png',
-    'test_image_g6e6.png'
-    # 'test_image_g5e4.png',
-    # 'test_image_g3e6.png',
-    # 'test_image_g3e6_(1).png',
-    # 'test_image_g6e1.png',
+    'test_image_new.png',
+    'test_image_g4e4.png',
+    'test_image_g6e6.png',
+    'test_image_g5e4.png',
+    'test_image_g3e6.png',
+    'test_image_g3e6_(1).png',
+    'test_image_g6e1.png',
     # 'SingleWell.png',
-    # 'harvardSetup_filterOnCube.bmp'
+    'harvardSetup_filterOnCube.bmp'
     # 'Image0001.bmp'
 ]
 
@@ -61,6 +63,19 @@ g3_x = 2.5
 g4_x = -0.56
 g5_x = 0.87
 g6_x = 0.112
+
+g6y_scale = 1.027
+g5y_scale = 1.023
+g4y_scale = 1.026
+g3y_scale = 1.03
+g2y_scale = 1.03
+
+g6x_scale = 0.922
+g5x_scale = 1.00
+g4x_scale = 1.13
+g3x_scale = 1.015
+g2x_scale = 1.06
+
 group_positions = {
     
     0: (g2_x, 0.35),            1: (g2_x, -0.37),
@@ -94,6 +109,40 @@ group_positions = {
     48: (g6_x, -2.654),         49: (g6_x, -2.681),
     50: (g6_x-0.003, -2.735),   51: (g6_x-0.003, -2.755),
     52: (g6_x-0.005, -2.812),    53: (g6_x-0.005, -2.83),
+
+    54: (-2.05 * g2x_scale, -0.003 * g2y_scale),      55: (-1.26 * g2x_scale, 0.005 * g2y_scale),
+    56: (-2.19 * g2x_scale, -1.625 * g2y_scale),     57: (-1.51 * g2x_scale, -1.617 * g2y_scale),
+    58: (-2.33 * g2x_scale, -3.04 * g2y_scale),      59: (-1.71 * g2x_scale, -3.046 * g2y_scale),
+
+    60: (1.3 * g3x_scale, 0.2 * g3y_scale),          61: (1.75 * g3x_scale, 0.2 * g3y_scale),
+    62: (1.435 * g3x_scale, -0.707 * g3y_scale),     63: (1.835 * g3x_scale, -0.707 * g3y_scale),
+    64: (1.563 * g3x_scale, -1.498 * g3y_scale),     65: (1.92 * g3x_scale, -1.496 * g3y_scale),
+    66: (1.68 * g3x_scale, -2.218 * g3y_scale),      67: (1.99 * g3x_scale, -2.213 * g3y_scale),
+    68: (1.775 * g3x_scale, -2.85 * g3y_scale),      69: (2.062 * g3x_scale, -2.85 * g3y_scale),
+    70: (1.867 * g3x_scale, -3.42 * g3y_scale),      71: (2.118 * g3x_scale, -3.422 * g3y_scale),
+
+    72: (0.218 * g4x_scale, -3.234 * g4y_scale),     73: (0.444 * g4x_scale, -3.227 * g4y_scale),
+    74: (-0.258 * g4x_scale, -1.929 * g4y_scale),    75: (-0.056 * g4x_scale, -1.931 * g4y_scale),
+    76: (-0.289 * g4x_scale, -2.331 * g4y_scale),    77: (-0.112 * g4x_scale, -2.333 * g4y_scale),
+    78: (-0.329 * g4x_scale, -2.692 * g4y_scale),    79: (-0.16 * g4x_scale, -2.691 * g4y_scale),
+    80: (-0.351 * g4x_scale, -3.007 * g4y_scale),    81: (-0.211 * g4x_scale, -3.005 * g4y_scale),
+    82: (-0.38 * g4x_scale, -3.29 * g4y_scale),      83: (-0.253 * g4x_scale, -3.289 * g4y_scale),
+
+    84: (0.583 * g5x_scale, -1.8684 * g5y_scale),    85: (0.7 * g5x_scale, -1.87 * g5y_scale),
+    86: (0.6256 * g5x_scale, -2.0996 * g5y_scale),   87: (0.72 * g5x_scale, -2.1 * g5y_scale),
+    88: (0.65 * g5x_scale, -2.3 * g5y_scale),        89: (0.74 * g5x_scale, -2.3 * g5y_scale),
+    90: (0.68 * g5x_scale, -2.48 * g5y_scale),       91: (0.76 * g5x_scale, -2.48 * g5y_scale),
+    92: (0.71 * g5x_scale, -2.64 * g5y_scale),       93: (0.78 * g5x_scale, -2.64 * g5y_scale),
+    94: (0.7355 * g5x_scale, -2.7845 * g5y_scale),   95: (0.785 * g5x_scale, -2.786 * g5y_scale),
+
+    96: (0.336 * g6x_scale, -2.731 * g6y_scale),     97: (0.390 * g6x_scale, -2.7295 * g6y_scale),
+    98: (0.198 * g6x_scale, -2.4046 * g6y_scale),    99: (0.2464 * g6x_scale, -2.4054 * g6y_scale),
+    100: (0.1885 * g6x_scale, -2.506 * g6y_scale),   101: (0.2324 * g6x_scale, -2.507 * g6y_scale),
+    102: (0.1796 * g6x_scale, -2.5945 * g6y_scale),  103: (0.2195 * g6x_scale, -2.5933 * g6y_scale),
+    104: (0.173 * g6x_scale, -2.6736 * g6y_scale),   105: (0.208 * g6x_scale, -2.6738 * g6y_scale),
+    106: (0.166 * g6x_scale, -2.744 * g6y_scale),    107: (0.1975 * g6x_scale, -2.7446 * g6y_scale),
+
+    
 }
 
 #score table to covert score to group and element number
@@ -312,8 +361,8 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     y2 = int(region_center_img[1] + region_size_px)
     
     # if the region is out of image return none
-    if x2 >= gray.shape[1] or x1 < 0 or y2 >= gray.shape[0] or y1 < 0:
-        return None
+    # if x2 >= gray.shape[1] or x1 < 0 or y2 >= gray.shape[0] or y1 < 0:
+    #     return None
     # Clip to image bounds
     x1 = max(0, x1)
     x2 = min(gray.shape[1], x2)
@@ -337,7 +386,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
         # Return the corner closest to the preference direction
         corner_x = corners_shi_tomasi[:, 0, 0]  # x-coordinates
         corner_y = corners_shi_tomasi[:, 0, 1]  # y-coordinates
-        print("x: ", corner_x, "y: ", corner_y)
+        # print("x: ", corner_x, "y: ", corner_y)
 
         if prefer_dir == 0:                     #prefer center
             corner_dist = np.sqrt((corner_x - region.shape[1] / 2) ** 2 + (corner_y - region.shape[0] / 2) ** 2)
@@ -594,6 +643,7 @@ def point_in_bbox(point, bbox):
 def find_replacement_keypoints(point, yolo_detections):
     '''
     Check if a point falls within any YOLO bounding box and return replacement keypoints if found.
+    If a match is found, remove the detection from the list.
     
     Args:
         point: Tuple (x, y) in screen coordinates
@@ -602,15 +652,17 @@ def find_replacement_keypoints(point, yolo_detections):
     Returns:
         tuple: (replacement_point_a, replacement_point_b) or (None, None) if no match
     '''
-    for detection in yolo_detections:
+    for detection_idx, detection in enumerate(yolo_detections):
         bbox = detection['bbox']
         keypoints = detection['keypoints']
         
         if point_in_bbox(point, bbox):
             # Return the 2 keypoints for this detection
             if len(keypoints) >= 2:
+                del yolo_detections[detection_idx]
                 return keypoints[0], keypoints[1]
             elif len(keypoints) == 1:
+                del yolo_detections[detection_idx]
                 return None, None
     
     return None, None
@@ -637,10 +689,10 @@ def apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray, increment=None
     if increment is None:
         increment = 0.04 * initial_d
     if max_cum is None:
-        max_cum = 0.5 * initial_d
+        max_cum = 0.8 * initial_d
     
     cum = 0
-    threshold = 0.5
+    threshold = ADJUST_THRESH
     
     while cum < max_cum and AUTO_ADJUST:
         x1 = int(round(pt_a[0]))
@@ -742,6 +794,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         # Iterate through the dictionary in pairs
         # range(0, len, 2) gives us 0, 2, 4...
         for i in range(0, len(group_positions), 2):
+            yolo_repl = False
             # Get the raw usaf coordinates (tuples)
             raw_a = group_positions[i]
             raw_b = group_positions[i+1]
@@ -772,8 +825,6 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                     pt_a = repl_a
                     pt_b = repl_b
                     yolo_repl = True
-                else:
-                    yolo_repl = False
 
             # point adjustment algorithm:
             # Adjust points until both are white
@@ -800,7 +851,8 @@ def calculate_focus_scores(image_path, yolo_detections=None):
 
             scores[i // 2] = score
             # Draw the line on the image
-            cv2.line(img, pt_a, pt_b, (0, 0, 255), 4)
+            line_color = (0, 0, 255) if not yolo_repl else (255, 0, 255)  # Magenta if replaced by YOLO
+            cv2.line(img, pt_a, pt_b, line_color, 4)
 
         if not retry_condition:
             break
@@ -845,9 +897,12 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
-
+    final_score = []
+    for i in range(len(scores) // 2):
+        temp_score = (scores[i] + scores[i + len(scores) // 2]) / 2.0
+        final_score.append(temp_score)
     
-    return scores
+    return final_score
 
 
 
@@ -869,33 +924,38 @@ def find_best_focus_group(scores_list):
 
     if last_yolo_index == len(scores_list):
         print("all resolved")
-        return score_table[26]
+        return score_table[len(score_table) - 1]
     
     for i in range(last_yolo_index, len(scores_list)):     
         # If the score starts going UP, the previous index was the "bottom"
         if abs(scores_list[i]) > abs(scores_list[i-1]) * 1.1 or abs(scores_list[i]) < 0.2:
             # Return the score of the last group before it went up or dropped too low
-            return score_table[i-1]  
-        
+            return score_table[min(i-1, len(score_table) - 1)]  
+    
     # If it never goes up, return first element
     print("No score goes up")
-    return score_table[26]
+    return score_table[len(score_table) - 1] 
 
 
 
-def find_usaf_score(image_path, yolo_detections=None):
+def find_usaf_score(image_path, model_path, imgsz=2048):
     '''
     Find the usaf focus score for a given image path, which is the best focus group number 
     based on the defined scanlines and the detected corners for coordinate calibration.
     
     Args:
         image_path: Path to the image
-        yolo_detections: Optional YOLO detections to replace scanline points
+        model_path: Path to the YOLO model
+        imgsz: Image size for YOLO inference
     
     Returns:
         Tuple of (group_number, element_number) indicating best focus group
     '''
-
+    yolo_detections = None
+    if YOLO_DETECT:
+        yolo_detections, _result, _img = extract_yolo_detections(image_path, model_path, imgsz)
+    if DEBUG_MODE:
+        visualize_detections(_img, _result, yolo_detections)
     # Calculate focus scores
     try:
         scores = calculate_focus_scores(image_path, yolo_detections)
@@ -914,56 +974,5 @@ def find_usaf_score(image_path, yolo_detections=None):
     return best_focus_group
 
 
-def find_usaf_score_with_yolo(image_path, model_path, imgsz=2048):
-    '''
-    Complete pipeline: Run YOLO detection and then USAF scoring with YOLO integration.
-    
-    Args:
-        image_path: Path to the image
-        model_path: Path to the YOLO model
-        imgsz: Image size for YOLO inference
-    
-    Returns:
-        Tuple of:
-        - (group_number, element_number): Best focus group
-        - detections: List of YOLO detections used
-    '''
-    # Import YOLO-related functions from test_model
-    from test_model import extract_yolo_detections
-    
-    try:
-        # Extract YOLO detections
-        detections, result, img = extract_yolo_detections(image_path, model_path, imgsz)
-        print(f"\nYOLO detected {len(detections)} objects")
-        for i, det in enumerate(detections):
-            print(f"  Object {i}: bbox={det['bbox']}, keypoints={det['keypoints']}")
-        
-        # Run USAF scoring with YOLO detections
-        best_focus_group = find_usaf_score(image_path, detections)
-        
-        return best_focus_group, detections
-    
-    except Exception as e:
-        print(f"Failed in combined YOLO+USAF pipeline: {e}")
-        return None, None
-
-
-
-# Example usage:
-# Run original USAF algorithm without YOLO
-print("=" * 60)
-print("Running USAF Algorithm (Original - No YOLO)")
-print("=" * 60)
 for image_path in images:
-    find_usaf_score(image_path)
-
-# Optional: Run combined YOLO + USAF pipeline
-# Uncomment below to use YOLO-integrated version
-# print("\n" + "=" * 60)
-# print("Running USAF Algorithm with YOLO Integration")
-# print("=" * 60)
-# model_path = Path("models\\best7.pt")
-# for image_path in images:
-#     best_focus_group, detections = find_usaf_score_with_yolo(image_path, model_path, imgsz=2048)
-
-    
+    find_usaf_score(image_path, MODEL_PATH)
