@@ -16,23 +16,25 @@ from yolo_model import extract_yolo_detections, visualize_detections
 
 
 
-#anchor coordinate for performing secondary coordinate calibration
 #debug const
-DEBUG_MODE = False
-PREVIEW_MODE = True
-FLIPED_TARGET = True
-SUBPIXEL = True
-G1 = 2
+DEBUG_MODE = False              # debug log + photo
+PREVIEW_MODE = True             # overview photo
+YOLO_DETECT = True              # yolo detection
+FLIPED_TARGET = True           # true if target is fliped
+G1 = 2                          # first group number
 
-YOLO_DETECT = True
-RETRY_OUTER = True
-RETRY_OFF_IMAGE = False
-AUTO_ADJUST = True
-ADJUST_THRESH = 0.8
+SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
+RETRY_OUTER = True              # if only inner corner detected, expand the scanline to outer target
+RETRY_OFF_IMAGE = False         # if any scanline goes out of image, retry with next best square
+AUTO_ADJUST = True             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
+ADJUST_THRESH = 0.8             # white threshold, between 0 and 1 of the normalzed grayscale value
+SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
 
-MODEL_PATH = Path("./models/best10.pt")
+MODEL_PATH = Path("./models/best12.pt")
 
 
+
+#anchor coordinate for performing secondary coordinate calibration
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
 
@@ -43,7 +45,7 @@ retry_count = 0
 
 # Process images
 images = [
-    'test_image_new.png',
+    'test_image_new.png'
     'test_image_g4e4.png',
     'test_image_g6e6.png',
     'test_image_g5e4.png',
@@ -109,6 +111,8 @@ group_positions = {
     48: (g6_x, -2.654),         49: (g6_x, -2.681),
     50: (g6_x-0.003, -2.735),   51: (g6_x-0.003, -2.755),
     52: (g6_x-0.005, -2.812),    53: (g6_x-0.005, -2.83),
+
+
 
     54: (-2.05 * g2x_scale, -0.003 * g2y_scale),      55: (-1.26 * g2x_scale, 0.005 * g2y_scale),
     56: (-2.19 * g2x_scale, -1.625 * g2y_scale),     57: (-1.51 * g2x_scale, -1.617 * g2y_scale),
@@ -640,24 +644,43 @@ def point_in_bbox(point, bbox):
     return x1 <= x <= x2 and y1 <= y <= y2
 
 
-def find_replacement_keypoints(point, yolo_detections):
+
+def near_proximity(point, length, bbox):
+    center = ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+    distance = np.sqrt((point[0] - center[0]) ** 2 + (point[1] - center[1]) ** 2)
+    return distance <= length * 1.2
+
+
+
+def find_replacement_keypoints(pt_a, pt_b, yolo_detections):
     '''
     Check if a point falls within any YOLO bounding box and return replacement keypoints if found.
     If a match is found, remove the detection from the list.
     
     Args:
-        point: Tuple (x, y) in screen coordinates
+        pt_a: First point as tuple (x, y) in screen coordinates
+        pt_b: Second point as tuple (x, y) in screen coordinates
         yolo_detections: List of dict with 'bbox' and 'keypoints' keys
     
     Returns:
         tuple: (replacement_point_a, replacement_point_b) or (None, None) if no match
     '''
+    mid_pt = ((pt_a[0] + pt_b[0]) // 2, (pt_a[1] + pt_b[1]) // 2)
+    scan_length = int(np.linalg.norm(np.array(pt_a) - np.array(pt_b)))
     for detection_idx, detection in enumerate(yolo_detections):
         bbox = detection['bbox']
         keypoints = detection['keypoints']
         
-        if point_in_bbox(point, bbox):
+        if point_in_bbox(mid_pt, bbox):
             # Return the 2 keypoints for this detection
+            if len(keypoints) >= 2:
+                del yolo_detections[detection_idx]
+                return keypoints[0], keypoints[1]
+            elif len(keypoints) == 1:
+                del yolo_detections[detection_idx]
+                return None, None
+        elif near_proximity(mid_pt, scan_length, bbox):
+            # If the point is near the bbox, we can also consider it a match (optional)
             if len(keypoints) >= 2:
                 del yolo_detections[detection_idx]
                 return keypoints[0], keypoints[1]
@@ -721,6 +744,44 @@ def apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray, increment=None
     return (int(round(pt_a[0])), int(round(pt_a[1]))), (int(round(pt_b[0])), int(round(pt_b[1])))
 
 
+
+def misalignment_handling(clean_detection, clean_img, normalized_gray):
+    min_box_area = -1
+    min_box = None
+    for detection in clean_detection:
+        # perfom point adjustment algorithm to the keypoints of the detection
+        # find the smallest box with keypoint scanline where the color difference in normalized gray is greater than 0.2
+        detection_box = detection['bbox']
+        keypoints = detection['keypoints']
+        if len(keypoints) >= 2:
+            pt_a, pt_b = keypoints[0], keypoints[1]
+            pt_a_adj, pt_b_adj = apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray)
+            # Create a mask for the line
+            mask = np.zeros_like(normalized_gray, dtype=np.uint8)
+            cv2.line(mask, pt_a_adj, pt_b_adj, 255, 4)
+            # Get pixel values along the line from normalized_gray
+            line_pixels = normalized_gray[mask > 0]
+            if len(line_pixels) > 0:
+                brightest = np.max(line_pixels)
+                darkest = np.min(line_pixels)
+                diff = brightest - darkest
+                if diff > 0.2:
+                    box_area = (detection_box[2] - detection_box[0]) * (detection_box[3] - detection_box[1])
+                    if min_box_area == -1 or box_area < min_box_area:
+                        min_box_area = box_area
+                        min_box = detection_box
+
+    # display the min_box on the image if found
+    if min_box is not None:
+        img_with_box = clean_img.copy()
+        cv2.rectangle(img_with_box, (min_box[0], min_box[1]), (min_box[2], min_box[3]), (0, 255, 255), 2)  # yellow box
+        cv2.namedWindow("YOLO Box", cv2.WINDOW_NORMAL)
+        cv2.imshow("YOLO Box", img_with_box)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
+
 def calculate_focus_scores(image_path, yolo_detections=None):
     '''
     Calculate the focus scores for each group element based on the defined scanlines and the detected corners for coordinate calibration.
@@ -737,6 +798,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         return None
     
     clean_img = img.copy()
+    clean_detection = yolo_detections.copy() if yolo_detections is not None else None
     # Prepocessing:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     # Find the brightest pixel
@@ -817,22 +879,17 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                 retry_condition = True
                 break
 
-            # ====== YOLO INTEGRATION: Check and replace points if they fall within YOLO bounding boxes ======
-            if yolo_detections is not None and len(yolo_detections) > 0:
-                # Check if pt_a falls within any YOLO box
-                repl_a, repl_b = find_replacement_keypoints(pt_a, yolo_detections)
-                if repl_a is not None:
-                    pt_a = repl_a
-                    pt_b = repl_b
-                    yolo_repl = True
-
             # point adjustment algorithm:
             # Adjust points until both are white
             pt_a_adj, pt_b_adj = apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray)
+            pt_a, pt_b = pt_a_adj, pt_b_adj
 
-            # Update the points with adjusted values
-            pt_a = pt_a_adj
-            pt_b = pt_b_adj
+            # ====== YOLO INTEGRATION: Check and replace points if they fall within YOLO bounding boxes ======
+            if yolo_detections is not None and len(yolo_detections) > 0:
+                repl_a, repl_b = find_replacement_keypoints(pt_a, pt_b, yolo_detections)
+                if repl_a is not None:
+                    pt_a, pt_b = apply_point_adjustment_algorithm(repl_a, repl_b, normalized_gray)
+                    yolo_repl = True
 
             # Create a mask for the line
             mask = np.zeros_like(gray, dtype=np.uint8)
@@ -847,7 +904,6 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                 score = -diff if yolo_repl else diff  # Invert score if replaced by YOLO to prioritize them
             else:
                 score = 0
-
 
             scores[i // 2] = score
             # Draw the line on the image
@@ -867,8 +923,9 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         print(f"Failed to find valid square after {retry_count} attempts")
         scores = {}  # reset scores
         raise Exception("Failed to find valid square for coordinate calibration")
-    
 
+    if yolo_detections is not None and len(yolo_detections) > 15:
+        misalignment_handling(clean_detection, clean_img.copy(), normalized_gray)
 
     if PREVIEW_MODE:
         # Display the result
@@ -899,9 +956,22 @@ def calculate_focus_scores(image_path, yolo_detections=None):
 
     final_score = []
     for i in range(len(scores) // 2):
-        temp_score = (scores[i] + scores[i + len(scores) // 2]) / 2.0
+        vert_score = abs(scores[i])
+        horiz_score = abs(scores[i + len(scores) // 2])
+        vert_sign = 1 if scores[i] >= 0 else -1
+        horiz_sign = 1 if scores[i + len(scores) // 2] >= 0 else -1
+        net_sign = -1 if vert_sign == -1 or horiz_sign == -1 else 1
+        if SCORE_METHOD == "mean":
+            temp_score = (vert_score + horiz_score) / 2.0
+        elif SCORE_METHOD == "max":
+            temp_score = max(vert_score, horiz_score)
+        elif SCORE_METHOD == "min":
+            temp_score = min(vert_score, horiz_score)
+        else:
+            temp_score = scores[i]
+        temp_score *= net_sign
         final_score.append(temp_score)
-    
+
     return final_score
 
 
@@ -954,7 +1024,7 @@ def find_usaf_score(image_path, model_path, imgsz=2048):
     yolo_detections = None
     if YOLO_DETECT:
         yolo_detections, _result, _img = extract_yolo_detections(image_path, model_path, imgsz)
-    if DEBUG_MODE:
+    if DEBUG_MODE and YOLO_DETECT:
         visualize_detections(_img, _result, yolo_detections)
     # Calculate focus scores
     try:
