@@ -45,13 +45,13 @@ retry_count = 0
 
 # Process images
 images = [
-    'test_image_new.png'
-    'test_image_g4e4.png',
-    'test_image_g6e6.png',
-    'test_image_g5e4.png',
-    'test_image_g3e6.png',
-    'test_image_g3e6_(1).png',
-    'test_image_g6e1.png',
+    # 'test_image_new.png',
+    # 'test_image_g4e4.png',
+    # 'test_image_g6e6.png',
+    # 'test_image_g5e4.png',
+    # 'test_image_g3e6.png',
+    # 'test_image_g3e6_(1).png',
+    # 'test_image_g6e1.png',
     # 'SingleWell.png',
     'harvardSetup_filterOnCube.bmp'
     # 'Image0001.bmp'
@@ -968,7 +968,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         elif SCORE_METHOD == "min":
             temp_score = min(vert_score, horiz_score)
         else:
-            temp_score = scores[i]
+            temp_score = vert_score
         temp_score *= net_sign
         final_score.append(temp_score)
 
@@ -1024,7 +1024,7 @@ def find_usaf_score(image_path, model_path, imgsz=2048):
     yolo_detections = None
     if YOLO_DETECT:
         yolo_detections, _result, _img = extract_yolo_detections(image_path, model_path, imgsz)
-    if DEBUG_MODE and YOLO_DETECT:
+    if PREVIEW_MODE and YOLO_DETECT:
         visualize_detections(_img, _result, yolo_detections)
     # Calculate focus scores
     try:
