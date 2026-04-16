@@ -18,7 +18,7 @@ from yolo_model import extract_yolo_detections, visualize_detections
 
 #debug const
 DEBUG_MODE = False              # debug log + photo
-PREVIEW_MODE = True             # overview photo
+PREVIEW_MODE = False             # overview photo
 YOLO_DETECT = True              # yolo detection
 FLIPED_TARGET = True           # true if target is fliped
 G1 = 2                          # first group number

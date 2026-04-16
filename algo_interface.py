@@ -3,7 +3,7 @@ from tkinter import dnd
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import os
 from pathlib import Path
-from usaf_algo import find_usaf_score
+import usaf_algo as ualgo
 
 class ImageProcessorApp:
     def __init__(self, root):
@@ -30,7 +30,40 @@ class ImageProcessorApp:
         # Status label
         self.status_label = tk.Label(root, text="Ready", fg="green")
         self.status_label.pack(pady=10)
+
+        # Settings toggles for usaf_algo flags
+        self.create_settings_frame()
     
+    def create_settings_frame(self):
+        settings_frame = tk.LabelFrame(self.root, text="Settings", padx=10, pady=10)
+        settings_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+
+        self.debug_var = tk.BooleanVar(value=ualgo.DEBUG_MODE)
+        self.preview_var = tk.BooleanVar(value=ualgo.PREVIEW_MODE)
+        self.yolo_var = tk.BooleanVar(value=ualgo.YOLO_DETECT)
+        self.flipped_var = tk.BooleanVar(value=ualgo.FLIPED_TARGET)
+        self.adjust_var = tk.BooleanVar(value=ualgo.AUTO_ADJUST)
+
+        toggles = [
+            ("DEBUG_MODE", self.debug_var),
+            ("PREVIEW_MODE", self.preview_var),
+            ("YOLO_DETECT", self.yolo_var),
+            ("FLIPED_TARGET", self.flipped_var),
+            ("AUTO_ADJUST", self.adjust_var),
+        ]
+
+        for index, (text, var) in enumerate(toggles):
+            cb = tk.Checkbutton(settings_frame, text=text, variable=var, command=self.update_settings)
+            cb.grid(row=index // 3, column=index % 3, sticky="w", padx=5, pady=2)
+
+    def update_settings(self):
+        ualgo.DEBUG_MODE = self.debug_var.get()
+        ualgo.PREVIEW_MODE = self.preview_var.get()
+        ualgo.YOLO_DETECT = self.yolo_var.get()
+        ualgo.FLIPED_TARGET = self.flipped_var.get()
+        ualgo.AUTO_ADJUST = self.adjust_var.get()
+        self.update_status("Settings updated", "blue")
+
     def drop_handler(self, event):
         """Handle dropped folders or images"""
         files = self.parse_dnd_files(event.data)
@@ -57,7 +90,7 @@ class ImageProcessorApp:
             if os.path.isdir(path):
                 self.process_images(path)
             else:
-                find_usaf_score(path)
+                ualgo.find_usaf_score(path)
 
         self.update_status("Processed dropped items successfully", "green")
     
@@ -83,7 +116,7 @@ class ImageProcessorApp:
 
             # Process with usaf_aglo
             for image_path in image_paths:
-                find_usaf_score(image_path)
+                ualgo.find_usaf_score(image_path)
 
             self.update_status(f"Processed {len(image_paths)} images successfully", "green")
 
