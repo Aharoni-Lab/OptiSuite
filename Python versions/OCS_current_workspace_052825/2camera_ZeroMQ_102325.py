@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLay
 from PyQt5.QtWidgets import QDoubleSpinBox, QPlainTextEdit
 from PyQt5.QtCore import QEvent, QObject, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
-import gxipy as gx
 import json #for sending run commands
 import autofocus as af
 from camera_manager_class_import_120425 import CameraManager #camera manager class
@@ -67,7 +66,7 @@ class CameraApp(QWidget):
         self.af_thread = None
 
         #use the class instead
-        self.cam_mgr = CameraManager(save_dir=r"C:\Users\stimscope1\Documents\OptiSuite\screenshots")
+        self.cam_mgr = CameraManager(save_dir=r"C:\Users\USER\Documents\Research\Opt_photo")
         self.zoom_labels = [None] * self.cam_mgr.num_cameras
         # Per-camera view state for software zoom/pan
         # zoom: >= 1.0, cx/cy are normalized [0..1] center coordinates in the source frame

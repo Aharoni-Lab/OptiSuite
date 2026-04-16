@@ -1,51 +1,70 @@
 import os
 import cv2
-import gxipy as gx
+import numpy as np
 from datetime import datetime
 import threading
 
+try:
+    import gxipy as gx
+except Exception as e:
+    gx = None
+    print(f"[CameraManager] gxipy unavailable: {e}")
+
 
 class CameraManager:
-    def __init__(self, save_dir="captures"):
-        self.device_manager = gx.DeviceManager()
-        dev_info_list = self.device_manager.update_device_list()
-
-
-        num_devices, dev_info_list = self.device_manager.update_device_list()
-
+    def __init__(self, save_dir="captures", num_fake_cams=1, use_fake_camera=None):
+        self.save_dir = save_dir
         self.cameras = []
         self.camera_names = []
-        for idx in range(1, num_devices + 1):
+        self.is_fake = False
+        self._fake_exposure = []
+        self._fake_gain = []
+        self._dummy_frame_idx = []
+
+        if use_fake_camera is None:
+            use_fake_camera = gx is None
+
+        if not use_fake_camera and gx is not None:
             try:
-                cam = self.device_manager.open_device_by_index(idx)
-                cam.TriggerMode.set(gx.GxSwitchEntry.OFF)
-                cam.stream_on()
+                self.device_manager = gx.DeviceManager()
+                num_devices, dev_info_list = self.device_manager.update_device_list()
 
-                dev_info = dev_info_list[idx - 1]
-                model_name = dev_info.get("model_name", "Unknown")
+                for idx in range(1, num_devices + 1):
+                    try:
+                        cam = self.device_manager.open_device_by_index(idx)
+                        cam.TriggerMode.set(gx.GxSwitchEntry.OFF)
+                        cam.stream_on()
 
+                        dev_info = dev_info_list[idx - 1]
+                        model_name = dev_info.get("model_name", "Unknown")
 
-                self.cameras.append(cam)
-                self.camera_names.append(str(model_name))
-                print(f"[CameraManager] Opened camera {idx}: {model_name}")
+                        self.cameras.append(cam)
+                        self.camera_names.append(str(model_name))
+                        print(f"[CameraManager] Opened camera {idx}: {model_name}")
 
+                    except Exception as e:
+                        print(f"[CameraManager] Failed to open camera {idx}: {e}")
             except Exception as e:
-                print(f"[CameraManager] Failed to open camera {idx}: {e}")
+                print(f"[CameraManager] Failed to initialize device manager: {e}")
+                use_fake_camera = True
 
         if not self.cameras:
-            print("[CameraManager] No cameras detected.")
-        
-        #add this so class can tell how many cams are active
-        self.num_cameras = len(self.cameras)
+            print("[CameraManager] No cameras detected, using dummy camera mode.")
+            self.is_fake = True
+            self.cameras = [None] * num_fake_cams
+            self.camera_names = [f"DummyCam{i+1}" for i in range(num_fake_cams)]
+            self._fake_exposure = [10000.0] * num_fake_cams
+            self._fake_gain = [10.0] * num_fake_cams
+            self._dummy_frame_idx = [0] * num_fake_cams
 
+        self.num_cameras = max(1, len(self.cameras))
         self._cam_locks = [threading.Lock() for _ in range(self.num_cameras)]
 
-        self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
 
         # For per-camera recording
-        self.recording = [False] * len(self.cameras)
-        self.video_writers = [None] * len(self.cameras)
+        self.recording = [False] * self.num_cameras
+        self.video_writers = [None] * self.num_cameras
 
     def _safe_name(self, s: str) -> str:
         return "".join(ch if (ch.isalnum() or ch in ("-", "_")) else "_" for ch in str(s)).strip("_")
@@ -54,6 +73,8 @@ class CameraManager:
     # Feature Ranges (Exposure/Gain)
     # --------------------------------------------------------------
     def get_exposure_range(self, cam_index):
+        if self.is_fake:
+            return {"min": 100.0, "max": 1000000.0}
         try:
             return self.cameras[cam_index].ExposureTime.get_range()
         except Exception as e:
@@ -61,6 +82,8 @@ class CameraManager:
             return None
 
     def get_gain_range(self, cam_index):
+        if self.is_fake:
+            return {"min": 0.0, "max": 24.0}
         try:
             return self.cameras[cam_index].Gain.get_range()
         except Exception as e:
@@ -71,6 +94,9 @@ class CameraManager:
     # Frame Retrieval
     # --------------------------------------------------------------
     def get_frame(self, cam_index):
+        if self.is_fake:
+            return self._get_dummy_frame(cam_index)
+
         try:
             with self._cam_locks[cam_index]:
                 cam = self.cameras[cam_index]
@@ -91,6 +117,28 @@ class CameraManager:
         except Exception as e:
             print(f"[CameraManager] get_frame error cam {cam_index}: {e}")
             return None
+
+    def _get_dummy_frame(self, cam_index):
+        cam_index = int(cam_index)
+        if cam_index < 0 or cam_index >= self.num_cameras:
+            return None
+
+        self._dummy_frame_idx[cam_index] += 1
+        h, w = 720, 1280
+        frame = np.zeros((h, w, 3), dtype=np.uint8)
+
+        label = f"Dummy Camera {cam_index + 1}"
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        cv2.putText(frame, label, (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3, cv2.LINE_AA)
+        cv2.putText(frame, timestamp, (40, 150), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2, cv2.LINE_AA)
+
+        x = 200 + (self._dummy_frame_idx[cam_index] * 6) % 800
+        y = 300 + (self._dummy_frame_idx[cam_index] * 4) % 200
+        cv2.circle(frame, (x, y), 40, (255, 128, 0), -1)
+
+        info = f"Exp {self._fake_exposure[cam_index]:.0f} us  Gain {self._fake_gain[cam_index]:.2f}"
+        cv2.putText(frame, info, (40, 700), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+        return frame
 
     # --------------------------------------------------------------
     # Screenshot
@@ -137,11 +185,14 @@ class CameraManager:
             print(f"[CameraManager] Cam {cam_index} already recording")
             return
 
-        cam = self.cameras[cam_index]
-        width = cam.Width.get()
-        height = cam.Height.get()
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if self.is_fake:
+            width, height = 1280, 720
+        else:
+            cam = self.cameras[cam_index]
+            width = cam.Width.get()
+            height = cam.Height.get()
 
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fourcc = cv2.VideoWriter_fourcc(*"XVID")
         cam_num = cam_index + 1
         model = self._safe_name(self.camera_names[cam_index]) if cam_index < len(self.camera_names) else "Unknown"
@@ -177,6 +228,8 @@ class CameraManager:
     # --------------------------------------------------------------
     
     def get_exposure(self, cam_index):
+        if self.is_fake:
+            return float(self._fake_exposure[cam_index])
         try:
             return float(self.cameras[cam_index].ExposureTime.get())
         except Exception as e:
@@ -184,6 +237,13 @@ class CameraManager:
             return 0.0
 
     def set_exposure(self, cam_index, value):
+        if self.is_fake:
+            v = float(value)
+            rng = self.get_exposure_range(cam_index)
+            if rng:
+                v = max(float(rng["min"]), min(float(rng["max"]), v))
+            self._fake_exposure[cam_index] = v
+            return True, v
         try:
             v = float(value)
             rng = self.get_exposure_range(cam_index)
@@ -197,6 +257,8 @@ class CameraManager:
             return False, self.get_exposure(cam_index)
 
     def get_gain(self, cam_index):
+        if self.is_fake:
+            return float(self._fake_gain[cam_index])
         try:
             return float(self.cameras[cam_index].Gain.get())
         except Exception as e:
@@ -204,6 +266,13 @@ class CameraManager:
             return 0.0
 
     def set_gain(self, cam_index, value):
+        if self.is_fake:
+            v = float(value)
+            rng = self.get_gain_range(cam_index)
+            if rng:
+                v = max(float(rng["min"]), min(float(rng["max"]), v))
+            self._fake_gain[cam_index] = v
+            return True, v
         try:
             v = float(value)
             rng = self.get_gain_range(cam_index)
@@ -225,9 +294,13 @@ class CameraManager:
             if self.video_writers[i]:
                 self.video_writers[i].release()
 
-        for cam in self.cameras:
-            cam.stream_off()
-            cam.close_device()
+        if not self.is_fake:
+            for cam in self.cameras:
+                try:
+                    cam.stream_off()
+                    cam.close_device()
+                except Exception as e:
+                    print(f"[CameraManager] close error: {e}")
 
         print("[CameraManager] Cameras closed.")
 

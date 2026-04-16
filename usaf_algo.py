@@ -1008,7 +1008,7 @@ def find_best_focus_group(scores_list):
 
 
 
-def find_usaf_score(image_path, model_path, imgsz=2048):
+def find_usaf_score(image_path, model_path = MODEL_PATH, imgsz=2048):
     '''
     Find the usaf focus score for a given image path, which is the best focus group number 
     based on the defined scanlines and the detected corners for coordinate calibration.
@@ -1044,5 +1044,5 @@ def find_usaf_score(image_path, model_path, imgsz=2048):
     return best_focus_group
 
 
-for image_path in images:
-    find_usaf_score(image_path, MODEL_PATH)
+# for image_path in images:
+#     find_usaf_score(image_path, MODEL_PATH)
