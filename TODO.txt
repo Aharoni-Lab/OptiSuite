@@ -1,4 +1,0 @@
-//smaller group
-//harder detection dataset
-//file interface
-//fliped detection
