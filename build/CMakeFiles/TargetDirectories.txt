@@ -1,7 +1,0 @@
-C:/Users/USER/Documents/Research/OptiSuite/build/CMakeFiles/sc3u_headless.dir
-C:/Users/USER/Documents/Research/OptiSuite/build/CMakeFiles/edit_cache.dir
-C:/Users/USER/Documents/Research/OptiSuite/build/CMakeFiles/rebuild_cache.dir
-C:/Users/USER/Documents/Research/OptiSuite/build/CMakeFiles/list_install_components.dir
-C:/Users/USER/Documents/Research/OptiSuite/build/CMakeFiles/install.dir
-C:/Users/USER/Documents/Research/OptiSuite/build/CMakeFiles/install/local.dir
-C:/Users/USER/Documents/Research/OptiSuite/build/CMakeFiles/install/strip.dir

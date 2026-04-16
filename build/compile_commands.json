@@ -1,8 +1,0 @@
-[
-{
-  "directory": "C:/Users/USER/Documents/Research/OptiSuite/build",
-  "command": "C:\\mingw64\\bin\\g++.exe -Dsc3u_headless_EXPORTS  -g -std=gnu++17 -o CMakeFiles\\sc3u_headless.dir\\SC3U_Headless.cpp.obj -c \"C:\\Users\\USER\\Documents\\Research\\OptiSuite\\Python versions\\SC3U_Headless_C++_Library_093025\\SC3U_Headless.cpp\"",
-  "file": "C:/Users/USER/Documents/Research/OptiSuite/Python versions/SC3U_Headless_C++_Library_093025/SC3U_Headless.cpp",
-  "output": "CMakeFiles/sc3u_headless.dir/SC3U_Headless.cpp.obj"
-}
-]
