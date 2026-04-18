@@ -19,6 +19,7 @@ from zmq_push_worker import ZMQWorker
 from zmq_pull_listener import ZMQPullListener
 from autofocus_routine import AutofocusRoutine
 
+#main pytHON gui FOR CAM, STAGE CONNECTION
 
 class StageEventBus(QObject):
     message = pyqtSignal(str)
@@ -99,10 +100,11 @@ class CameraApp(QWidget):
         max_win_w = int(screen.width() * 0.95)
         max_win_h = int(screen.height() * 0.95)
 
-        stage_log_w = min(420, max(320, int(max_win_w * 0.32)))
+        stage_log_w = min(400, max(320, int(max_win_w * 0.32)))
         self.stage_log.setFixedWidth(stage_log_w)
 
-        bottom_panel_h = 240
+        # Reserve enough vertical space for stacked bottom control rows
+        bottom_panel_h = 360
         caption_h = 22
         control_h = 60
         preview_h = int((max_win_h - bottom_panel_h) / rows) - caption_h - control_h
@@ -139,8 +141,10 @@ class CameraApp(QWidget):
             self.cam_title_labels.append(title)
 
             # ------- CONTROL PANEL -------
+            # do 2 rows for the control panel
             panel = QHBoxLayout()
-            
+            panel2 = QHBoxLayout()
+
             # Zoom controls (software zoom in display)
             zoom_out_btn = QPushButton("Zoom -")
             zoom_in_btn = QPushButton("Zoom +")
@@ -206,7 +210,7 @@ class CameraApp(QWidget):
             # Screenshot
             ss_btn = QPushButton("Screenshot")
             ss_btn.clicked.connect(lambda _, cam=i: self.cam_mgr.take_screenshot(cam))
-            panel.addWidget(ss_btn)
+            panel2.addWidget(ss_btn)
 
             # Video Record
             rec_btn = QPushButton("▶")
@@ -218,7 +222,7 @@ class CameraApp(QWidget):
                     self.cam_mgr.stop_recording(cam_index)
                     btn.setText("▶")
             rec_btn.clicked.connect(toggle_rec)
-            panel.addWidget(rec_btn)
+            panel2.addWidget(rec_btn)
 
             self.grid.addLayout(panel, i // cols * 2 + 1, i % cols)
             self.control_panels.append(panel)
@@ -242,28 +246,20 @@ class CameraApp(QWidget):
         win_w = cols * preview_w + self.stage_log.width() + 80
         win_h = rows * (preview_h + caption_h + 60) + bottom_panel_h
         self.resize(win_w, win_h)
-        self.setFixedSize(win_w, win_h)
 
 
         # - -   -   -   -
-        #ZeroMQ control GUI
+        #Bottom panel for routine, Autofocus, ZeroMQ
         # -     -   -   -
-        # ---- ZMQ control GUI ----
+        #stage_routine_panel for stage routine, resume step
+        stage_routine_panel = QHBoxLayout()
+        #autofocus_panel for autofocus, score, n, score button, capture frame button
+        autofocus_panel = QHBoxLayout()
+        #zmq_panel for connect, disconnect, status, axis, target, send command button
         zmq_panel = QHBoxLayout()
-        zmq_panel.addWidget(QLabel(f"Stage: {self.stage_host}:{self.stage_cmd_port}"))
-
-        # ---- Command dropdown ----
-        self.cmd_select = QComboBox()
-        self.cmd_select.addItems([
-            #"RunToOrigin",
-            "RunTestRoute",
-            "RunToTarget",
-            "GetCurrentPosition",
-            #"SetOrigin",
-            "StopRun"
-        ])
+        
         # Convenience: allow user to go to individual instruments using StageRoutine
-        self.cmd_select.insertSeparator(self.cmd_select.count())
+        self.cmd_select = QComboBox()
         self.cmd_select.addItems([
             "RunToAlign",
             "RunToFlr",
@@ -318,15 +314,15 @@ class CameraApp(QWidget):
         autofocus_btn.clicked.connect(lambda: self.start_autofocus(cam_index=0))
         cancel_af_btn.clicked.connect(self.cancel_autofocus)
 
-        zmq_panel.addWidget(startRoutine_btn)
-        zmq_panel.addWidget(resumeRoutine_btn)
-        zmq_panel.addWidget(autofocus_btn)
-        zmq_panel.addWidget(cancel_af_btn)
-        zmq_panel.addWidget(QLabel("Score:"))
-        zmq_panel.addWidget(score_cam_select)
-        zmq_panel.addWidget(QLabel("N:"))
-        zmq_panel.addWidget(score_n)
-        zmq_panel.addWidget(score_btn)
+        stage_routine_panel.addWidget(startRoutine_btn)
+        stage_routine_panel.addWidget(resumeRoutine_btn)
+        autofocus_panel.addWidget(autofocus_btn)
+        autofocus_panel.addWidget(cancel_af_btn)
+        autofocus_panel.addWidget(QLabel("Score:"))
+        autofocus_panel.addWidget(score_cam_select)
+        autofocus_panel.addWidget(QLabel("N:"))
+        autofocus_panel.addWidget(score_n)
+        autofocus_panel.addWidget(score_btn)
 
         self.autofocus_btn = autofocus_btn
         self.cancel_af_btn = cancel_af_btn
@@ -356,6 +352,8 @@ class CameraApp(QWidget):
         zmq_panel.addWidget(self.target_spin)
         zmq_panel.addWidget(send_btn)
 
+        self.layout.addLayout(stage_routine_panel)
+        self.layout.addLayout(autofocus_panel)
         self.layout.addLayout(zmq_panel)
 
         # Timer to update frames
