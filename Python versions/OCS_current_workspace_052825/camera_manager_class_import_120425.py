@@ -4,7 +4,7 @@ import gxipy as gx
 from datetime import datetime
 import threading
 
-
+# used in 2camera_ZeroMQ_102325.py
 class CameraManager:
     def __init__(self, save_dir="captures"):
         self.device_manager = gx.DeviceManager()

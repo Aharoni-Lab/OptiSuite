@@ -2,7 +2,8 @@ import threading
 
 import zmq
 
-
+# used in 2camera_ZeroMQ_102325.py
+#python gui to c# stage
 class ZMQWorker(threading.Thread):
     """
     Minimal ZeroMQ PUSH client running in its own thread.

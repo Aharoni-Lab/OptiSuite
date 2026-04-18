@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image
 
 
+# used in autofocus_routine.py
 MetricName = Literal["laplacian_var", "tenengrad", "brenner"]
 
 
