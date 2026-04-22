@@ -209,7 +209,7 @@ class CameraApp(QWidget):
 
             # Screenshot
             ss_btn = QPushButton("Screenshot")
-            ss_btn.clicked.connect(lambda _, cam=i: self.cam_mgr.take_screenshot(cam))
+            ss_btn.clicked.connect(lambda _, c=i: self._on_screenshot(c))
             panel2.addWidget(ss_btn)
 
             # Video Record
@@ -984,6 +984,16 @@ class CameraApp(QWidget):
             self.zmq_events.stop()
             self.zmq_events = None
         event.accept()
+
+    def _on_screenshot(self, cam_index: int):
+        try:
+            fname = self.cam_mgr.take_screenshot(cam_index)
+            if fname:
+                self.append_local_log(f"[Screenshot] saved: {fname}")
+            else:
+                self.append_local_log(f"[Screenshot] failed cam={cam_index+1}")
+        except Exception as e:
+            self.append_local_log(f"[Screenshot] error: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
