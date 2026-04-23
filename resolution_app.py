@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 
 from core.results import AnalyzerConfig, AnalyzerResult, ChartType, OverlayItem
 from core.router import SUPPORTED_CHART_TYPES, TargetRouter
-from core.visualization import render_result_image
+from core.visualization import draw_overlay_item, render_result_image
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -47,14 +47,26 @@ class ResolutionApp:
         self.plot_photo: ImageTk.PhotoImage | None = None
         self.current_overlay_image: Image.Image | None = None
         self.current_plot_image: Image.Image | None = None
+        self.preview_interactive_lines: dict[str, dict] | None = None
+        self.preview_handle_map: dict[int, tuple[str, str]] = {}
+        self.preview_drag_handle: tuple[str, str] | None = None
+        self.preview_selected_handle: tuple[str, str] | None = None
+        self.preview_pan_active = False
+        self.preview_handle_radius = 6
+        self.preview_live_update_after_id: str | None = None
+        self.current_plot_result: AnalyzerResult | None = None
+        self.current_plot_group: int | None = None
+        self.current_plot_element: int | None = None
+        self.current_plot_gray: np.ndarray | None = None
 
         self.override_var = tk.StringVar(value="auto")
         self.threshold_var = tk.DoubleVar(value=0.2)
         self.preview_var = tk.BooleanVar(value=False)
         self.debug_var = tk.BooleanVar(value=False)
-        self.model_assist_var = tk.BooleanVar(value=True)
+        self.model_assist_var = tk.BooleanVar(value=False)
         self.fallback_var = tk.BooleanVar(value=True)
         self.flip_mode_var = tk.StringVar(value="auto")
+        self.live_update_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Add images or folders, then run analysis.")
         self.output_group_var = tk.StringVar(value="n/a")
         self.output_element_var = tk.StringVar(value="n/a")
@@ -213,7 +225,7 @@ class ResolutionApp:
 
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        self.preview_canvas = tk.Canvas(preview_frame, background="#1e1e1e", highlightthickness=0)
+        self.preview_canvas = tk.Canvas(preview_frame, background="#1e1e1e", highlightthickness=0, takefocus=1)
         self.preview_canvas.grid(row=0, column=0, sticky="nsew")
         preview_y_scrollbar = ttk.Scrollbar(preview_frame, orient="vertical", command=self.preview_canvas.yview)
         preview_y_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -225,6 +237,8 @@ class ResolutionApp:
         self.preview_canvas.bind("<Button-5>", self._on_preview_mousewheel)
         self.preview_canvas.bind("<ButtonPress-1>", self._on_preview_pan_start)
         self.preview_canvas.bind("<B1-Motion>", self._on_preview_pan_move)
+        self.preview_canvas.bind("<ButtonRelease-1>", self._on_preview_button_release)
+        self.preview_canvas.bind("<KeyPress>", self._on_preview_keypress)
         self.preview_canvas.bind("<Configure>", self._on_preview_canvas_configure)
         preview_controls = ttk.Frame(preview_frame)
         preview_controls.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
@@ -251,7 +265,7 @@ class ResolutionApp:
 
         plot_frame = ttk.LabelFrame(details_frame, text="Cross Section Plot", padding=8)
         plot_frame.grid(row=1, column=0, sticky="ew", pady=(10, 0))
-        plot_frame.columnconfigure(5, weight=1)
+        plot_frame.columnconfigure(7, weight=1)
 
         ttk.Label(plot_frame, text="Group #").grid(row=0, column=0, sticky="w")
         self.group_spinbox = ttk.Spinbox(plot_frame, from_=1, to=10, width=6, textvariable=self.plot_group_var)
@@ -262,7 +276,13 @@ class ResolutionApp:
         self.plot_button = ttk.Button(plot_frame, text="Plot Selected Group/Element", command=self._plot_selected_group_element)
         self.plot_button.grid(row=0, column=4, sticky="w")
         ttk.Button(plot_frame, text="Export Plot", command=self._export_plot_image).grid(row=0, column=5, sticky="w", padx=(8, 0))
-        ttk.Label(plot_frame, textvariable=self.plot_info_var).grid(row=1, column=0, columnspan=7, sticky="w", pady=(8, 0))
+        ttk.Checkbutton(
+            plot_frame,
+            text="Live update while adjusting",
+            variable=self.live_update_var,
+            command=self._on_live_update_toggle,
+        ).grid(row=0, column=6, sticky="w", padx=(8, 0))
+        ttk.Label(plot_frame, textvariable=self.plot_info_var).grid(row=1, column=0, columnspan=8, sticky="w", pady=(8, 0))
 
         plot_image_frame = ttk.Frame(details_frame)
         plot_image_frame.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
@@ -314,6 +334,7 @@ class ResolutionApp:
     def _clear_inputs(self) -> None:
         self.selected_items.clear()
         self.analysis_results.clear()
+        self._cancel_scheduled_plot_refresh()
         self._refresh_input_list()
         for row in self.results_tree.get_children():
             self.results_tree.delete(row)
@@ -321,6 +342,7 @@ class ResolutionApp:
         self.preview_canvas.delete("all")
         self.preview_canvas.configure(scrollregion=(0, 0, 0, 0))
         self.preview_base_image = None
+        self._clear_interactive_cross_section_state()
         self.current_overlay_image = None
         self.plot_label.configure(image="", text="")
         self.current_plot_image = None
@@ -361,9 +383,17 @@ class ResolutionApp:
             messagebox.showinfo("No images", "Add one or more image files or folders before running.")
             return
 
+        self._clear_interactive_cross_section_state()
         self.analysis_results.clear()
         for row in self.results_tree.get_children():
             self.results_tree.delete(row)
+        self.preview_canvas.delete("all")
+        self.preview_canvas.configure(scrollregion=(0, 0, 0, 0))
+        self.preview_base_image = None
+        self.current_overlay_image = None
+        self.plot_label.configure(image="", text="")
+        self.plot_photo = None
+        self.current_plot_image = None
 
         router = self._build_router()
         override = self.override_var.get()
@@ -411,6 +441,7 @@ class ResolutionApp:
         payload = self.analysis_results[index]
         decision = payload["decision"]
         result: AnalyzerResult = payload["result"]
+        self._clear_interactive_cross_section_state()
         self._show_result_preview(result)
         self._set_output_fields(result)
         self._show_result_details(decision, result)
@@ -431,7 +462,6 @@ class ResolutionApp:
         previous_y = self.preview_canvas.yview()[0] if preserve_view and self.preview_base_image is not None else 0.0
         previous_scale = self.preview_scale if preserve_view and self.preview_base_image is not None else None
 
-        self.current_overlay_image = image.copy()
         self.preview_base_image = image
         self.preview_canvas.update_idletasks()
         canvas_width = max(self.preview_canvas.winfo_width(), 1)
@@ -464,6 +494,7 @@ class ResolutionApp:
         self.preview_canvas.configure(scrollregion=(0, 0, width, height))
         self.preview_canvas.update_idletasks()
         self.preview_zoom_var.set(f"Zoom: {self.preview_scale * 100:.0f}%")
+        self._draw_interactive_cross_sections()
 
         if anchor_image_point is None or anchor_canvas_point is None:
             if scroll_fraction is not None:
@@ -543,10 +574,233 @@ class ResolutionApp:
         self._render_preview()
 
     def _on_preview_pan_start(self, event) -> None:
+        handle = self._find_preview_handle(event.x, event.y)
+        if handle is not None:
+            self.preview_drag_handle = handle
+            self.preview_selected_handle = handle
+            self.preview_pan_active = False
+            self.preview_canvas.focus_set()
+            self._draw_interactive_cross_sections()
+            return "break"
+
+        self.preview_drag_handle = None
+        self.preview_pan_active = True
         self.preview_canvas.scan_mark(event.x, event.y)
 
     def _on_preview_pan_move(self, event) -> None:
-        self.preview_canvas.scan_dragto(event.x, event.y, gain=1)
+        if self.preview_drag_handle is not None:
+            orientation, endpoint_name = self.preview_drag_handle
+            self._move_preview_handle(orientation, endpoint_name, event.x, event.y)
+            return "break"
+        if self.preview_pan_active:
+            self.preview_canvas.scan_dragto(event.x, event.y, gain=1)
+
+    def _clear_interactive_cross_section_state(self) -> None:
+        self._cancel_scheduled_plot_refresh()
+        self.preview_interactive_lines = None
+        self.preview_handle_map.clear()
+        self.preview_drag_handle = None
+        self.preview_selected_handle = None
+        self.preview_pan_active = False
+        self.current_plot_result = None
+        self.current_plot_group = None
+        self.current_plot_element = None
+        self.current_plot_gray = None
+        if hasattr(self, "preview_canvas"):
+            self.preview_canvas.delete("interactive_cross_section")
+
+    def _copy_plot_line_data(self, line_data: dict) -> dict:
+        copied = dict(line_data)
+        for orientation in ("vertical", "horizontal"):
+            if orientation in line_data:
+                copied_orientation = dict(line_data[orientation])
+                copied_orientation["pt_a"] = list(line_data[orientation]["pt_a"])
+                copied_orientation["pt_b"] = list(line_data[orientation]["pt_b"])
+                copied[orientation] = copied_orientation
+        return copied
+
+    def _draw_interactive_cross_sections(self) -> None:
+        self.preview_canvas.delete("interactive_cross_section")
+        self.preview_handle_map.clear()
+        if self.preview_interactive_lines is None:
+            self._update_current_overlay_image()
+            return
+
+        for orientation, color_hex in (
+            ("vertical", VERTICAL_PROFILE_COLOR_HEX),
+            ("horizontal", HORIZONTAL_PROFILE_COLOR_HEX),
+        ):
+            line = self.preview_interactive_lines[orientation]
+            pt_a = line["pt_a"]
+            pt_b = line["pt_b"]
+            self.preview_canvas.create_line(
+                pt_a[0] * self.preview_scale,
+                pt_a[1] * self.preview_scale,
+                pt_b[0] * self.preview_scale,
+                pt_b[1] * self.preview_scale,
+                fill=color_hex,
+                width=2,
+                tags=("interactive_cross_section",),
+            )
+            for endpoint_name, point in (("pt_a", pt_a), ("pt_b", pt_b)):
+                center_x = point[0] * self.preview_scale
+                center_y = point[1] * self.preview_scale
+                is_selected = self.preview_selected_handle == (orientation, endpoint_name)
+                item_id = self.preview_canvas.create_oval(
+                    center_x - self.preview_handle_radius,
+                    center_y - self.preview_handle_radius,
+                    center_x + self.preview_handle_radius,
+                    center_y + self.preview_handle_radius,
+                    fill=color_hex,
+                    outline="#ffffff" if is_selected else color_hex,
+                    width=2 if is_selected else 1,
+                    tags=("interactive_cross_section", "cross_handle"),
+                )
+                self.preview_handle_map[item_id] = (orientation, endpoint_name)
+
+        self._update_current_overlay_image()
+
+    def _update_current_overlay_image(self) -> None:
+        if self.preview_base_image is None:
+            self.current_overlay_image = None
+            return
+
+        composite = cv2.cvtColor(np.array(self.preview_base_image.convert("RGB")), cv2.COLOR_RGB2BGR)
+        if self.preview_interactive_lines is not None:
+            for orientation, color_bgr in (
+                ("vertical", VERTICAL_PROFILE_COLOR_BGR),
+                ("horizontal", HORIZONTAL_PROFILE_COLOR_BGR),
+            ):
+                line = self.preview_interactive_lines[orientation]
+                draw_overlay_item(
+                    composite,
+                    OverlayItem(
+                        kind="line",
+                        points=[tuple(line["pt_a"]), tuple(line["pt_b"])],
+                        color=color_bgr,
+                        thickness=1,
+                    ),
+                )
+                for endpoint_name in ("pt_a", "pt_b"):
+                    draw_overlay_item(
+                        composite,
+                        OverlayItem(
+                            kind="circle",
+                            points=[tuple(line[endpoint_name])],
+                            color=color_bgr,
+                            thickness=2,
+                            radius=5 if self.preview_selected_handle == (orientation, endpoint_name) else 4,
+                        ),
+                    )
+
+        composite_rgb = cv2.cvtColor(composite, cv2.COLOR_BGR2RGB)
+        self.current_overlay_image = Image.fromarray(composite_rgb)
+
+    def _find_preview_handle(self, canvas_x: int, canvas_y: int) -> tuple[str, str] | None:
+        canvas_image_x = self.preview_canvas.canvasx(canvas_x)
+        canvas_image_y = self.preview_canvas.canvasy(canvas_y)
+        overlapping = self.preview_canvas.find_overlapping(
+            canvas_image_x - self.preview_handle_radius,
+            canvas_image_y - self.preview_handle_radius,
+            canvas_image_x + self.preview_handle_radius,
+            canvas_image_y + self.preview_handle_radius,
+        )
+        for item_id in reversed(overlapping):
+            if item_id in self.preview_handle_map:
+                return self.preview_handle_map[item_id]
+        return None
+
+    def _move_preview_handle(self, orientation: str, endpoint_name: str, canvas_x: int, canvas_y: int) -> None:
+        if self.preview_base_image is None or self.preview_interactive_lines is None:
+            return
+
+        image_x = int(round(self.preview_canvas.canvasx(canvas_x) / self.preview_scale))
+        image_y = int(round(self.preview_canvas.canvasy(canvas_y) / self.preview_scale))
+        image_x = int(np.clip(image_x, 0, self.preview_base_image.width - 1))
+        image_y = int(np.clip(image_y, 0, self.preview_base_image.height - 1))
+        self.preview_interactive_lines[orientation][endpoint_name] = [image_x, image_y]
+        self.preview_selected_handle = (orientation, endpoint_name)
+        self._draw_interactive_cross_sections()
+        if self.live_update_var.get():
+            self._schedule_plot_refresh()
+
+    def _nudge_selected_preview_handle(self, dx: int, dy: int) -> None:
+        if (
+            self.preview_base_image is None
+            or self.preview_interactive_lines is None
+            or self.preview_selected_handle is None
+        ):
+            return
+
+        orientation, endpoint_name = self.preview_selected_handle
+        point = self.preview_interactive_lines[orientation][endpoint_name]
+        point[0] = int(np.clip(point[0] + dx, 0, self.preview_base_image.width - 1))
+        point[1] = int(np.clip(point[1] + dy, 0, self.preview_base_image.height - 1))
+        self._draw_interactive_cross_sections()
+        if self.live_update_var.get():
+            self._schedule_plot_refresh()
+
+    def _schedule_plot_refresh(self) -> None:
+        if self.current_plot_gray is None or self.preview_interactive_lines is None:
+            return
+        self._cancel_scheduled_plot_refresh()
+        self.preview_live_update_after_id = self.root.after(30, self._refresh_plot_from_preview_lines)
+
+    def _cancel_scheduled_plot_refresh(self) -> None:
+        if self.preview_live_update_after_id is not None:
+            self.root.after_cancel(self.preview_live_update_after_id)
+            self.preview_live_update_after_id = None
+
+    def _refresh_plot_from_preview_lines(self) -> None:
+        self.preview_live_update_after_id = None
+        if (
+            self.current_plot_gray is None
+            or self.preview_interactive_lines is None
+            or self.current_plot_group is None
+            or self.current_plot_element is None
+        ):
+            return
+
+        plot_image_full = self._build_cross_section_plot_image(
+            self.current_plot_gray,
+            self.preview_interactive_lines,
+            self.current_plot_group,
+            self.current_plot_element,
+        )
+        self.current_plot_image = plot_image_full.copy()
+        plot_image = plot_image_full.copy()
+        plot_image.thumbnail((520, 300))
+        self.plot_photo = ImageTk.PhotoImage(plot_image)
+        self.plot_label.configure(image=self.plot_photo, text="")
+
+    def _on_live_update_toggle(self) -> None:
+        if self.live_update_var.get():
+            self._refresh_plot_from_preview_lines()
+
+    def _on_preview_button_release(self, _event) -> str | None:
+        if self.preview_drag_handle is not None:
+            self.preview_drag_handle = None
+            self._cancel_scheduled_plot_refresh()
+            self._refresh_plot_from_preview_lines()
+            return "break"
+        self.preview_pan_active = False
+        return None
+
+    def _on_preview_keypress(self, event) -> str | None:
+        moves = {
+            "Left": (-1, 0),
+            "Right": (1, 0),
+            "Up": (0, -1),
+            "Down": (0, 1),
+        }
+        if event.keysym not in moves or self.preview_selected_handle is None:
+            return None
+        step = 5 if (getattr(event, "state", 0) & 0x0001) else 1
+        dx, dy = moves[event.keysym]
+        self._nudge_selected_preview_handle(dx * step, dy * step)
+        if not self.live_update_var.get():
+            self._refresh_plot_from_preview_lines()
+        return "break"
 
     def _set_output_fields(self, result: AnalyzerResult | None) -> None:
         if result is None or result.chart_type != "usaf" or not result.success:
@@ -585,6 +839,7 @@ class ResolutionApp:
 
     def _auto_update_output_plot(self, result: AnalyzerResult) -> None:
         if result.chart_type != "usaf" or not result.success:
+            self._clear_interactive_cross_section_state()
             self.plot_label.configure(image="", text="Plot available for USAF results only.")
             self.plot_photo = None
             self.current_plot_image = None
@@ -617,6 +872,7 @@ class ResolutionApp:
         scanlines = result.metadata.get("scanlines", {})
         key = f"{group}:{element}"
         if key not in scanlines:
+            self._clear_interactive_cross_section_state()
             if notify:
                 messagebox.showinfo("Group/element unavailable", f"No scanline was available for group {group}, element {element}.")
             self.plot_label.configure(image="", text=f"No cross-section available for G{group} E{element}.")
@@ -625,36 +881,25 @@ class ResolutionApp:
             self.plot_info_var.set(f"No cross-section available for G{group} E{element}.")
             return
 
+        self._cancel_scheduled_plot_refresh()
         line_data = scanlines[key]
         normalized_gray = self._load_normalized_gray(result.image_path)
         plot_line_data = self._build_plot_line_data(line_data, normalized_gray.shape)
-        plot_image_full = self._build_cross_section_plot_image(normalized_gray, plot_line_data, group, element)
-        self.current_plot_image = plot_image_full.copy()
-        plot_image = plot_image_full.copy()
-        plot_image.thumbnail((520, 300))
-        self.plot_photo = ImageTk.PhotoImage(plot_image)
-        self.plot_label.configure(image=self.plot_photo, text="")
+        self.preview_drag_handle = None
+        self.preview_selected_handle = None
+        self.current_plot_result = result
+        self.current_plot_group = group
+        self.current_plot_element = element
+        self.current_plot_gray = normalized_gray
+        self.preview_interactive_lines = self._copy_plot_line_data(plot_line_data)
 
         lp_mm = line_data.get("lp_per_mm")
         mm_value = line_data.get("resolution_mm")
         self.plot_info_var.set(
-            f"Plotting G{group} E{element} | {lp_mm:.4f} lp/mm | {mm_value:.6f} mm"
+            f"Plotting G{group} E{element} | {lp_mm:.4f} lp/mm | {mm_value:.6f} mm | Drag endpoints in the preview to refine."
         )
-        extra_overlay_items = [
-            OverlayItem(
-                kind="line",
-                points=[tuple(plot_line_data["vertical"]["pt_a"]), tuple(plot_line_data["vertical"]["pt_b"])],
-                color=VERTICAL_PROFILE_COLOR_BGR,
-                thickness=1,
-            ),
-            OverlayItem(
-                kind="line",
-                points=[tuple(plot_line_data["horizontal"]["pt_a"]), tuple(plot_line_data["horizontal"]["pt_b"])],
-                color=HORIZONTAL_PROFILE_COLOR_BGR,
-                thickness=1,
-            ),
-        ]
-        self._show_result_preview(result, extra_overlay_items=extra_overlay_items, preserve_view=True)
+        self._show_result_preview(result, preserve_view=True)
+        self._refresh_plot_from_preview_lines()
 
     def _load_normalized_gray(self, image_path: str) -> np.ndarray:
         image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)

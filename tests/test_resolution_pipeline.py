@@ -7,7 +7,7 @@ import unittest
 
 import cv2
 
-from analyzers.usaf import USAFAnalyzer, USAFAnalyzerConfig
+from analyzers.usaf import USAFAnalyzer, USAFAnalyzerConfig, USAF_SCORE_TABLE
 from core.registration import load_image_context
 from core.results import AnalyzerConfig
 from core.router import TargetRouter
@@ -58,7 +58,7 @@ class ResolutionPipelineTests(unittest.TestCase):
         self.assertIsNotNone(result.error)
 
     def test_usaf_auto_flip_detects_mirrored_target(self) -> None:
-        source_path = Path("test/test_image_g6e6_copy.png")
+        source_path = Path("test_image_g6e6_copy.png")
         image = cv2.imread(str(source_path))
         self.assertIsNotNone(image)
 
@@ -79,7 +79,7 @@ class ResolutionPipelineTests(unittest.TestCase):
         self.assertEqual(normal_result.reading.details["element"], flipped_result.reading.details["element"])
 
     def test_usaf_threshold_changes_resolvable_result(self) -> None:
-        source_path = Path("test/test_image_g6e6_copy.png")
+        source_path = Path("test_image_g6e6_copy.png")
         context = load_image_context(str(source_path))
 
         relaxed_result = USAFAnalyzer(
@@ -94,6 +94,11 @@ class ResolutionPipelineTests(unittest.TestCase):
         self.assertEqual(relaxed_result.reading.details["element"], 6)
         self.assertFalse(strict_result.success)
         self.assertEqual(strict_result.reading.value, "unresolved")
+
+    def test_usaf_score_table_extends_through_group_7(self) -> None:
+        self.assertIn((7, 1), USAF_SCORE_TABLE)
+        self.assertIn((7, 6), USAF_SCORE_TABLE)
+        self.assertEqual(len(USAF_SCORE_TABLE), 27)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import numpy as np
 import usaf_algo
 import yolo_model
 from analyzers.base import ResolutionAnalyzer
+from core.contrast import line_profile, percentile_contrast
 from core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
 
 
@@ -34,6 +35,26 @@ def usaf_lp_per_mm(group: int, element: int) -> float:
 
 def usaf_resolution_mm(group: int, element: int) -> float:
     return float(1.0 / (2.0 * usaf_lp_per_mm(group, element)))
+
+
+LEGACY_SCANLINE_COUNT = len(usaf_algo.score_table)
+LEGACY_VERTICAL_SCANLINES = [
+    (usaf_algo.group_positions[index], usaf_algo.group_positions[index + 1])
+    for index in range(0, LEGACY_SCANLINE_COUNT * 2, 2)
+]
+LEGACY_HORIZONTAL_SCANLINES = [
+    (usaf_algo.group_positions[index], usaf_algo.group_positions[index + 1])
+    for index in range(LEGACY_SCANLINE_COUNT * 2, LEGACY_SCANLINE_COUNT * 4, 2)
+]
+USAF_SCORE_TABLE = [tuple(usaf_algo.score_table[index]) for index in range(len(usaf_algo.score_table))]
+# On the standard positive USAF layout, the six-element upper-right odd-group block
+# corresponds to group 7. The legacy table mislabeled this calibrated block as G3.
+USAF_SCORE_TABLE[3:9] = [(7, element) for element in range(1, 7)]
+USAF_VERTICAL_SCANLINES = LEGACY_VERTICAL_SCANLINES
+USAF_HORIZONTAL_SCANLINES = LEGACY_HORIZONTAL_SCANLINES
+
+if not (len(USAF_SCORE_TABLE) == len(USAF_VERTICAL_SCANLINES) == len(USAF_HORIZONTAL_SCANLINES)):
+    raise RuntimeError("USAF scanline definitions are inconsistent.")
 
 
 @contextlib.contextmanager
@@ -94,9 +115,8 @@ def _calculate_scores_and_scanlines(context, yolo_detections=None):
         else:
             retry_origin = False
 
-        for i in range(0, len(usaf_algo.group_positions), 2):
-            raw_a = usaf_algo.group_positions[i]
-            raw_b = usaf_algo.group_positions[i + 1]
+        scanline_pairs = USAF_VERTICAL_SCANLINES + USAF_HORIZONTAL_SCANLINES
+        for raw_index, (raw_a, raw_b) in enumerate(scanline_pairs):
             scale = side_length
             loc_a = (raw_a[0] * scale, raw_a[1] * scale)
             loc_b = (raw_b[0] * scale, raw_b[1] * scale)
@@ -123,18 +143,17 @@ def _calculate_scores_and_scanlines(context, yolo_detections=None):
                     pt_a, pt_b = usaf_algo.apply_point_adjustment_algorithm(repl_a, repl_b, normalized_gray)
                     yolo_repl = True
 
-            mask = np.zeros_like(gray, dtype=np.uint8)
-            cv2.line(mask, pt_a, pt_b, 255, 4)
-            line_pixels = normalized_gray[mask > 0]
-            if len(line_pixels) > 0:
-                brightest = np.max(line_pixels)
-                darkest = np.min(line_pixels)
-                diff = float(brightest - darkest)
-                score = -diff if yolo_repl else diff
-            else:
-                score = 0.0
+            # Score the same geometric scanline used for the plotted cross section so the
+            # reported group/element and the displayed profile stay in sync.
+            profile = line_profile(
+                normalized_gray,
+                tuple(plot_pt_a),
+                tuple(plot_pt_b),
+                width=3,
+            )
+            contrast = percentile_contrast(profile)
+            score = -float(contrast) if yolo_repl else float(contrast)
 
-            raw_index = i // 2
             raw_scores[raw_index] = score
             raw_scanlines[raw_index] = {
                 "pt_a": [int(pt_a[0]), int(pt_a[1])],
@@ -155,7 +174,7 @@ def _calculate_scores_and_scanlines(context, yolo_detections=None):
 
     final_scores: list[float] = []
     scanline_map: dict[str, dict] = {}
-    half_count = len(raw_scores) // 2
+    half_count = len(USAF_SCORE_TABLE)
     for index in range(half_count):
         vert_score = abs(raw_scores[index])
         horiz_score = abs(raw_scores[index + half_count])
@@ -173,7 +192,7 @@ def _calculate_scores_and_scanlines(context, yolo_detections=None):
         combined_score *= net_sign
         final_scores.append(float(combined_score))
 
-        group, element = usaf_algo.score_table[index]
+        group, element = USAF_SCORE_TABLE[index]
         scanline_map[f"{group}:{element}"] = {
             "group": group,
             "element": element,
@@ -228,7 +247,7 @@ def _select_best_focus_group(scores: list[float], threshold: float):
     if chosen_index is None:
         return None, None
 
-    return usaf_algo.score_table[min(chosen_index, len(usaf_algo.score_table) - 1)], chosen_index
+    return USAF_SCORE_TABLE[min(chosen_index, len(USAF_SCORE_TABLE) - 1)], chosen_index
 
 
 class USAFAnalyzer(ResolutionAnalyzer):
@@ -352,7 +371,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
         resolved_resolution_mm = usaf_resolution_mm(best_focus_group[0], best_focus_group[1])
 
         for index in range(len(scores)):
-            group, element = usaf_algo.score_table[index]
+            group, element = USAF_SCORE_TABLE[index]
             frequency = usaf_lp_per_mm(group, element)
             contrast = float(abs(scores[index]))
             passed = contrast >= threshold
