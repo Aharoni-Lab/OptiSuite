@@ -3,8 +3,7 @@ import numpy as np
 import math
 from pathlib import Path
 from yolo_model import extract_yolo_detections, visualize_detections
-import matplotlib.pyplot as plt
-from matplotlib import image
+
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -18,13 +17,13 @@ from matplotlib import image
 
 
 #debug const
-DEBUG_MODE = False              # debug log + photo
-PREVIEW_MODE = False             # overview photo
+DEBUG_MODE = True              # debug log + photo
+PREVIEW_MODE = True             # overview photo
 YOLO_DETECT = True              # yolo detection
-FLIPED_TARGET = True           # true if target is fliped
+FLIPED_TARGET = False           # true if target is fliped
 G1 = 2                          # first group number
 
-SUBPIXEL = False                 # subpixel refinement for corner detection best for large target
+SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
 RETRY_OUTER = True              # if only inner corner detected, expand the scanline to outer target
 RETRY_OFF_IMAGE = False         # if any scanline goes out of image, retry with next best square
 AUTO_ADJUST = True             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
@@ -54,8 +53,8 @@ images = [
     # 'test_image_g3e6_(1).png',
     # 'test_image_g6e1.png',
     # 'SingleWell.png',
-    'harvardSetup_filterOnCube.bmp'
-    # 'Image0001.bmp'
+    # 'harvardSetup_filterOnCube.bmp'
+     'Image0001.bmp'
 ]
 
 # scanline definition in usaf coordinate
@@ -180,6 +179,16 @@ score_table = {
     25: [G1+4,5],
     26: [G1+4,6]
 }
+
+
+
+def usaf_lp_per_mm(group: int, element: int) -> float:
+    return float(2 ** (group + (element - 1) / 6.0))
+
+
+
+def usaf_resolution_mm(group: int, element: int) -> float:
+    return float(1.0 / (2.0 * usaf_lp_per_mm(group, element)))
 
 
 
@@ -319,11 +328,11 @@ def find_square_corners(gray):
         corners[:, 1] = img.shape[0] - corners[:, 1] - 1
         return corners
     else:
-        # Debugging: show the thresholded image if it fails
-        print("Square not detected. Showing thresholded image for debugging...")
-        cv2.imshow("Debug Thresh", thresh)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        if DEBUG_MODE:
+            print("Square not detected. Showing thresholded image for debugging...")
+            cv2.imshow("Debug Thresh", thresh)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
         return None
 
 
@@ -772,8 +781,8 @@ def misalignment_handling(clean_detection, clean_img, normalized_gray):
                         min_box_area = box_area
                         min_box = detection_box
 
-    # display the min_box on the image if found
-    if min_box is not None:
+    # Only show the helper visualization when interactive previews are enabled.
+    if min_box is not None and (PREVIEW_MODE or DEBUG_MODE):
         img_with_box = clean_img.copy()
         cv2.rectangle(img_with_box, (min_box[0], min_box[1]), (min_box[2], min_box[3]), (0, 255, 255), 2)  # yellow box
         cv2.namedWindow("YOLO Box", cv2.WINDOW_NORMAL)
@@ -820,6 +829,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
     scores = {}
 
     while retry_count < valid_squares.__len__():
+        scanlines = {}
         scores = {}  # reset scores before retrying
         img = clean_img.copy()
         retry_condition = False
@@ -907,6 +917,13 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                 score = 0
 
             scores[i // 2] = score
+            scanlines[i // 2] = {
+                "pt_a": [int(pt_a[0]), int(pt_a[1])],
+                "pt_b": [int(pt_b[0]), int(pt_b[1])],
+                "score": float(score),
+                "used_yolo": yolo_repl,
+            }
+
             # Draw the line on the image
             line_color = (0, 0, 255) if not yolo_repl else (255, 0, 255)  # Magenta if replaced by YOLO
             cv2.line(img, pt_a, pt_b, line_color, 4)
@@ -956,6 +973,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         cv2.destroyAllWindows()
 
     final_score = []
+    scanline_map = {}
     for i in range(len(scores) // 2):
         vert_score = abs(scores[i])
         horiz_score = abs(scores[i + len(scores) // 2])
@@ -971,9 +989,20 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         else:
             temp_score = vert_score
         temp_score *= net_sign
-        final_score.append(temp_score)
+        final_score.append(float(temp_score))
 
-    return final_score
+        group, element = score_table[i]
+        scanline_map[f"{group}:{element}"] = {
+            "group": group,
+            "element": element,
+            "vertical": scanlines[i],
+            "horizontal": scanlines[i + len(scores) // 2],
+            "score": float(temp_score),
+            "lp_per_mm": usaf_lp_per_mm(group, element),
+            "resolution_mm": usaf_resolution_mm(group, element),
+        }
+
+    return final_score, scanline_map
 
 
 
@@ -1029,7 +1058,7 @@ def find_usaf_score(image_path, model_path = MODEL_PATH, imgsz=2048):
         visualize_detections(_img, _result, yolo_detections)
     # Calculate focus scores
     try:
-        scores = calculate_focus_scores(image_path, yolo_detections)
+        scores, scanline_map = calculate_focus_scores(image_path, yolo_detections)
     except Exception as e:
         print(f"Failed to calculate focus scores for {image_path}: {e}")
         return None

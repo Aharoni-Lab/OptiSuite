@@ -4,6 +4,15 @@ from ultralytics import YOLO
 import numpy as np
 import matplotlib.pyplot as plt
 
+_MODEL_CACHE = {}
+
+
+def get_yolo_model(model_path):
+    model_path = str(model_path)
+    if model_path not in _MODEL_CACHE:
+        _MODEL_CACHE[model_path] = YOLO(model_path)
+    return _MODEL_CACHE[model_path]
+
 
 def extract_yolo_detections(image_path, model_path, imgsz=2048):
     """
@@ -17,7 +26,7 @@ def extract_yolo_detections(image_path, model_path, imgsz=2048):
         - result: YOLO result object
         - img: Original image
     """
-    model = YOLO(str(model_path))
+    model = get_yolo_model(model_path)
     img = cv2.imread(str(image_path))
     if img is None:
         raise FileNotFoundError(f"Could not read image: {image_path}")
@@ -73,7 +82,7 @@ def visualize_detections(img, result = None, detections = None):
     Visualize YOLO detections with bounding boxes and keypoints.
     """
     #  show YOLO overlay if available
-    if result is not None and False:
+    if result is not None:
         annotated = result.plot(font_size=1, line_width=1)
         annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
 
@@ -97,13 +106,13 @@ def visualize_detections(img, result = None, detections = None):
         
         # Draw bounding box
         x1, y1, x2, y2 = bbox
-        cv2.rectangle(img_vis, (x1, y1), (x2, y2), (0, 255, 0), 1)
+        cv2.rectangle(img_vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
         
         # Draw keypoints
         for i, (kx, ky) in enumerate(keypoints):
-            cv2.circle(img_vis, (int(kx), int(ky)), 1, (0, 0, 255), -1)
-            # cv2.putText(img_vis, f"K{i}", (int(kx)+5, int(ky)-5), 
-            #            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+            cv2.circle(img_vis, (int(kx), int(ky)), 5, (0, 0, 255), -1)
+            cv2.putText(img_vis, f"K{i}", (int(kx)+5, int(ky)-5), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
             
     plt.figure(figsize=(10, 8))
     plt.imshow(cv2.cvtColor(img_vis, cv2.COLOR_BGR2RGB))
