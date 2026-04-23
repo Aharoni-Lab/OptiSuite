@@ -3,7 +3,8 @@ import numpy as np
 import math
 from pathlib import Path
 from yolo_model import extract_yolo_detections, visualize_detections
-
+import matplotlib.pyplot as plt
+from matplotlib import image
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -23,7 +24,7 @@ YOLO_DETECT = True              # yolo detection
 FLIPED_TARGET = True           # true if target is fliped
 G1 = 2                          # first group number
 
-SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
+SUBPIXEL = False                 # subpixel refinement for corner detection best for large target
 RETRY_OUTER = True              # if only inner corner detected, expand the scanline to outer target
 RETRY_OFF_IMAGE = False         # if any scanline goes out of image, retry with next best square
 AUTO_ADJUST = True             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
