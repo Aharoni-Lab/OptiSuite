@@ -15,7 +15,3 @@ venv/
 *.pyd #ignore these, artifacts from installing python stuff like OpenCV
 
 __pycache__/
-
-build/
-
-TD.txt
