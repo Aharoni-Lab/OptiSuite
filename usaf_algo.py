@@ -328,11 +328,11 @@ def find_square_corners(gray):
         corners[:, 1] = img.shape[0] - corners[:, 1] - 1
         return corners
     else:
-        # Debugging: show the thresholded image if it fails
-        print("Square not detected. Showing thresholded image for debugging...")
-        cv2.imshow("Debug Thresh", thresh)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        if DEBUG_MODE:
+            print("Square not detected. Showing thresholded image for debugging...")
+            cv2.imshow("Debug Thresh", thresh)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
         return None
 
 

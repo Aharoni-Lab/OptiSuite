@@ -1,0 +1,74 @@
+Auto-merging .gitignore
+CONFLICT (content): Merge conflict in .gitignore
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/2camera_ZeroMQ_102325.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/2camera_ZeroMQ_102325.py.
+Auto-merging Python versions/OCS_current_workspace_052825/2camera_ZeroMQ_102325.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/2camera_ZeroMQ_102325.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/autofocus.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/autofocus.py.
+Auto-merging Python versions/OCS_current_workspace_052825/autofocus.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/autofocus.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/autofocus_routine.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/autofocus_routine.py.
+Auto-merging Python versions/OCS_current_workspace_052825/autofocus_routine.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/autofocus_routine.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/camera_manager_class_import_120425.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/camera_manager_class_import_120425.py.
+Auto-merging Python versions/OCS_current_workspace_052825/camera_manager_class_import_120425.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/camera_manager_class_import_120425.py
+Auto-merging Python versions/OCS_current_workspace_052825/integrated_camera_stage_app.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/stage_routine_import_013026.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/stage_routine_import_013026.py.
+Auto-merging Python versions/OCS_current_workspace_052825/stage_routine_import_013026.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/stage_routine_import_013026.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/useful_ref_not_part_of_project_022026/2camera_only_pyqt_102525.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/2camera_only_pyqt_102525.py.
+Auto-merging Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/2camera_only_pyqt_102525.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/2camera_only_pyqt_102525.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/useful_ref_not_part_of_project_022026/DaHeng_Camera_Test.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/DaHeng_Camera_Test.py.
+Auto-merging Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/DaHeng_Camera_Test.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/DaHeng_Camera_Test.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/useful_ref_not_part_of_project_022026/DaHeng_OpenCV_Video_SS_Capture_111325.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/DaHeng_OpenCV_Video_SS_Capture_111325.py.
+Auto-merging Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/DaHeng_OpenCV_Video_SS_Capture_111325.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/DaHeng_OpenCV_Video_SS_Capture_111325.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/useful_ref_not_part_of_project_022026/Example.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/Example.py.
+Auto-merging Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/Example.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/Example.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/useful_ref_not_part_of_project_022026/ZeroMQ_tester_102125.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/ZeroMQ_tester_102125.py.
+Auto-merging Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/ZeroMQ_tester_102125.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/useful_ref_not_part_of_project_022026/ZeroMQ_tester_102125.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/zmq_pull_listener.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/zmq_pull_listener.py.
+Auto-merging Python versions/OCS_current_workspace_052825/zmq_pull_listener.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/zmq_pull_listener.py
+CONFLICT (file location): Python versions/OCS_ocurrent_workspace_052825/zmq_push_worker.py added in OmniTargetReader inside a directory that was renamed in HEAD, suggesting it should perhaps be moved to Python versions/OCS_current_workspace_052825/zmq_push_worker.py.
+Auto-merging Python versions/OCS_current_workspace_052825/zmq_push_worker.py
+CONFLICT (add/add): Merge conflict in Python versions/OCS_current_workspace_052825/zmq_push_worker.py
+Auto-merging Python versions/SC3U_Headless_C++_Library_093025/CMakeLists.txt
+CONFLICT (add/add): Merge conflict in Python versions/SC3U_Headless_C++_Library_093025/CMakeLists.txt
+Auto-merging Python versions/SC3U_Headless_C++_Library_093025/MainClass.cs
+CONFLICT (add/add): Merge conflict in Python versions/SC3U_Headless_C++_Library_093025/MainClass.cs
+Auto-merging Python versions/SC3U_Headless_C++_Library_093025/OCS_current_workspace_052825.sln
+CONFLICT (add/add): Merge conflict in Python versions/SC3U_Headless_C++_Library_093025/OCS_current_workspace_052825.sln
+Auto-merging Python versions/SC3U_Headless_C++_Library_093025/SC3U_Headless.cpp
+CONFLICT (add/add): Merge conflict in Python versions/SC3U_Headless_C++_Library_093025/SC3U_Headless.cpp
+Auto-merging Python versions/SC3U_Headless_C++_Library_093025/SC3U_Headless.h
+CONFLICT (add/add): Merge conflict in Python versions/SC3U_Headless_C++_Library_093025/SC3U_Headless.h
+Auto-merging Python versions/SC3U_Headless_C++_Library_093025/build_instructions.md
+CONFLICT (add/add): Merge conflict in Python versions/SC3U_Headless_C++_Library_093025/build_instructions.md
+Auto-merging Python versions/obsolete files 100225/SC3U_decompiled.cs
+CONFLICT (add/add): Merge conflict in Python versions/obsolete files 100225/SC3U_decompiled.cs
+Auto-merging Python versions/obsolete files 100225/test_imports.py
+CONFLICT (add/add): Merge conflict in Python versions/obsolete files 100225/test_imports.py
+Auto-merging Python versions/obsolete_tiles_102025/SC3U_Analysis.md
+CONFLICT (add/add): Merge conflict in Python versions/obsolete_tiles_102025/SC3U_Analysis.md
+Auto-merging Python versions/obsolete_tiles_102025/SC3U_Commented.cs
+CONFLICT (add/add): Merge conflict in Python versions/obsolete_tiles_102025/SC3U_Commented.cs
+Auto-merging Python versions/obsolete_tiles_102025/SC3U_class.cs
+CONFLICT (add/add): Merge conflict in Python versions/obsolete_tiles_102025/SC3U_class.cs
+Auto-merging Python versions/obsolete_tiles_102025/SC3U_decompileed_text_MainClass.txt
+CONFLICT (add/add): Merge conflict in Python versions/obsolete_tiles_102025/SC3U_decompileed_text_MainClass.txt
+Auto-merging Python versions/obsolete_tiles_102025/SC3U_decompileed_text_SC3U.txt
+CONFLICT (add/add): Merge conflict in Python versions/obsolete_tiles_102025/SC3U_decompileed_text_SC3U.txt
+Auto-merging Python versions/obsolete_tiles_102025/conversation_summary.md
+CONFLICT (add/add): Merge conflict in Python versions/obsolete_tiles_102025/conversation_summary.md
+Auto-merging algo_interface.py
+CONFLICT (add/add): Merge conflict in algo_interface.py
+Auto-merging usaf_algo.py
+CONFLICT (add/add): Merge conflict in usaf_algo.py
+Auto-merging yolo_model.py
+CONFLICT (add/add): Merge conflict in yolo_model.py
+Automatic merge failed; fix conflicts and then commit the result.
