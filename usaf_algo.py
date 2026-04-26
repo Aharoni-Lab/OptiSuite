@@ -17,10 +17,10 @@ from yolo_model import extract_yolo_detections, visualize_detections
 
 
 #debug const
-DEBUG_MODE = True              # debug log + photo
+DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = True             # overview photo
 YOLO_DETECT = True              # yolo detection
-FLIPED_TARGET = False           # true if target is fliped
+FLIPED_TARGET = True           # true if target is fliped
 G1 = 2                          # first group number
 
 SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
@@ -54,7 +54,7 @@ images = [
     # 'test_image_g6e1.png',
     # 'SingleWell.png',
     # 'harvardSetup_filterOnCube.bmp'
-     'Image0001.bmp'
+    'test_img/test_image_new.png'
 ]
 
 # scanline definition in usaf coordinate
@@ -77,6 +77,10 @@ g5x_scale = 1.00
 g4x_scale = 1.13
 g3x_scale = 1.015
 g2x_scale = 1.06
+
+g7x_offset = -0.01
+g7y_offset = -0.08
+g7y_scale = 1.019
 
 group_positions = {
     
@@ -112,40 +116,51 @@ group_positions = {
     50: (g6_x-0.003, -2.735),   51: (g6_x-0.003, -2.755),
     52: (g6_x-0.005, -2.812),    53: (g6_x-0.005, -2.83),
 
+    54: (0.3997 + g7x_offset, (-2.3382 + g7y_offset) * g7y_scale),                            55: (0.4274 + g7x_offset, (-2.3384 + g7y_offset) * g7y_scale),
+    56: (0.4097 + g7x_offset, (-2.3914 + g7y_offset) * g7y_scale),                            57: (0.4337 + g7x_offset, (-2.3912 + g7y_offset) * g7y_scale),
+    58: (0.4158 + g7x_offset, (-2.4394 + g7y_offset) * g7y_scale),                            59: (0.438 + g7x_offset, (-2.4398 + g7y_offset) * g7y_scale),
+    60: (0.4226 + g7x_offset, (-2.4828 + g7y_offset) * g7y_scale),                            61: (0.443 + g7x_offset, (-2.4832 + g7y_offset) * g7y_scale),
+    62: (0.4294 + g7x_offset, (-2.522 + g7y_offset) * g7y_scale),                             63: (0.4462 + g7x_offset, (-2.5223 + g7y_offset) * g7y_scale),
+    64: (0.4352 + g7x_offset, (-2.557 + g7y_offset) * g7y_scale),                             65: (0.4493 + g7x_offset, (-2.557 + g7y_offset) * g7y_scale),
 
+    66: (-2.05 * g2x_scale, -0.003 * g2y_scale),      67: (-1.26 * g2x_scale, 0.005 * g2y_scale),
+    68: (-2.19 * g2x_scale, -1.625 * g2y_scale),     69: (-1.51 * g2x_scale, -1.617 * g2y_scale),
+    70: (-2.33 * g2x_scale, -3.04 * g2y_scale),      71: (-1.71 * g2x_scale, -3.046 * g2y_scale),
 
-    54: (-2.05 * g2x_scale, -0.003 * g2y_scale),      55: (-1.26 * g2x_scale, 0.005 * g2y_scale),
-    56: (-2.19 * g2x_scale, -1.625 * g2y_scale),     57: (-1.51 * g2x_scale, -1.617 * g2y_scale),
-    58: (-2.33 * g2x_scale, -3.04 * g2y_scale),      59: (-1.71 * g2x_scale, -3.046 * g2y_scale),
+    72: (1.3 * g3x_scale, 0.2 * g3y_scale),          73: (1.75 * g3x_scale, 0.2 * g3y_scale),
+    74: (1.435 * g3x_scale, -0.707 * g3y_scale),     75: (1.835 * g3x_scale, -0.707 * g3y_scale),
+    76: (1.563 * g3x_scale, -1.498 * g3y_scale),     77: (1.92 * g3x_scale, -1.496 * g3y_scale),
+    78: (1.68 * g3x_scale, -2.218 * g3y_scale),      79: (1.99 * g3x_scale, -2.213 * g3y_scale),
+    80: (1.775 * g3x_scale, -2.85 * g3y_scale),      81: (2.062 * g3x_scale, -2.85 * g3y_scale),
+    82: (1.867 * g3x_scale, -3.42 * g3y_scale),      83: (2.118 * g3x_scale, -3.422 * g3y_scale),
 
-    60: (1.3 * g3x_scale, 0.2 * g3y_scale),          61: (1.75 * g3x_scale, 0.2 * g3y_scale),
-    62: (1.435 * g3x_scale, -0.707 * g3y_scale),     63: (1.835 * g3x_scale, -0.707 * g3y_scale),
-    64: (1.563 * g3x_scale, -1.498 * g3y_scale),     65: (1.92 * g3x_scale, -1.496 * g3y_scale),
-    66: (1.68 * g3x_scale, -2.218 * g3y_scale),      67: (1.99 * g3x_scale, -2.213 * g3y_scale),
-    68: (1.775 * g3x_scale, -2.85 * g3y_scale),      69: (2.062 * g3x_scale, -2.85 * g3y_scale),
-    70: (1.867 * g3x_scale, -3.42 * g3y_scale),      71: (2.118 * g3x_scale, -3.422 * g3y_scale),
+    84: (0.218 * g4x_scale, -3.234 * g4y_scale),     85: (0.444 * g4x_scale, -3.227 * g4y_scale),
+    86: (-0.258 * g4x_scale, -1.929 * g4y_scale),    87: (-0.056 * g4x_scale, -1.931 * g4y_scale),
+    88: (-0.289 * g4x_scale, -2.331 * g4y_scale),    89: (-0.112 * g4x_scale, -2.333 * g4y_scale),
+    90: (-0.329 * g4x_scale, -2.692 * g4y_scale),    91: (-0.16 * g4x_scale, -2.691 * g4y_scale),
+    92: (-0.351 * g4x_scale, -3.007 * g4y_scale),    93: (-0.211 * g4x_scale, -3.005 * g4y_scale),
+    94: (-0.38 * g4x_scale, -3.29 * g4y_scale),      95: (-0.253 * g4x_scale, -3.289 * g4y_scale),
 
-    72: (0.218 * g4x_scale, -3.234 * g4y_scale),     73: (0.444 * g4x_scale, -3.227 * g4y_scale),
-    74: (-0.258 * g4x_scale, -1.929 * g4y_scale),    75: (-0.056 * g4x_scale, -1.931 * g4y_scale),
-    76: (-0.289 * g4x_scale, -2.331 * g4y_scale),    77: (-0.112 * g4x_scale, -2.333 * g4y_scale),
-    78: (-0.329 * g4x_scale, -2.692 * g4y_scale),    79: (-0.16 * g4x_scale, -2.691 * g4y_scale),
-    80: (-0.351 * g4x_scale, -3.007 * g4y_scale),    81: (-0.211 * g4x_scale, -3.005 * g4y_scale),
-    82: (-0.38 * g4x_scale, -3.29 * g4y_scale),      83: (-0.253 * g4x_scale, -3.289 * g4y_scale),
+    96: (0.583 * g5x_scale, -1.8684 * g5y_scale),    97: (0.7 * g5x_scale, -1.87 * g5y_scale),
+    98: (0.6256 * g5x_scale, -2.0996 * g5y_scale),   99: (0.72 * g5x_scale, -2.1 * g5y_scale),
+    100: (0.65 * g5x_scale, -2.3 * g5y_scale),       101: (0.74 * g5x_scale, -2.3 * g5y_scale),
+    102: (0.68 * g5x_scale, -2.48 * g5y_scale),      103: (0.76 * g5x_scale, -2.48 * g5y_scale),
+    104: (0.71 * g5x_scale, -2.64 * g5y_scale),      105: (0.78 * g5x_scale, -2.64 * g5y_scale),
+    106: (0.7355 * g5x_scale, -2.7845 * g5y_scale),  107: (0.785 * g5x_scale, -2.786 * g5y_scale),
 
-    84: (0.583 * g5x_scale, -1.8684 * g5y_scale),    85: (0.7 * g5x_scale, -1.87 * g5y_scale),
-    86: (0.6256 * g5x_scale, -2.0996 * g5y_scale),   87: (0.72 * g5x_scale, -2.1 * g5y_scale),
-    88: (0.65 * g5x_scale, -2.3 * g5y_scale),        89: (0.74 * g5x_scale, -2.3 * g5y_scale),
-    90: (0.68 * g5x_scale, -2.48 * g5y_scale),       91: (0.76 * g5x_scale, -2.48 * g5y_scale),
-    92: (0.71 * g5x_scale, -2.64 * g5y_scale),       93: (0.78 * g5x_scale, -2.64 * g5y_scale),
-    94: (0.7355 * g5x_scale, -2.7845 * g5y_scale),   95: (0.785 * g5x_scale, -2.786 * g5y_scale),
+    108: (0.336 * g6x_scale, -2.731 * g6y_scale),    109: (0.390 * g6x_scale, -2.7295 * g6y_scale),
+    110: (0.198 * g6x_scale, -2.4046 * g6y_scale),   111: (0.2464 * g6x_scale, -2.4054 * g6y_scale),
+    112: (0.1885 * g6x_scale, -2.506 * g6y_scale),   113: (0.2324 * g6x_scale, -2.507 * g6y_scale),
+    114: (0.1796 * g6x_scale, -2.5945 * g6y_scale),  115: (0.2195 * g6x_scale, -2.5933 * g6y_scale),
+    116: (0.173 * g6x_scale, -2.6736 * g6y_scale),   117: (0.208 * g6x_scale, -2.6738 * g6y_scale),
+    118: (0.166 * g6x_scale, -2.744 * g6y_scale),    119: (0.1975 * g6x_scale, -2.7446 * g6y_scale),
 
-    96: (0.336 * g6x_scale, -2.731 * g6y_scale),     97: (0.390 * g6x_scale, -2.7295 * g6y_scale),
-    98: (0.198 * g6x_scale, -2.4046 * g6y_scale),    99: (0.2464 * g6x_scale, -2.4054 * g6y_scale),
-    100: (0.1885 * g6x_scale, -2.506 * g6y_scale),   101: (0.2324 * g6x_scale, -2.507 * g6y_scale),
-    102: (0.1796 * g6x_scale, -2.5945 * g6y_scale),  103: (0.2195 * g6x_scale, -2.5933 * g6y_scale),
-    104: (0.173 * g6x_scale, -2.6736 * g6y_scale),   105: (0.208 * g6x_scale, -2.6738 * g6y_scale),
-    106: (0.166 * g6x_scale, -2.744 * g6y_scale),    107: (0.1975 * g6x_scale, -2.7446 * g6y_scale),
-
+    120: (0.4615 + g7x_offset, (-2.3234 + g7y_offset) * g7y_scale),                           121: (0.461 + g7x_offset, (-2.352 + g7y_offset) * g7y_scale),
+    122: (0.4615 + g7x_offset, (-2.3808 + g7y_offset) * g7y_scale),                           123: (0.4618 + g7x_offset, (-2.404 + g7y_offset) * g7y_scale),
+    124: (0.4654 + g7x_offset, (-2.4287 + g7y_offset) * g7y_scale),                           125: (0.464 + g7x_offset, (-2.451 + g7y_offset) * g7y_scale),
+    126: (0.466 + g7x_offset, (-2.474 + g7y_offset) * g7y_scale),                             127: (0.4662 + g7x_offset, (-2.492 + g7y_offset) * g7y_scale),
+    128: (0.468 + g7x_offset, (-2.515 + g7y_offset) * g7y_scale),                             129: (0.467 + g7x_offset, (-2.53 + g7y_offset) * g7y_scale),
+    130: (0.47 + g7x_offset, (-2.55 + g7y_offset) * g7y_scale),                               131: (0.4705 + g7x_offset, (-2.5622 + g7y_offset) * g7y_scale),
     
 }
 
@@ -177,7 +192,13 @@ score_table = {
     23: [G1+4,3],
     24: [G1+4,4],
     25: [G1+4,5],
-    26: [G1+4,6]
+    26: [G1+4,6],
+    27: [G1+5,1],
+    28: [G1+5,2],
+    29: [G1+5,3],
+    30: [G1+5,4],
+    31: [G1+5,5],
+    32: [G1+5,6]
 }
 
 
@@ -1074,5 +1095,5 @@ def find_usaf_score(image_path, model_path = MODEL_PATH, imgsz=2048):
     return best_focus_group
 
 
-# for image_path in images:
-#     find_usaf_score(image_path, MODEL_PATH)
+for image_path in images:
+    find_usaf_score(image_path, MODEL_PATH)
