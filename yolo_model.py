@@ -4,15 +4,6 @@ from ultralytics import YOLO
 import numpy as np
 import matplotlib.pyplot as plt
 
-_MODEL_CACHE = {}
-
-
-def get_yolo_model(model_path):
-    model_path = str(model_path)
-    if model_path not in _MODEL_CACHE:
-        _MODEL_CACHE[model_path] = YOLO(model_path)
-    return _MODEL_CACHE[model_path]
-
 
 def extract_yolo_detections(image_path, model_path, imgsz=2048):
     """
@@ -26,7 +17,7 @@ def extract_yolo_detections(image_path, model_path, imgsz=2048):
         - result: YOLO result object
         - img: Original image
     """
-    model = get_yolo_model(model_path)
+    model = YOLO(str(model_path))
     img = cv2.imread(str(image_path))
     if img is None:
         raise FileNotFoundError(f"Could not read image: {image_path}")
