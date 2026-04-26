@@ -17,10 +17,10 @@ from yolo_model import extract_yolo_detections, visualize_detections
 
 
 #debug const
-DEBUG_MODE = False              # debug log + photo
-PREVIEW_MODE = False             # overview photo
+DEBUG_MODE = True              # debug log + photo
+PREVIEW_MODE = True             # overview photo
 YOLO_DETECT = True              # yolo detection
-FLIPED_TARGET = True           # true if target is fliped
+FLIPED_TARGET = False           # true if target is fliped
 G1 = 2                          # first group number
 
 SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
@@ -53,8 +53,8 @@ images = [
     # 'test_image_g3e6_(1).png',
     # 'test_image_g6e1.png',
     # 'SingleWell.png',
-    'harvardSetup_filterOnCube.bmp'
-    # 'Image0001.bmp'
+    # 'harvardSetup_filterOnCube.bmp'
+     'Image0001.bmp'
 ]
 
 # scanline definition in usaf coordinate
@@ -179,6 +179,16 @@ score_table = {
     25: [G1+4,5],
     26: [G1+4,6]
 }
+
+
+
+def usaf_lp_per_mm(group: int, element: int) -> float:
+    return float(2 ** (group + (element - 1) / 6.0))
+
+
+
+def usaf_resolution_mm(group: int, element: int) -> float:
+    return float(1.0 / (2.0 * usaf_lp_per_mm(group, element)))
 
 
 
@@ -819,6 +829,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
     scores = {}
 
     while retry_count < valid_squares.__len__():
+        scanlines = {}
         scores = {}  # reset scores before retrying
         img = clean_img.copy()
         retry_condition = False
@@ -906,6 +917,13 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                 score = 0
 
             scores[i // 2] = score
+            scanlines[i // 2] = {
+                "pt_a": [int(pt_a[0]), int(pt_a[1])],
+                "pt_b": [int(pt_b[0]), int(pt_b[1])],
+                "score": float(score),
+                "used_yolo": yolo_repl,
+            }
+
             # Draw the line on the image
             line_color = (0, 0, 255) if not yolo_repl else (255, 0, 255)  # Magenta if replaced by YOLO
             cv2.line(img, pt_a, pt_b, line_color, 4)
@@ -955,6 +973,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         cv2.destroyAllWindows()
 
     final_score = []
+    scanline_map = {}
     for i in range(len(scores) // 2):
         vert_score = abs(scores[i])
         horiz_score = abs(scores[i + len(scores) // 2])
@@ -970,9 +989,20 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         else:
             temp_score = vert_score
         temp_score *= net_sign
-        final_score.append(temp_score)
+        final_score.append(float(temp_score))
 
-    return final_score
+        group, element = score_table[i]
+        scanline_map[f"{group}:{element}"] = {
+            "group": group,
+            "element": element,
+            "vertical": scanlines[i],
+            "horizontal": scanlines[i + len(scores) // 2],
+            "score": float(temp_score),
+            "lp_per_mm": usaf_lp_per_mm(group, element),
+            "resolution_mm": usaf_resolution_mm(group, element),
+        }
+
+    return final_score, scanline_map
 
 
 
@@ -1028,7 +1058,7 @@ def find_usaf_score(image_path, model_path = MODEL_PATH, imgsz=2048):
         visualize_detections(_img, _result, yolo_detections)
     # Calculate focus scores
     try:
-        scores = calculate_focus_scores(image_path, yolo_detections)
+        scores, scanline_map = calculate_focus_scores(image_path, yolo_detections)
     except Exception as e:
         print(f"Failed to calculate focus scores for {image_path}: {e}")
         return None

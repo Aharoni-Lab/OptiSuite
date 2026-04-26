@@ -39,7 +39,7 @@ class ResolutionApp:
         self.root = root
         self.root.title("Multi-target Resolution App")
         self.root.geometry("1280x840")
-        self.root.minsize(980, 700)
+        self.root.minsize(900, 600)
 
         self.selected_items: list[str] = []
         self.analysis_results: list[dict[str, object]] = []
@@ -75,7 +75,7 @@ class ResolutionApp:
     def _build_ui(self) -> None:
         container = ttk.Frame(self.root, padding=12)
         container.pack(fill="both", expand=True)
-        container.columnconfigure(0, weight=0)
+        container.columnconfigure(0, weight=0, minsize=380)
         container.columnconfigure(1, weight=1)
         container.rowconfigure(1, weight=1)
         container.rowconfigure(2, weight=1)
@@ -86,9 +86,49 @@ class ResolutionApp:
         )
         header.grid(row=0, column=0, columnspan=2, sticky="w")
 
-        left_panel = ttk.Frame(container)
-        left_panel.grid(row=1, column=0, rowspan=2, sticky="nsw", padx=(0, 12))
+        # Create a scrollable left panel
+        left_panel_container = ttk.Frame(container)
+        left_panel_container.grid(row=1, column=0, rowspan=2, sticky="nsew", padx=(0, 12))
+        left_panel_container.columnconfigure(0, weight=1)
+        left_panel_container.rowconfigure(0, weight=1)
+
+        # Canvas for scrolling
+        left_canvas = tk.Canvas(left_panel_container, highlightthickness=0, bg="#f0f0f0")
+        left_scrollbar = ttk.Scrollbar(left_panel_container, orient="vertical", command=left_canvas.yview)
+        left_canvas.configure(yscrollcommand=left_scrollbar.set)
+        
+        left_canvas.grid(row=0, column=0, sticky="nsew")
+        left_scrollbar.grid(row=0, column=1, sticky="ns")
+
+        # Frame inside canvas for content
+        left_panel = ttk.Frame(left_canvas)
+        left_canvas_window = left_canvas.create_window(0, 0, window=left_panel, anchor="nw")
         left_panel.columnconfigure(0, weight=1)
+
+        # Bind mousewheel events for scrolling
+        def _on_mousewheel(event):
+            left_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _on_linux_scroll(event):
+            if event.num == 5:
+                left_canvas.yview_scroll(1, "units")
+            elif event.num == 4:
+                left_canvas.yview_scroll(-1, "units")
+
+        left_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        left_canvas.bind_all("<Button-4>", _on_linux_scroll)
+        left_canvas.bind_all("<Button-5>", _on_linux_scroll)
+
+        # Update scroll region after content is added
+        def _update_scroll_region(event=None):
+            left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+            # Make the inner frame match canvas width for proper display
+            canvas_width = left_canvas.winfo_width()
+            if canvas_width > 1:
+                left_canvas.itemconfig(left_canvas_window, width=canvas_width)
+
+        left_panel.bind("<Configure>", _update_scroll_region)
+        left_canvas.bind("<Configure>", _update_scroll_region)
 
         input_frame = ttk.LabelFrame(left_panel, text="Inputs", padding=10)
         input_frame.grid(row=0, column=0, sticky="nsew")
@@ -125,7 +165,7 @@ class ResolutionApp:
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(0, weight=1)
 
-        self.input_listbox = tk.Listbox(list_frame, width=42, height=18)
+        self.input_listbox = tk.Listbox(list_frame, width=42, height=10)
         self.input_listbox.grid(row=0, column=0, sticky="nsew")
         input_scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.input_listbox.yview)
         input_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -743,15 +783,15 @@ class ResolutionApp:
             vertical_pt_a,
             vertical_pt_b,
             image_shape,
-            factor=5.0,
-            min_half_length=12.0,
+            factor=1.5,
+            min_half_length=1.0,
         )
         plot_horizontal["pt_a"], plot_horizontal["pt_b"] = self._extend_line(
             horizontal_pt_a,
             horizontal_pt_b,
             image_shape,
-            factor=5.0,
-            min_half_length=12.0,
+            factor=1.5,
+            min_half_length=1.0,
         )
         plot_line_data["vertical"] = plot_vertical
         plot_line_data["horizontal"] = plot_horizontal

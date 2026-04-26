@@ -28,13 +28,6 @@ class USAFAnalyzerConfig(AnalyzerConfig):
     imgsz: int = 2048
 
 
-def usaf_lp_per_mm(group: int, element: int) -> float:
-    return float(2 ** (group + (element - 1) / 6.0))
-
-
-def usaf_resolution_mm(group: int, element: int) -> float:
-    return float(1.0 / (2.0 * usaf_lp_per_mm(group, element)))
-
 
 @contextlib.contextmanager
 def _legacy_config_scope(config: USAFAnalyzerConfig) -> Iterator[None]:
@@ -58,132 +51,8 @@ def _legacy_config_scope(config: USAFAnalyzerConfig) -> Iterator[None]:
 
 
 def _calculate_scores_and_scanlines(context, yolo_detections=None):
-    gray = context.gray_image
-    normalized_gray = context.normalized_gray
-
-    usaf_algo.find_square_corners(gray.copy())
-    if not usaf_algo.valid_squares:
-        raise RuntimeError("Could not detect a valid USAF square.")
-
-    retry_count = 0
-    retry_origin = False
-    raw_scores: dict[int, float] = {}
-    raw_scanlines: dict[int, dict] = {}
-
-    while retry_count < len(usaf_algo.valid_squares):
-        raw_scores = {}
-        raw_scanlines = {}
-        retry_condition = False
-
-        corners = usaf_algo.valid_squares[retry_count].reshape(-1, 2).copy()
-        corners[:, 1] = gray.shape[0] - corners[:, 1] - 1
-        output_list = usaf_algo.coordinate_calibration(gray, corners)
-        if output_list is None:
-            retry_count += 1
-            continue
-
-        center_x, center_y, angle, side_length, _right_ref_corner, _left_ref_corner = output_list
-        if retry_count == 1 and not retry_origin and usaf_algo.RETRY_OUTER:
-            flip = -1 if usaf_algo.FLIPED_TARGET else 1
-            center_offset = np.array([-1.009, 7.791]) * side_length
-            center_offset = usaf_algo.get_rotated_pt(0, 0, center_offset[0] * flip, -center_offset[1], angle)
-            center_x = center_x + center_offset[0]
-            center_y = center_y + center_offset[1]
-            side_length = side_length * 3.918
-            retry_origin = True
-        else:
-            retry_origin = False
-
-        for i in range(0, len(usaf_algo.group_positions), 2):
-            raw_a = usaf_algo.group_positions[i]
-            raw_b = usaf_algo.group_positions[i + 1]
-            scale = side_length
-            loc_a = (raw_a[0] * scale, raw_a[1] * scale)
-            loc_b = (raw_b[0] * scale, raw_b[1] * scale)
-
-            flip = -1 if usaf_algo.FLIPED_TARGET else 1
-            pt_a = usaf_algo.get_rotated_pt(center_x, center_y, flip * loc_a[0], -loc_a[1], angle)
-            pt_b = usaf_algo.get_rotated_pt(center_x, center_y, flip * loc_b[0], -loc_b[1], angle)
-            plot_pt_a = [int(pt_a[0]), int(pt_a[1])]
-            plot_pt_b = [int(pt_b[0]), int(pt_b[1])]
-
-            if (
-                (pt_a[0] < 0 or pt_a[0] >= gray.shape[1] or pt_a[1] < 0 or pt_a[1] >= gray.shape[0] or
-                 pt_b[0] < 0 or pt_b[0] >= gray.shape[1] or pt_b[1] < 0 or pt_b[1] >= gray.shape[0])
-                and usaf_algo.RETRY_OFF_IMAGE
-            ):
-                retry_condition = True
-                break
-
-            pt_a, pt_b = usaf_algo.apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray)
-            yolo_repl = False
-            if yolo_detections:
-                repl_a, repl_b = usaf_algo.find_replacement_keypoints(pt_a, pt_b, yolo_detections)
-                if repl_a is not None:
-                    pt_a, pt_b = usaf_algo.apply_point_adjustment_algorithm(repl_a, repl_b, normalized_gray)
-                    yolo_repl = True
-
-            mask = np.zeros_like(gray, dtype=np.uint8)
-            cv2.line(mask, pt_a, pt_b, 255, 4)
-            line_pixels = normalized_gray[mask > 0]
-            if len(line_pixels) > 0:
-                brightest = np.max(line_pixels)
-                darkest = np.min(line_pixels)
-                diff = float(brightest - darkest)
-                score = -diff if yolo_repl else diff
-            else:
-                score = 0.0
-
-            raw_index = i // 2
-            raw_scores[raw_index] = score
-            raw_scanlines[raw_index] = {
-                "pt_a": [int(pt_a[0]), int(pt_a[1])],
-                "pt_b": [int(pt_b[0]), int(pt_b[1])],
-                "plot_pt_a": plot_pt_a,
-                "plot_pt_b": plot_pt_b,
-                "score": float(score),
-                "used_yolo": yolo_repl,
-            }
-
-        if not retry_condition:
-            break
-        if not retry_origin:
-            retry_count += 1
-
-    if retry_count == len(usaf_algo.valid_squares) or not raw_scores:
-        raise RuntimeError("Failed to find valid square for coordinate calibration.")
-
-    final_scores: list[float] = []
-    scanline_map: dict[str, dict] = {}
-    half_count = len(raw_scores) // 2
-    for index in range(half_count):
-        vert_score = abs(raw_scores[index])
-        horiz_score = abs(raw_scores[index + half_count])
-        vert_sign = 1 if raw_scores[index] >= 0 else -1
-        horiz_sign = 1 if raw_scores[index + half_count] >= 0 else -1
-        net_sign = -1 if vert_sign == -1 or horiz_sign == -1 else 1
-        if usaf_algo.SCORE_METHOD == "mean":
-            combined_score = (vert_score + horiz_score) / 2.0
-        elif usaf_algo.SCORE_METHOD == "max":
-            combined_score = max(vert_score, horiz_score)
-        elif usaf_algo.SCORE_METHOD == "min":
-            combined_score = min(vert_score, horiz_score)
-        else:
-            combined_score = vert_score
-        combined_score *= net_sign
-        final_scores.append(float(combined_score))
-
-        group, element = usaf_algo.score_table[index]
-        scanline_map[f"{group}:{element}"] = {
-            "group": group,
-            "element": element,
-            "vertical": raw_scanlines[index],
-            "horizontal": raw_scanlines[index + half_count],
-            "score": float(combined_score),
-            "lp_per_mm": usaf_lp_per_mm(group, element),
-            "resolution_mm": usaf_resolution_mm(group, element),
-        }
-
+    image_path = context.image_path
+    final_scores, scanline_map = usaf_algo.calculate_focus_scores(image_path, yolo_detections)
     return final_scores, scanline_map
 
 
@@ -295,6 +164,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
                     if corners is not None:
                         screen_points = [(int(x), int(context.gray_image.shape[0] - y - 1)) for x, y in corners]
                         overlay_items.append(OverlayItem(kind="polygon", points=screen_points, color=(0, 255, 255), thickness=2))
+                        
 
                 candidate_results.append(
                     {
@@ -341,6 +211,58 @@ class USAFAnalyzer(ResolutionAnalyzer):
         chosen_index = chosen["chosen_index"]
         overlay_items = chosen["overlay_items"]
 
+
+
+
+
+        # Add all scanline items to overlay_items for display
+        #--------------------------------------------------------------------------------------------
+        for key, scanline_data in scanline_map.items():
+            group = scanline_data["group"]
+            element = scanline_data["element"]
+            score = scanline_data["score"]
+
+            # Add vertical scanline
+            if "pt_a" in scanline_data["vertical"] and "pt_b" in scanline_data["vertical"]:
+                pt_a = scanline_data["vertical"]["pt_a"]
+                pt_b = scanline_data["vertical"]["pt_b"]
+                # Convert to screen coordinates (flip Y axis)
+                height = context.gray_image.shape[0]
+                screen_pt_a = pt_a  # (pt_a[0], height - pt_a[1] - 1)
+                screen_pt_b = pt_b  #(pt_b[0], height - pt_b[1] - 1)
+                # Color based on whether this is the resolved element
+                color = (0, 255, 0) if group == best_focus_group[0] and element == best_focus_group[1] else (255, 0, 0)
+                overlay_items.append(OverlayItem(
+                    kind="line",
+                    points=[screen_pt_a, screen_pt_b],
+                    color=color,
+                    thickness=3,
+                    text=f"G{group}E{element}V"
+                ))
+            
+            # Add horizontal scanline
+            if "pt_a" in scanline_data["horizontal"] and "pt_b" in scanline_data["horizontal"]:
+                pt_a = scanline_data["horizontal"]["pt_a"]
+                pt_b = scanline_data["horizontal"]["pt_b"]
+                # Convert to screen coordinates (flip Y axis)
+                height = context.gray_image.shape[0]
+                screen_pt_a = pt_a  # (pt_a[0], height - pt_a[1] - 1)
+                screen_pt_b = pt_b  #(pt_b[0], height - pt_b[1] - 1)
+                # Color based on whether this is the resolved element
+                color = (0, 255, 0) if group == best_focus_group[0] and element == best_focus_group[1] else (255, 0, 0)
+                overlay_items.append(OverlayItem(
+                    kind="line",
+                    points=[screen_pt_a, screen_pt_b],
+                    color=color,
+                    thickness=3,
+                    text=f"G{group}E{element}H"
+                ))
+        #--------------------------------------------------------------------------------------------
+
+
+
+
+
         if self.config.flip_mode == "auto":
             warnings.append(f"Auto flip detection selected: {chosen['flip_label']}")
         else:
@@ -348,12 +270,13 @@ class USAFAnalyzer(ResolutionAnalyzer):
 
         curve: list[ContrastSample] = []
         resolved_label = f"G{best_focus_group[0]} E{best_focus_group[1]}"
-        resolved_frequency = usaf_lp_per_mm(best_focus_group[0], best_focus_group[1])
-        resolved_resolution_mm = usaf_resolution_mm(best_focus_group[0], best_focus_group[1])
+        resolved_frequency = usaf_algo.usaf_lp_per_mm(best_focus_group[0], best_focus_group[1])
+        resolved_resolution_mm = usaf_algo.usaf_resolution_mm(best_focus_group[0], best_focus_group[1])
 
+        # calculate contrast and frequency for all elements and store it in a list "curve"
         for index in range(len(scores)):
             group, element = usaf_algo.score_table[index]
-            frequency = usaf_lp_per_mm(group, element)
+            frequency = usaf_algo.usaf_lp_per_mm(group, element)
             contrast = float(abs(scores[index]))
             passed = contrast >= threshold
             curve.append(
@@ -367,6 +290,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
                 )
             )
 
+        # detail for the best resolved element
         reading = ThresholdReading(
             label="Highest resolvable USAF element",
             value=resolved_label,
@@ -410,6 +334,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
                 "legacy_scores": [float(value) for value in scores],
                 "scanlines": scanline_map,
                 "formula_source": "USAF 1951 / Thorlabs line-pairs formula",
+                # list all possible flip candidates 
                 "flip_candidates": [
                     {
                         "flip_label": item["flip_label"],

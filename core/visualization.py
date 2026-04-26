@@ -38,6 +38,7 @@ def render_result_image(
 
     for item in result.overlay_items:
         draw_overlay_item(image, item)
+    # extra overlay for the current group and element being plotted in the plotter
     for item in extra_overlay_items or []:
         draw_overlay_item(image, item)
 
