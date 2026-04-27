@@ -93,7 +93,7 @@ class TargetRouter:
             reason = "Heuristic target classification with patch-pattern preference"
 
         if self.config.use_detection_fallback and best_score < 0.55:
-            model_path = Path("models") / "best12.pt"
+            model_path = Path("models") / "best21.pt"
             if model_path.exists():
                 try:
                     detections, _result, _image = yolo_model.extract_yolo_detections(image_path, model_path)

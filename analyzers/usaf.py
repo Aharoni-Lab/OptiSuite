@@ -23,7 +23,7 @@ class USAFAnalyzerConfig(AnalyzerConfig):
     allow_model_assist: bool = False
     flip_mode: str = "auto"
     flipped_target: bool = True
-    auto_adjust: bool = True
+    auto_adjust: bool = False
     model_path: str = str(usaf_algo.MODEL_PATH)
     imgsz: int = 2048
 
@@ -88,17 +88,6 @@ def _flip_mode_to_candidates(flip_mode: str) -> list[tuple[str, bool]]:
     return [("flipped", True), ("not_flipped", False)]
 
 
-def _select_best_focus_group(scores: list[float], threshold: float):
-    chosen_index = None
-    for index, score in enumerate(scores):
-        if abs(score) >= threshold:
-            chosen_index = index
-
-    if chosen_index is None:
-        return None, None
-
-    return usaf_algo.score_table[min(chosen_index, len(usaf_algo.score_table) - 1)], chosen_index
-
 
 class USAFAnalyzer(ResolutionAnalyzer):
     chart_type = "usaf"
@@ -151,9 +140,10 @@ class USAFAnalyzer(ResolutionAnalyzer):
             try:
                 with _legacy_config_scope(candidate_config):
                     scores, scanline_map = _calculate_scores_and_scanlines(context, detections)
+                    scores_list = [scores[i]["score"] for i in range(len(scores))]
                     if not scores:
                         raise RuntimeError("USAF score calculation did not return any scores.")
-                    best_focus_group, chosen_index = _select_best_focus_group(list(scores), threshold)
+                    best_focus_group, chosen_index = usaf_algo.find_best_focus_group(scores, threshold=threshold)
                     if best_focus_group is None:
                         raise RuntimeError(
                             f"No USAF group/element met the configured contrast threshold of {threshold:.0%}."
@@ -175,7 +165,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
                         "best_focus_group": best_focus_group,
                         "chosen_index": chosen_index,
                         "overlay_items": overlay_items,
-                        "quality": _candidate_quality(list(scores), threshold),
+                        "quality": _candidate_quality(list(scores_list), threshold),
                     }
                 )
             except Exception as exc:
@@ -277,7 +267,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
         for index in range(len(scores)):
             group, element = usaf_algo.score_table[index]
             frequency = usaf_algo.usaf_lp_per_mm(group, element)
-            contrast = float(abs(scores[index]))
+            contrast = float(abs(scores[index]["score"]))
             passed = contrast >= threshold
             curve.append(
                 ContrastSample(
@@ -331,7 +321,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
             contrast_curve=curve,
             overlay_items=overlay_items,
             metadata={
-                "legacy_scores": [float(value) for value in scores],
+                "legacy_scores": [float(scores[i]["score"]) for i in range(len(scores))],
                 "scanlines": scanline_map,
                 "formula_source": "USAF 1951 / Thorlabs line-pairs formula",
                 # list all possible flip candidates 

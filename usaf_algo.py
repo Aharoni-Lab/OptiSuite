@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import math
+import matplotlib.pyplot as plt
 from pathlib import Path
 from yolo_model import extract_yolo_detections, visualize_detections
 
@@ -19,18 +20,18 @@ from yolo_model import extract_yolo_detections, visualize_detections
 #debug const
 DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = True             # overview photo
-YOLO_DETECT = True              # yolo detection
+YOLO_DETECT = False              # yolo detection
 FLIPED_TARGET = True           # true if target is fliped
 G1 = 2                          # first group number
 
 SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
 RETRY_OUTER = True              # if only inner corner detected, expand the scanline to outer target
 RETRY_OFF_IMAGE = False         # if any scanline goes out of image, retry with next best square
-AUTO_ADJUST = True             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
+AUTO_ADJUST = False             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
 ADJUST_THRESH = 0.8             # white threshold, between 0 and 1 of the normalzed grayscale value
 SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
 
-MODEL_PATH = Path("./models/best12.pt")
+MODEL_PATH = Path("./models/best21.pt")
 
 
 
@@ -341,19 +342,20 @@ def find_square_corners(gray):
                 cv2.circle(img, (x, y), 8, (0, 255, 0), -1)
             cv2.drawContours(img, [best_square_corners], -1, (255, 0, 0), 3)
             
-            cv2.namedWindow("Success", cv2.WINDOW_NORMAL) 
-            cv2.imshow("Success", img)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+            plt.figure("Success")
+            plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            plt.title("Success")
+            plt.show()
 
         corners[:, 1] = img.shape[0] - corners[:, 1] - 1
         return corners
     else:
         if DEBUG_MODE:
             print("Square not detected. Showing thresholded image for debugging...")
-            cv2.imshow("Debug Thresh", thresh)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+            plt.figure("Debug Thresh")
+            plt.imshow(thresh, cmap='gray')
+            plt.title("Debug Thresh")
+            plt.show()
         return None
 
 
@@ -447,10 +449,10 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
                 i_ctr += 1
                 print(f"Corner {i_ctr}: ({corner[0][0]}, {corner[0][1]})")
             cv2.circle(debug_img, (int(corner_local[0]), int(corner_local[1])), 1, (0, 200, 0), -1)
-            cv2.namedWindow("Debug Region", cv2.WINDOW_NORMAL)
-            cv2.imshow("Debug Region", debug_img)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+            plt.figure("Debug Region")
+            plt.imshow(cv2.cvtColor(debug_img, cv2.COLOR_BGR2RGB))
+            plt.title("Debug Region")
+            plt.show()
 
         
         # Convert back to screen coordinates
@@ -528,11 +530,10 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
             # Now (0,0,255) will actually show up as Red
             cv2.line(img_copy, start_point, end_point, (0,0,255), 4)
 
-        cv2.namedWindow("Scans", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Scans", 800, 800)
-        cv2.imshow("Scans", img_copy)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        plt.figure("Debug Scans", figsize=(8, 8))
+        plt.imshow(cv2.cvtColor(img_copy, cv2.COLOR_BGR2RGB))
+        plt.title("Debug Scans")
+        plt.show()
 
     average = np.zeros(4)
     for i in range(scanline_end.shape[0]):
@@ -806,10 +807,10 @@ def misalignment_handling(clean_detection, clean_img, normalized_gray):
     if min_box is not None:
         img_with_box = clean_img.copy()
         cv2.rectangle(img_with_box, (min_box[0], min_box[1]), (min_box[2], min_box[3]), (0, 255, 255), 2)  # yellow box
-        cv2.namedWindow("YOLO Box", cv2.WINDOW_NORMAL)
-        cv2.imshow("YOLO Box", img_with_box)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        plt.figure("best YOLO Box")
+        plt.imshow(cv2.cvtColor(img_with_box, cv2.COLOR_BGR2RGB))
+        plt.title("best YOLO Box")
+        plt.show()
 
 
 
@@ -925,7 +926,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
 
             # Create a mask for the line
             mask = np.zeros_like(gray, dtype=np.uint8)
-            cv2.line(mask, pt_a, pt_b, 255, 4)
+            cv2.line(mask, pt_a, pt_b, 255, 2)
             # Get pixel values along the line from normalized_gray
             line_pixels = normalized_gray[mask > 0]
             
@@ -933,11 +934,26 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                 brightest = np.max(line_pixels)
                 darkest = np.min(line_pixels)
                 diff = brightest - darkest
-                score = -diff if yolo_repl else diff  # Invert score if replaced by YOLO to prioritize them
+                score = diff                    
             else:
                 score = 0
 
-            scores[i // 2] = score
+            local_min_count = 0
+            if len(line_pixels) > 2:
+                for j in range(1, len(line_pixels) - 1):
+                    if line_pixels[j] < line_pixels[j - 1] and line_pixels[j] < line_pixels[j + 1]:
+                        local_min_count += 1
+            local_min = local_min_count == 2 or local_min_count == 3
+
+            if yolo_repl:
+                score_type = "yolo"
+            elif local_min:
+                score_type = "local_min"
+            else:
+                score_type = "grid"
+
+
+            scores[i // 2] = {"score": score, "type": score_type}
             scanlines[i // 2] = {
                 "pt_a": [int(pt_a[0]), int(pt_a[1])],
                 "pt_b": [int(pt_b[0]), int(pt_b[1])],
@@ -947,7 +963,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
 
             # Draw the line on the image
             line_color = (0, 0, 255) if not yolo_repl else (255, 0, 255)  # Magenta if replaced by YOLO
-            cv2.line(img, pt_a, pt_b, line_color, 4)
+            cv2.line(img, pt_a, pt_b, line_color, 2)
 
         if not retry_condition:
             break
@@ -988,19 +1004,24 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         # mark the center of the square with a blue circle
         cv2.circle(img, (int(center_x), int(center_y)), 8, (255, 0, 0), -1)  # blue for center of the square
         
-        cv2.namedWindow("Scanlines", cv2.WINDOW_NORMAL)
-        cv2.imshow("Scanlines", img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        plt.figure("Preview Scanlines", figsize=(8, 8))
+        plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        plt.title("Preview Scanlines")
+        plt.show()
 
-    final_score = []
+    final_score = {}
     scanline_map = {}
     for i in range(len(scores) // 2):
-        vert_score = abs(scores[i])
-        horiz_score = abs(scores[i + len(scores) // 2])
-        vert_sign = 1 if scores[i] >= 0 else -1
-        horiz_sign = 1 if scores[i + len(scores) // 2] >= 0 else -1
-        net_sign = -1 if vert_sign == -1 or horiz_sign == -1 else 1
+        vert_score = abs(scores[i]["score"])
+        horiz_score = abs(scores[i + len(scores) // 2]["score"])
+
+        if scores[i]["type"] == "local_min":
+            temp_type = "local_min"
+        elif scores[i]["type"] == "yolo":
+            temp_type = "yolo"
+        else:
+            temp_type = "grid"
+        
         if SCORE_METHOD == "mean":
             temp_score = (vert_score + horiz_score) / 2.0
         elif SCORE_METHOD == "max":
@@ -1009,8 +1030,8 @@ def calculate_focus_scores(image_path, yolo_detections=None):
             temp_score = min(vert_score, horiz_score)
         else:
             temp_score = vert_score
-        temp_score *= net_sign
-        final_score.append(float(temp_score))
+        
+        final_score[i] = {"score": float(temp_score), "type": temp_type}
 
         group, element = score_table[i]
         scanline_map[f"{group}:{element}"] = {
@@ -1027,35 +1048,46 @@ def calculate_focus_scores(image_path, yolo_detections=None):
 
 
 
-def find_best_focus_group(scores_list):
+def find_best_focus_group(scores_list, threshold=0.2):
     '''
     Find the index in the scores where the descending order of scores changes to ascending order,
     or where the score drops below a certain threshold (e.g., 0.2), which indicates the best focus group.
     Return the corresponding group and element number from the score table.
     '''
     # We need at least 2 scores to compare
+    chosen_index = 0
     if len(scores_list) < 2:
         print("Not enough scores to compare")
-        return None
+        return score_table[chosen_index], chosen_index
 
     last_yolo_index = 1
     for i in range(0, len(scores_list)): 
-        if scores_list[i] < -0.2:
+        if scores_list[i]["score"] > threshold and scores_list[i]["type"] == "yolo":
             last_yolo_index = i + 1
 
-    if last_yolo_index == len(scores_list):
+    last_local_min_index = 1
+    for i in range(0, len(scores_list)):
+        if scores_list[i]["score"] > threshold and scores_list[i]["type"] == "local_min":
+            last_local_min_index = i + 1
+
+    last_index = max(last_yolo_index, last_local_min_index)
+
+    if last_index == len(scores_list):
         print("all resolved")
-        return score_table[len(score_table) - 1]
+        chosen_index = len(score_table) - 1
+        return score_table[chosen_index], chosen_index
     
-    for i in range(last_yolo_index, len(scores_list)):     
+    for i in range(last_index, len(scores_list)):     
         # If the score starts going UP, the previous index was the "bottom"
-        if abs(scores_list[i]) > abs(scores_list[i-1]) * 1.1 or abs(scores_list[i]) < 0.2:
+        if scores_list[i]["score"] > scores_list[i-1]["score"] * 1.1 or scores_list[i]["score"] < threshold:
             # Return the score of the last group before it went up or dropped too low
-            return score_table[min(i-1, len(score_table) - 1)]  
+            chosen_index = min(i-1, len(score_table) - 1)
+            return score_table[chosen_index], chosen_index
     
     # If it never goes up, return first element
     print("No score goes up")
-    return score_table[len(score_table) - 1] 
+    chosen_index = len(score_table) - 1
+    return score_table[chosen_index], chosen_index
 
 
 
@@ -1089,8 +1121,7 @@ def find_usaf_score(image_path, model_path = MODEL_PATH, imgsz=2048):
 
     # find the index in the scores where the descending order of scores changes to ascending order, 
     # that is the index of the best focus group
-    scores_list = [scores[i] for i in range(len(scores))]
-    best_focus_group = find_best_focus_group(scores_list)
+    best_focus_group, chosen_index = find_best_focus_group(scores, threshold=0.2)
     print(f"Best focus group for {image_path}: {best_focus_group[0]}, element {best_focus_group[1]}")
     return best_focus_group
 
