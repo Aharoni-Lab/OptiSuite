@@ -24,7 +24,7 @@ class USAFAnalyzerConfig(AnalyzerConfig):
     flip_mode: str = "auto"
     flipped_target: bool = True
     auto_adjust: bool = False
-    model_path: str = str(usaf_algo.MODEL_PATH)
+    model_path: str = str(yolo_model.MODEL_PATH)
     imgsz: int = 2048
 
 
@@ -121,6 +121,9 @@ class USAFAnalyzer(ResolutionAnalyzer):
         warnings: list[str] = []
         threshold = self.config.contrast_threshold
         detections = None
+        _result = None
+        _img = None
+
         if self.config.allow_model_assist:
             model_path = Path(self.config.model_path)
             if model_path.exists():
@@ -139,6 +142,8 @@ class USAFAnalyzer(ResolutionAnalyzer):
             candidate_config = replace(self.config, flipped_target=flipped_target)
             try:
                 with _legacy_config_scope(candidate_config):
+                    if usaf_algo.PREVIEW_MODE and usaf_algo.YOLO_DETECT and detections is not None:
+                        usaf_algo.visualize_detections(_img, _result, detections)
                     scores, scanline_map = _calculate_scores_and_scanlines(context, detections)
                     scores_list = [scores[i]["score"] for i in range(len(scores))]
                     if not scores:

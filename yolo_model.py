@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 _MODEL_CACHE = {}
+MODEL_PATH = Path("./models/best21.pt")
 
 
 def get_yolo_model(model_path):
@@ -14,7 +15,7 @@ def get_yolo_model(model_path):
     return _MODEL_CACHE[model_path]
 
 
-def extract_yolo_detections(image_path, model_path, imgsz=2048):
+def extract_yolo_detections(image_path, model_path = MODEL_PATH, imgsz=2048):
     """
     Extract YOLO detections including bounding boxes and keypoints for each detected object.
     
@@ -125,7 +126,7 @@ def visualize_detections(img, result = None, detections = None):
 
 
 def main():
-    model_path = Path("models\\best21.pt")
+    model_path = MODEL_PATH
     if not model_path.exists():
         raise FileNotFoundError("Could not find trained YOLOv8 model at runs/detect/train/weights/best.pt or best.pt")
 

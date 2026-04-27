@@ -21,7 +21,7 @@ from scipy.signal import savgol_filter
 #debug const
 DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = True             # overview photo
-YOLO_DETECT = True              # yolo detection
+YOLO_DETECT = False              # yolo detection
 GRADIENT_MIN = True
 FLIPED_TARGET = True           # true if target is fliped
 G1 = 2                          # first group number
@@ -32,8 +32,6 @@ RETRY_OFF_IMAGE = False         # if any scanline goes out of image, retry with 
 AUTO_ADJUST = False             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
 ADJUST_THRESH = 0.8             # white threshold, between 0 and 1 of the normalzed grayscale value
 SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
-
-MODEL_PATH = Path("./models/best21.pt")
 
 
 
@@ -1003,7 +1001,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                     smooth_pixels = savgol_filter(line_pixels, window_length=15, polyorder=3)
                     dy = np.gradient(smooth_pixels)
                     # Find where derivative crosses zero from negative to positive
-                    is_min = (dy[:-1] < 0) & (dy[1:] > 0)
+                    is_min = (dy[:-1] < -0.0001) & (dy[1:] > 0.0001)
                     # Convert boolean mask to actual indices of the minima
                     min_indices = np.where(is_min)[0]
 
@@ -1017,12 +1015,12 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                         local_min_count = len(min_indices)
 
                     # # Print local minima positions for group 6 element 5
-                    # if i // 26 == 1:
+                    # if i // 2 == 32:
                     #     print(f"Local minima positions for group 6 element 5: {filtered_min_indices}")
                     #     print(f"Local minima count for group 6 element 5: {local_min_count}")
 
                     # # Plot pixel values and gradient for group 6 element 5 (index 25)
-                    # if i // 2 == 26 and len(line_pixels) >= 3:
+                    # if i // 2 == 32 and len(line_pixels) >= 3:
                     #     dy = np.gradient(smooth_pixels)
                     #     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
                     #     ax1.plot(smooth_pixels, label='Pixel Values')
@@ -1190,14 +1188,13 @@ def find_best_focus_group(scores_list, threshold=0.2):
 
 
 
-def find_usaf_score(image_path, model_path = MODEL_PATH, imgsz=2048):
+def find_usaf_score(image_path, imgsz=2048):
     '''
     Find the usaf focus score for a given image path, which is the best focus group number 
     based on the defined scanlines and the detected corners for coordinate calibration.
     
     Args:
         image_path: Path to the image
-        model_path: Path to the YOLO model
         imgsz: Image size for YOLO inference
     
     Returns:
@@ -1205,7 +1202,7 @@ def find_usaf_score(image_path, model_path = MODEL_PATH, imgsz=2048):
     '''
     yolo_detections = None
     if YOLO_DETECT:
-        yolo_detections, _result, _img = extract_yolo_detections(image_path, model_path, imgsz)
+        yolo_detections, _result, _img = extract_yolo_detections(image_path, imgsz=imgsz)
     if PREVIEW_MODE and YOLO_DETECT:
         visualize_detections(_img, _result, yolo_detections)
     # Calculate focus scores
@@ -1226,4 +1223,4 @@ def find_usaf_score(image_path, model_path = MODEL_PATH, imgsz=2048):
 
 
 for image_path in images:
-    find_usaf_score(image_path, MODEL_PATH)
+    find_usaf_score(image_path)

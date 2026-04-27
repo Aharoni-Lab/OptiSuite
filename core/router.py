@@ -93,17 +93,15 @@ class TargetRouter:
             reason = "Heuristic target classification with patch-pattern preference"
 
         if self.config.use_detection_fallback and best_score < 0.55:
-            model_path = Path("models") / "best21.pt"
-            if model_path.exists():
-                try:
-                    detections, _result, _image = yolo_model.extract_yolo_detections(image_path, model_path)
-                    if len(detections) >= 10:
-                        best_chart_type = "usaf"
-                        best_score = max(best_score, 0.8)
-                        used_model_fallback = True
-                        reason = "YOLO fallback detected dense USAF-like elements"
-                except Exception:
-                    pass
+            try:
+                detections, _result, _image = yolo_model.extract_yolo_detections(image_path)
+                if len(detections) >= 10:
+                    best_chart_type = "usaf"
+                    best_score = max(best_score, 0.8)
+                    used_model_fallback = True
+                    reason = "YOLO fallback detected dense USAF-like elements"
+            except Exception:
+                pass
 
         decision = RouterDecision(
             chart_type=best_chart_type,
