@@ -4,6 +4,7 @@ import math
 import matplotlib.pyplot as plt
 from pathlib import Path
 from yolo_model import extract_yolo_detections, visualize_detections
+from scipy.signal import savgol_filter
 
 
 
@@ -20,7 +21,8 @@ from yolo_model import extract_yolo_detections, visualize_detections
 #debug const
 DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = True             # overview photo
-YOLO_DETECT = False              # yolo detection
+YOLO_DETECT = True              # yolo detection
+GRADIENT_MIN = True
 FLIPED_TARGET = True           # true if target is fliped
 G1 = 2                          # first group number
 
@@ -123,6 +125,12 @@ group_positions = {
     60: (0.4226 + g7x_offset, (-2.4828 + g7y_offset) * g7y_scale),                            61: (0.443 + g7x_offset, (-2.4832 + g7y_offset) * g7y_scale),
     62: (0.4294 + g7x_offset, (-2.522 + g7y_offset) * g7y_scale),                             63: (0.4462 + g7x_offset, (-2.5223 + g7y_offset) * g7y_scale),
     64: (0.4352 + g7x_offset, (-2.557 + g7y_offset) * g7y_scale),                             65: (0.4493 + g7x_offset, (-2.557 + g7y_offset) * g7y_scale),
+
+
+
+
+
+
 
     66: (-2.05 * g2x_scale, -0.003 * g2y_scale),      67: (-1.26 * g2x_scale, 0.005 * g2y_scale),
     68: (-2.19 * g2x_scale, -1.625 * g2y_scale),     69: (-1.51 * g2x_scale, -1.617 * g2y_scale),
@@ -813,6 +821,50 @@ def misalignment_handling(clean_detection, clean_img, normalized_gray):
         plt.show()
 
 
+def sample_line_profile(gray, pt_a, pt_b, sample_count=200):
+    """
+    Samples a line profile with sub-pixel accuracy and guaranteed ordering.
+    """
+    # 1. Generate floating-point coordinates along the line
+    # These represent the exact path from A to B
+    xs = np.linspace(pt_a[0], pt_b[0], sample_count, dtype=np.float32)
+    ys = np.linspace(pt_a[1], pt_b[1], sample_count, dtype=np.float32)
+
+    # 2. Use Bi-linear Interpolation for smoother intensity values
+    # Reshaping to (1, -1) makes it a 1-pixel high 'image' for remap
+    line_pixels = cv2.remap(
+        gray,
+        xs.reshape(1, -1),
+        ys.reshape(1, -1),
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT
+    ).flatten()
+
+    # 3. Return coordinates (rounded for visualization) and the smooth pixels
+    coords = np.column_stack((xs, ys))
+    return coords, line_pixels
+
+
+def extend_line(pt_a: tuple[int, int], pt_b: tuple[int, int], extend_length: float = 1.0) -> tuple[tuple[int, int], tuple[int, int]]:
+    """
+    Extends the line segment AB in both directions by a specified number of pixels.
+    """
+    a = np.array(pt_a, dtype=np.float32)
+    b = np.array(pt_b, dtype=np.float32)
+    direction = b - a
+    length = np.linalg.norm(direction)
+    if length == 0:
+        return a, b
+    unit_vector = direction / length
+    # 4. Extend the points
+    # Move A 'backward' and B 'forward' along the unit vector
+    new_a = a - (unit_vector * extend_length * length)
+    new_b = b + (unit_vector * extend_length * length)
+    # convert back to tuple
+    new_a = (int(new_a[0]), int(new_a[1]))
+    new_b = (int(new_b[0]), int(new_b[1]))
+    return new_a, new_b
+
 
 def calculate_focus_scores(image_path, yolo_detections=None):
     '''
@@ -886,10 +938,12 @@ def calculate_focus_scores(image_path, yolo_detections=None):
 
         
         yolo_repl = False
+        local_min = False
         # Iterate through the dictionary in pairs
         # range(0, len, 2) gives us 0, 2, 4...
         for i in range(0, len(group_positions), 2):
             yolo_repl = False
+            local_min = False
             # Get the raw usaf coordinates (tuples)
             raw_a = group_positions[i]
             raw_b = group_positions[i+1]
@@ -918,7 +972,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
             pt_a, pt_b = pt_a_adj, pt_b_adj
 
             # ====== YOLO INTEGRATION: Check and replace points if they fall within YOLO bounding boxes ======
-            if yolo_detections is not None and len(yolo_detections) > 0:
+            if yolo_detections is not None and len(yolo_detections) > 0 and YOLO_DETECT:
                 repl_a, repl_b = find_replacement_keypoints(pt_a, pt_b, yolo_detections)
                 if repl_a is not None:
                     pt_a, pt_b = apply_point_adjustment_algorithm(repl_a, repl_b, normalized_gray)
@@ -929,7 +983,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
             cv2.line(mask, pt_a, pt_b, 255, 2)
             # Get pixel values along the line from normalized_gray
             line_pixels = normalized_gray[mask > 0]
-            
+
             if len(line_pixels) > 0:
                 brightest = np.max(line_pixels)
                 darkest = np.min(line_pixels)
@@ -938,19 +992,63 @@ def calculate_focus_scores(image_path, yolo_detections=None):
             else:
                 score = 0
 
-            local_min_count = 0
-            if len(line_pixels) > 2:
-                for j in range(1, len(line_pixels) - 1):
-                    if line_pixels[j] < line_pixels[j - 1] and line_pixels[j] < line_pixels[j + 1]:
-                        local_min_count += 1
-            local_min = local_min_count == 2 or local_min_count == 3
 
-            if yolo_repl:
-                score_type = "yolo"
-            elif local_min:
+
+            if GRADIENT_MIN:
+                pt_a_e, pt_b_e = extend_line(pt_a, pt_b, extend_length=0.2)
+                _, line_pixels = sample_line_profile(normalized_gray, pt_a_e, pt_b_e, sample_count=100)
+                if len(line_pixels) < 3:
+                    local_min_count = 0
+                else:
+                    smooth_pixels = savgol_filter(line_pixels, window_length=15, polyorder=3)
+                    dy = np.gradient(smooth_pixels)
+                    # Find where derivative crosses zero from negative to positive
+                    is_min = (dy[:-1] < 0) & (dy[1:] > 0)
+                    # Convert boolean mask to actual indices of the minima
+                    min_indices = np.where(is_min)[0]
+
+                    if len(min_indices) > 1:
+                        diffs = np.diff(min_indices)
+                        mask = np.concatenate(([True], diffs > 1))
+                        filtered_min_indices = min_indices[mask]
+                        local_min_count = len(filtered_min_indices)
+                    else:
+                        filtered_min_indices = min_indices
+                        local_min_count = len(min_indices)
+
+                    # # Print local minima positions for group 6 element 5
+                    # if i // 26 == 1:
+                    #     print(f"Local minima positions for group 6 element 5: {filtered_min_indices}")
+                    #     print(f"Local minima count for group 6 element 5: {local_min_count}")
+
+                    # # Plot pixel values and gradient for group 6 element 5 (index 25)
+                    # if i // 2 == 26 and len(line_pixels) >= 3:
+                    #     dy = np.gradient(smooth_pixels)
+                    #     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
+                    #     ax1.plot(smooth_pixels, label='Pixel Values')
+                    #     ax1.set_title('Pixel Values along Scanline (Group 6 Element 5)')
+                    #     ax1.set_xlabel('Position')
+                    #     ax1.set_ylabel('Intensity')
+                    #     ax1.grid(True)
+                    #     ax2.plot(dy, label='Gradient', color='orange')
+                    #     ax2.set_title('Gradient along Scanline')
+                    #     ax2.set_xlabel('Position')
+                    #     ax2.set_ylabel('Gradient')
+                    #     ax2.grid(True)
+                    #     plt.tight_layout()
+                    #     plt.show()
+
+                    local_min = local_min_count >= 2
+
+
+
+            if local_min:
                 score_type = "local_min"
+            elif yolo_repl:
+                score_type = "yolo"
             else:
                 score_type = "grid"
+
 
 
             scores[i // 2] = {"score": score, "type": score_type}
@@ -1015,9 +1113,9 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         vert_score = abs(scores[i]["score"])
         horiz_score = abs(scores[i + len(scores) // 2]["score"])
 
-        if scores[i]["type"] == "local_min":
+        if scores[i]["type"] == "local_min" or scores[i + len(scores) // 2]["type"] == "local_min":
             temp_type = "local_min"
-        elif scores[i]["type"] == "yolo":
+        elif scores[i]["type"] == "yolo" or scores[i + len(scores) // 2]["type"] == "yolo":
             temp_type = "yolo"
         else:
             temp_type = "grid"
@@ -1040,6 +1138,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
             "vertical": scanlines[i],
             "horizontal": scanlines[i + len(scores) // 2],
             "score": float(temp_score),
+            "type": temp_type,
             "lp_per_mm": usaf_lp_per_mm(group, element),
             "resolution_mm": usaf_resolution_mm(group, element),
         }

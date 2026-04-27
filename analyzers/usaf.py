@@ -216,17 +216,19 @@ class USAFAnalyzer(ResolutionAnalyzer):
             if "pt_a" in scanline_data["vertical"] and "pt_b" in scanline_data["vertical"]:
                 pt_a = scanline_data["vertical"]["pt_a"]
                 pt_b = scanline_data["vertical"]["pt_b"]
-                # Convert to screen coordinates (flip Y axis)
-                height = context.gray_image.shape[0]
-                screen_pt_a = pt_a  # (pt_a[0], height - pt_a[1] - 1)
-                screen_pt_b = pt_b  #(pt_b[0], height - pt_b[1] - 1)
                 # Color based on whether this is the resolved element
-                color = (0, 255, 0) if group == best_focus_group[0] and element == best_focus_group[1] else (255, 0, 0)
+                if group == best_focus_group[0] and element == best_focus_group[1]:
+                    color = (0, 255, 0)
+                elif scanline_data["type"] == "local_min":
+                    color = (0, 0, 255)
+                else:
+                    color = (255, 0, 0)
+
                 overlay_items.append(OverlayItem(
                     kind="line",
-                    points=[screen_pt_a, screen_pt_b],
+                    points=[pt_a, pt_b],
                     color=color,
-                    thickness=3,
+                    thickness=2,
                     text=f"G{group}E{element}V"
                 ))
             
@@ -234,17 +236,19 @@ class USAFAnalyzer(ResolutionAnalyzer):
             if "pt_a" in scanline_data["horizontal"] and "pt_b" in scanline_data["horizontal"]:
                 pt_a = scanline_data["horizontal"]["pt_a"]
                 pt_b = scanline_data["horizontal"]["pt_b"]
-                # Convert to screen coordinates (flip Y axis)
-                height = context.gray_image.shape[0]
-                screen_pt_a = pt_a  # (pt_a[0], height - pt_a[1] - 1)
-                screen_pt_b = pt_b  #(pt_b[0], height - pt_b[1] - 1)
                 # Color based on whether this is the resolved element
-                color = (0, 255, 0) if group == best_focus_group[0] and element == best_focus_group[1] else (255, 0, 0)
+                if group == best_focus_group[0] and element == best_focus_group[1]:
+                    color = (0, 255, 0)
+                elif scanline_data["type"] == "local_min":
+                    color = (0, 0, 255)
+                else:
+                    color = (255, 0, 0)
+
                 overlay_items.append(OverlayItem(
                     kind="line",
-                    points=[screen_pt_a, screen_pt_b],
+                    points=[pt_a, pt_b],
                     color=color,
-                    thickness=3,
+                    thickness=2,
                     text=f"G{group}E{element}H"
                 ))
         #--------------------------------------------------------------------------------------------
