@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 _MODEL_CACHE = {}
-MODEL_PATH = Path("./models/best21.pt")
+MODEL_PATH = Path("./models/best22.pt")
 
 
 def get_yolo_model(model_path):

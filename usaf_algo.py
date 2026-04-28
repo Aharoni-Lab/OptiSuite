@@ -21,7 +21,7 @@ from scipy.signal import savgol_filter
 #debug const
 DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = True             # overview photo
-YOLO_DETECT = False              # yolo detection
+YOLO_DETECT = True              # yolo detection
 GRADIENT_MIN = True
 FLIPED_TARGET = True           # true if target is fliped
 G1 = 2                          # first group number
