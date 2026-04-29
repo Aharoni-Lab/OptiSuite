@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 _MODEL_CACHE = {}
-MODEL_PATH = Path("./models/best22.pt")
+MODEL_PATH = Path("./models/best23.pt")
 
 
 def get_yolo_model(model_path):
@@ -32,7 +32,7 @@ def extract_yolo_detections(image_path, model_path = MODEL_PATH, imgsz=2048):
     if img is None:
         raise FileNotFoundError(f"Could not read image: {image_path}")
     
-    results = model(str(image_path), imgsz=imgsz)
+    results = model(str(image_path), imgsz=imgsz, iou=0.5, conf=0.25)
     result = results[0]
     
     detections = []
@@ -40,32 +40,55 @@ def extract_yolo_detections(image_path, model_path = MODEL_PATH, imgsz=2048):
     # Extract bounding boxes and keypoints from YOLO results
     if result.boxes is not None:
         boxes = result.boxes.xyxy.cpu().numpy()  # Get bounding boxes in (x1, y1, x2, y2) format
-        
+
         # Check if keypoints are available
         if result.keypoints is not None and result.keypoints.xy is not None:
             keypoints_data = result.keypoints.xy.cpu().numpy()  # Shape: (num_detections, num_keypoints, 2)
+
+
+
+            # remove boxes if the aspect ration is 2:1 or 1:2 or more extreme
+            filtered_boxes = []
+            filter_keypoints = []
+            for i, box in enumerate(boxes):  # Iterate over the bounding boxes:
+                x1, y1, x2, y2 = box
+                w = x2 - x1
+                h = y2 - y1
+                aspect_ratio = w / h if h > 0 else 0
+                if 0.66 <= aspect_ratio <= 1.5:
+                    filtered_boxes.append(box)
+                    filter_keypoints.append(keypoints_data[i])
+            boxes = np.array(filtered_boxes)
+            keypoints_data = np.array(filter_keypoints)
+
+
             
             for i, bbox in enumerate(boxes):
                 x1, y1, x2, y2 = bbox
                 # Get the 2 keypoints for this detection (take first 2 keypoints)
                 # or the keypoints with highest confidence
                 keypoints = keypoints_data[i]
-                
+                delta = 5
+
+                kp1_in = (x1-delta <= keypoints[0][0] <= x2+delta and y1-delta <= keypoints[0][1] <= y2+delta)
+                kp2_in = (x1-delta <= keypoints[1][0] <= x2+delta and y1-delta <= keypoints[1][1] <= y2+delta)
                 # Filter out invalid keypoints (usually marked with NaN or zero confidence)
+                # filter keypoints that are outside the bounding box
                 valid_keypoints = []
-                for kpt in keypoints:
-                    if not np.isnan(kpt[0]) and not np.isnan(kpt[1]):
-                        valid_keypoints.append(tuple(kpt.astype(int)))
-                
-                # If we have keypoints, use them; otherwise none
-                selected_keypoints = [None, None]
-                if len(valid_keypoints) >= 2:
-                    selected_keypoints = valid_keypoints[:2]
-                
-                detections.append({
-                    'bbox': (int(x1), int(y1), int(x2), int(y2)),
-                    'keypoints': selected_keypoints
-                })
+                if kp1_in or kp2_in:
+                    for kpt in keypoints:
+                        if not np.isnan(kpt[0]) and not np.isnan(kpt[1]):
+                            valid_keypoints.append(tuple(kpt.astype(int)))
+                        
+                    # If we have keypoints, use them; otherwise none
+                    selected_keypoints = [None, None]
+                    if len(valid_keypoints) >= 2:
+                        selected_keypoints = valid_keypoints[:2]
+                        
+                    detections.append({
+                        'bbox': (int(x1), int(y1), int(x2), int(y2)),
+                        'keypoints': selected_keypoints
+                    })
         else:
             # No keypoints available, use bbox centers as fallback
             for bbox in boxes:
