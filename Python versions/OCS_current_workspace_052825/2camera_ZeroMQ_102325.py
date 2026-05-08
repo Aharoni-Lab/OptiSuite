@@ -5,11 +5,15 @@ import numpy as np
 import queue
 import threading
 import time
+from ctypes import byref, c_double, c_int, c_void_p, cdll
+from collections import deque
 from datetime import datetime, timezone
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QComboBox, QHBoxLayout, QGridLayout, QLineEdit, QSpinBox
+from PyQt5.QtWidgets import QFileDialog
+from PyQt5.QtWidgets import QGroupBox
 from PyQt5.QtWidgets import QDoubleSpinBox, QPlainTextEdit
-from PyQt5.QtCore import QEvent, QObject, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import QEvent, QObject, QTimer, Qt, pyqtSignal, QRectF
+from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
 import gxipy as gx
 import json #for sending run commands
 import autofocus as af
@@ -28,6 +32,687 @@ class StageEventBus(QObject):
 class UiBus(QObject):
     log = pyqtSignal(str)
     autofocus_finished = pyqtSignal()
+
+
+class PowerMeterBus(QObject):
+    sample = pyqtSignal(float, float)
+    status = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+
+class SpectrometerBus(QObject):
+    spectrum = pyqtSignal(object, object)
+    status = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+
+def make_gauge_icon(size: int = 72) -> QIcon:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+
+    pad = max(4, size // 14)
+    rect = QRectF(pad, pad, size - 2 * pad, size - 2 * pad)
+
+    # Dial arc
+    arc_pen = QPen(QColor(35, 35, 35), max(2, size // 18))
+    painter.setPen(arc_pen)
+    painter.drawArc(rect, 225 * 16, 270 * 16)
+
+    # Tick marks
+    cx = size / 2.0
+    cy = size / 2.0
+    radius_outer = rect.width() * 0.42
+    radius_inner = radius_outer - max(4, size * 0.08)
+    for angle_deg in (-135, -90, -45, 0, 45, 90, 135):
+        rad = np.deg2rad(float(angle_deg))
+        x1 = cx + radius_inner * np.cos(rad)
+        y1 = cy + radius_inner * np.sin(rad)
+        x2 = cx + radius_outer * np.cos(rad)
+        y2 = cy + radius_outer * np.sin(rad)
+        painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+    # Needle
+    needle_pen = QPen(QColor(220, 38, 38), max(2, size // 20))
+    painter.setPen(needle_pen)
+    needle_angle = np.deg2rad(-35.0)
+    needle_len = rect.width() * 0.28
+    nx = cx + needle_len * np.cos(needle_angle)
+    ny = cy + needle_len * np.sin(needle_angle)
+    painter.drawLine(int(cx), int(cy), int(nx), int(ny))
+
+    # Hub
+    painter.setPen(QPen(QColor(35, 35, 35), 1))
+    painter.setBrush(QColor(35, 35, 35))
+    hub_r = max(2, size // 14)
+    painter.drawEllipse(int(cx - hub_r), int(cy - hub_r), hub_r * 2, hub_r * 2)
+
+    painter.end()
+    return QIcon(pixmap)
+
+
+def format_power_watts(power_w: float) -> str:
+    value = float(power_w)
+    abs_value = abs(value)
+    if abs_value >= 1.0:
+        return f"{value:.6g} W"
+    if abs_value >= 1e-3:
+        return f"{value * 1e3:.6g} mW"
+    if abs_value >= 1e-6:
+        return f"{value * 1e6:.6g} uW"
+    if abs_value >= 1e-9:
+        return f"{value * 1e9:.6g} nW"
+    return f"{value * 1e12:.6g} pW"
+
+
+class PowerTraceWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.samples = deque(maxlen=3000)
+        self.setMinimumSize(720, 360)
+
+    def clear(self):
+        self.samples.clear()
+        self.update()
+
+    def add_sample(self, elapsed_s: float, power_w: float):
+        self.samples.append((float(elapsed_s), float(power_w)))
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        width = self.width()
+        height = self.height()
+        margin_l = 72
+        margin_r = 20
+        margin_t = 20
+        margin_b = 60
+        plot_w = max(1, width - margin_l - margin_r)
+        plot_h = max(1, height - margin_t - margin_b)
+
+        painter.fillRect(self.rect(), QColor(250, 250, 250))
+        painter.setPen(QPen(QColor(60, 60, 60), 1))
+        painter.drawRect(margin_l, margin_t, plot_w, plot_h)
+
+        if not self.samples:
+            painter.drawText(margin_l + 12, margin_t + 28, "Waiting for power meter samples...")
+            painter.end()
+            return
+
+        samples = list(self.samples)
+        latest_t = samples[-1][0]
+        x_min = max(0.0, latest_t - 60.0)
+        visible = [(t, p) for t, p in samples if t >= x_min]
+        if len(visible) < 2:
+            visible = samples[-2:] if len(samples) >= 2 else samples
+
+        x_max = max(latest_t, x_min + 1.0)
+        powers = [p for _, p in visible]
+        y_min = min(powers)
+        y_max = max(powers)
+        if abs(y_max - y_min) < 1e-15:
+            pad = max(abs(y_max) * 0.05, 1e-12)
+        else:
+            pad = (y_max - y_min) * 0.08
+        y_min -= pad
+        y_max += pad
+
+        def to_x(t):
+            return margin_l + int((t - x_min) / (x_max - x_min) * plot_w)
+
+        def to_y(p):
+            return margin_t + plot_h - int((p - y_min) / (y_max - y_min) * plot_h)
+
+        painter.setPen(QPen(QColor(225, 225, 225), 1))
+        for n in range(1, 5):
+            x = margin_l + int(plot_w * n / 5)
+            y = margin_t + int(plot_h * n / 5)
+            painter.drawLine(x, margin_t, x, margin_t + plot_h)
+            painter.drawLine(margin_l, y, margin_l + plot_w, y)
+
+        painter.setPen(QPen(QColor(70, 70, 70), 1))
+        for n in range(0, 6):
+            frac = n / 5.0
+            tick_t = x_min + frac * (x_max - x_min)
+            x = margin_l + int(plot_w * frac)
+            painter.drawLine(x, margin_t + plot_h, x, margin_t + plot_h + 5)
+            painter.drawText(x - 32, margin_t + plot_h + 8, 64, 18, Qt.AlignCenter, f"{tick_t:.1f}")
+
+        painter.setPen(QPen(QColor(33, 102, 172), 2))
+        prev = None
+        for t, p in visible:
+            point = (to_x(t), to_y(p))
+            if prev is not None:
+                painter.drawLine(prev[0], prev[1], point[0], point[1])
+            prev = point
+
+        painter.setPen(QPen(QColor(35, 35, 35), 1))
+        painter.drawText(8, margin_t + 4, margin_l - 14, 20, Qt.AlignRight, format_power_watts(y_max))
+        painter.drawText(8, margin_t + plot_h - 16, margin_l - 14, 20, Qt.AlignRight, format_power_watts(y_min))
+        painter.drawText(margin_l, height - 24, plot_w, 20, Qt.AlignCenter, "Elapsed time (s)")
+        painter.drawText(margin_l + 6, margin_t + 20, f"Latest: {format_power_watts(samples[-1][1])}")
+        painter.end()
+
+
+class PowerMeterWindow(QWidget):
+    closed = pyqtSignal()
+
+    def __init__(self, start_callback, stop_callback, parent=None):
+        super().__init__(parent)
+        self.start_callback = start_callback
+        self.stop_callback = stop_callback
+        self.stream_running = False
+        self.setWindowTitle("Thorlabs Power Meter Live Plot")
+
+        self.status_label = QLabel("Connecting to power meter...")
+        self.status_label.setWordWrap(True)
+        self.latest_label = QLabel("Latest: --")
+        self.latest_label.setStyleSheet("font-weight: 600;")
+        self.plot = PowerTraceWidget()
+
+        self.stream_btn = QPushButton("Stop")
+        clear_btn = QPushButton("Clear")
+        self.stream_btn.clicked.connect(self.toggle_stream)
+        clear_btn.clicked.connect(self.plot.clear)
+
+        controls = QHBoxLayout()
+        controls.addWidget(self.stream_btn)
+        controls.addWidget(clear_btn)
+        controls.addStretch(1)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.latest_label)
+        layout.addWidget(self.plot)
+        layout.addLayout(controls)
+        self.setLayout(layout)
+        self.resize(820, 480)
+
+    def add_sample(self, elapsed_s: float, power_w: float):
+        self.latest_label.setText(f"Latest: {format_power_watts(power_w)}")
+        self.plot.add_sample(elapsed_s, power_w)
+
+    def set_status(self, text: str):
+        self.status_label.setText(text)
+
+    def set_stream_running(self, running: bool):
+        self.stream_running = bool(running)
+        self.stream_btn.setText("Stop" if self.stream_running else "Start")
+
+    def toggle_stream(self):
+        if self.stream_running:
+            self.stop_callback()
+        else:
+            self.start_callback()
+
+    def closeEvent(self, event):
+        self.stop_callback()
+        self.closed.emit()
+        event.accept()
+
+
+class PowerMeterWorker(threading.Thread):
+    POWER_METER_PRODUCT_IDS = {"0X8072", "0X8078", "0X807B"}
+
+    def __init__(self, bus: PowerMeterBus, sample_interval_s: float = 0.2):
+        super().__init__(daemon=True)
+        self.bus = bus
+        self.sample_interval_s = float(sample_interval_s)
+        self.stop_event = threading.Event()
+        self.rm = None
+        self.instr = None
+        self.connected = False
+        self.resource_name = None
+
+    def stop(self):
+        self.stop_event.set()
+
+    def run(self):
+        try:
+            pyvisa = __import__("pyvisa")
+        except ImportError:
+            self.bus.error.emit("PyVISA is not installed. Install it with: python -m pip install pyvisa")
+            return
+
+        try:
+            self._connect_power_meter(pyvisa)
+
+            start = time.monotonic()
+            consecutive_errors = 0
+            while not self.stop_event.is_set():
+                try:
+                    reading = self.instr.query("MEAS:POW?").strip()
+                    power_w = float(reading.split(",")[0])
+                    consecutive_errors = 0
+                    self.bus.sample.emit(time.monotonic() - start, power_w)
+                except Exception as e:
+                    consecutive_errors += 1
+                    if consecutive_errors == 1:
+                        self.bus.status.emit(f"Power meter read paused: {e}")
+                    if consecutive_errors >= 3:
+                        self.bus.status.emit("Reconnecting power meter...")
+                        self._connect_power_meter(pyvisa)
+                        consecutive_errors = 0
+                self.stop_event.wait(self.sample_interval_s)
+        except Exception as e:
+            self.bus.error.emit(f"Power meter error: {e}")
+        finally:
+            self._close_resources()
+            if self.connected:
+                self.bus.status.emit("Power meter disconnected.")
+
+    def _connect_power_meter(self, pyvisa):
+        self._close_resources()
+        self.rm = pyvisa.ResourceManager()
+        self.instr, resource_name, identity = self._open_power_meter()
+        self.connected = True
+        self.resource_name = resource_name
+        self.bus.status.emit(f"Connected: {identity} ({resource_name})")
+
+        self._write_ignore_errors("SENS:RANGE:AUTO ON")
+        self._write_ignore_errors("SENS:POW:UNIT W")
+
+    def _open_power_meter(self):
+        resources = list(self.rm.list_resources())
+        if not resources:
+            raise RuntimeError("No VISA resources found.")
+
+        errors = []
+        for resource_name in resources:
+            resource_upper = resource_name.upper()
+            if "USB" not in resource_upper:
+                continue
+            if not any(pid in resource_upper for pid in self.POWER_METER_PRODUCT_IDS):
+                continue
+            instr = None
+            try:
+                instr = self.rm.open_resource(resource_name)
+                instr.timeout = 2000
+                instr.write_termination = "\n"
+                instr.read_termination = "\n"
+                identity = self._query_identity(instr)
+                identity_upper = identity.upper()
+                if "THORLABS" in identity_upper or "PM" in identity_upper:
+                    return instr, resource_name, identity
+                instr.close()
+            except Exception as e:
+                errors.append(f"{resource_name}: {e}")
+                try:
+                    if instr is not None:
+                        instr.close()
+                except Exception:
+                    pass
+
+        detail = "; ".join(errors[:3])
+        if detail:
+            raise RuntimeError(f"No Thorlabs USB power meter found. Tried: {detail}")
+        raise RuntimeError(f"No Thorlabs USB power meter found. VISA resources: {resources}")
+
+    def _query_identity(self, instr):
+        for command in ("SYST:SENS:IDN?", "*IDN?"):
+            try:
+                text = instr.query(command).strip()
+                if text:
+                    return text
+            except Exception:
+                pass
+        return "Unknown power meter"
+
+    def _write_ignore_errors(self, command):
+        try:
+            self.instr.write(command)
+        except Exception:
+            pass
+
+    def _close_resources(self):
+        try:
+            if self.instr is not None:
+                self.instr.close()
+        except Exception:
+            pass
+        self.instr = None
+
+        try:
+            if self.rm is not None:
+                self.rm.close()
+        except Exception:
+            pass
+        self.rm = None
+
+
+class SpectrumTraceWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.wavelengths = None
+        self.intensities = None
+        self.setMinimumSize(760, 420)
+
+    def set_spectrum(self, wavelengths, intensities):
+        self.wavelengths = np.asarray(wavelengths, dtype=np.float64)
+        self.intensities = np.asarray(intensities, dtype=np.float64)
+        self.update()
+
+    def clear(self):
+        self.wavelengths = None
+        self.intensities = None
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        width = self.width()
+        height = self.height()
+        margin_l = 72
+        margin_r = 22
+        margin_t = 22
+        margin_b = 64
+        plot_w = max(1, width - margin_l - margin_r)
+        plot_h = max(1, height - margin_t - margin_b)
+
+        painter.fillRect(self.rect(), QColor(250, 250, 250))
+        painter.setPen(QPen(QColor(60, 60, 60), 1))
+        painter.drawRect(margin_l, margin_t, plot_w, plot_h)
+
+        if self.wavelengths is None or self.intensities is None or len(self.wavelengths) < 2:
+            painter.drawText(margin_l + 12, margin_t + 28, "Waiting for spectrometer samples...")
+            painter.end()
+            return
+
+        wavelengths = self.wavelengths
+        intensities = self.intensities
+        finite = np.isfinite(wavelengths) & np.isfinite(intensities)
+        wavelengths = wavelengths[finite]
+        intensities = intensities[finite]
+        if len(wavelengths) < 2:
+            painter.drawText(margin_l + 12, margin_t + 28, "No valid spectrum data.")
+            painter.end()
+            return
+
+        x_min = float(np.min(wavelengths))
+        x_max = float(np.max(wavelengths))
+        y_min = float(np.min(intensities))
+        y_max = float(np.max(intensities))
+        if abs(x_max - x_min) < 1e-12:
+            x_max = x_min + 1.0
+        if abs(y_max - y_min) < 1e-12:
+            pad = max(abs(y_max) * 0.05, 1e-3)
+        else:
+            pad = (y_max - y_min) * 0.08
+        y_min -= pad
+        y_max += pad
+
+        def to_x(x):
+            return margin_l + int((float(x) - x_min) / (x_max - x_min) * plot_w)
+
+        def to_y(y):
+            return margin_t + plot_h - int((float(y) - y_min) / (y_max - y_min) * plot_h)
+
+        painter.setPen(QPen(QColor(225, 225, 225), 1))
+        for n in range(1, 5):
+            x = margin_l + int(plot_w * n / 5)
+            y = margin_t + int(plot_h * n / 5)
+            painter.drawLine(x, margin_t, x, margin_t + plot_h)
+            painter.drawLine(margin_l, y, margin_l + plot_w, y)
+
+        painter.setPen(QPen(QColor(70, 70, 70), 1))
+        for n in range(0, 6):
+            frac = n / 5.0
+            tick_nm = x_min + frac * (x_max - x_min)
+            x = margin_l + int(plot_w * frac)
+            painter.drawLine(x, margin_t + plot_h, x, margin_t + plot_h + 5)
+            painter.drawText(x - 36, margin_t + plot_h + 8, 72, 18, Qt.AlignCenter, f"{tick_nm:.1f}")
+
+        painter.setPen(QPen(QColor(35, 126, 77), 2))
+        prev = None
+        step = max(1, len(wavelengths) // max(1, plot_w * 2))
+        for x, y in zip(wavelengths[::step], intensities[::step]):
+            point = (to_x(x), to_y(y))
+            if prev is not None:
+                painter.drawLine(prev[0], prev[1], point[0], point[1])
+            prev = point
+
+        painter.setPen(QPen(QColor(35, 35, 35), 1))
+        painter.drawText(8, margin_t + 4, margin_l - 14, 20, Qt.AlignRight, f"{y_max:.3g}")
+        painter.drawText(8, margin_t + plot_h - 16, margin_l - 14, 20, Qt.AlignRight, f"{y_min:.3g}")
+        painter.drawText(margin_l, height - 26, plot_w, 20, Qt.AlignCenter, "Wavelength (nm)")
+        painter.drawText(margin_l + 6, margin_t + 20, f"Peak: {float(np.max(intensities)):.4g} a.u.")
+        painter.end()
+
+
+class SpectrometerWindow(QWidget):
+    closed = pyqtSignal()
+
+    def __init__(self, start_callback, stop_callback, parent=None):
+        super().__init__(parent)
+        self.start_callback = start_callback
+        self.stop_callback = stop_callback
+        self.stream_running = False
+        self.setWindowTitle("Thorlabs CCS100 Spectrometer Live Plot")
+
+        self.status_label = QLabel("Connecting to spectrometer...")
+        self.status_label.setWordWrap(True)
+        self.latest_label = QLabel("Latest: --")
+        self.latest_label.setStyleSheet("font-weight: 600;")
+        self.plot = SpectrumTraceWidget()
+
+        self.stream_btn = QPushButton("Stop")
+        clear_btn = QPushButton("Clear")
+        save_btn = QPushButton("Save CSV")
+        save_btn.setMinimumWidth(80)
+        self.stream_btn.clicked.connect(self.toggle_stream)
+        clear_btn.clicked.connect(self.plot.clear)
+        save_btn.clicked.connect(self.save_spectrum_csv)
+
+        controls = QHBoxLayout()
+        controls.addWidget(self.stream_btn)
+        controls.addWidget(clear_btn)
+        controls.addWidget(save_btn)
+        controls.addStretch(1)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.latest_label)
+        layout.addWidget(self.plot)
+        layout.addLayout(controls)
+        self.setLayout(layout)
+        self.resize(860, 540)
+
+    def set_spectrum(self, wavelengths, intensities):
+        arr = np.asarray(intensities, dtype=np.float64)
+        peak = float(np.nanmax(arr)) if arr.size else 0.0
+        self.latest_label.setText(f"Latest peak: {peak:.6g} a.u.")
+        self.plot.set_spectrum(wavelengths, intensities)
+
+    def set_status(self, text: str):
+        self.status_label.setText(text)
+
+    def set_stream_running(self, running: bool):
+        self.stream_running = bool(running)
+        self.stream_btn.setText("Stop" if self.stream_running else "Start")
+
+    def toggle_stream(self):
+        if self.stream_running:
+            self.stop_callback()
+        else:
+            self.start_callback()
+
+    def save_spectrum_csv(self):
+        if self.plot.wavelengths is None or self.plot.intensities is None:
+            self.set_status("No spectrum data to save yet.")
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_path = os.path.join(os.getcwd(), f"spectrometer_{timestamp}.csv")
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Spectrometer Data",
+            default_path,
+            "CSV Files (*.csv);;All Files (*)",
+        )
+        if not filename:
+            return
+        if not filename.lower().endswith(".csv"):
+            filename += ".csv"
+
+        data = np.column_stack((self.plot.wavelengths, self.plot.intensities))
+        np.savetxt(
+            filename,
+            data,
+            delimiter=",",
+            header="wavelength_nm,intensity_au",
+            comments="",
+        )
+        self.set_status(f"Saved spectrum CSV: {filename}")
+
+    def closeEvent(self, event):
+        self.stop_callback()
+        self.closed.emit()
+        event.accept()
+
+
+class SpectrometerWorker(threading.Thread):
+    CCS_PIXELS = 3648
+    CCS_PRODUCT_IDS = {"0X8081", "0X8083", "0X8085", "0X8087", "0X8089"}
+
+    def __init__(self, bus: SpectrometerBus, integration_time_s: float = 10.0e-3, plot_interval_s: float = 0.2):
+        super().__init__(daemon=True)
+        self.bus = bus
+        self.integration_time_s = float(integration_time_s)
+        self.plot_interval_s = float(plot_interval_s)
+        self.stop_event = threading.Event()
+        self.lib = None
+        self.handle = c_int(0)
+        self.connected = False
+
+    def stop(self):
+        self.stop_event.set()
+
+    def run(self):
+        try:
+            self.bus.status.emit("Searching for Thorlabs CCS100 spectrometer...")
+            self.lib = self._load_tlccs_library()
+            resource_name = self._find_ccs_resource()
+            # Do not reset the spectrometer on open; resets can disturb other VISA instruments already streaming.
+            self._check(self.lib.tlccs_init(resource_name.encode("ascii"), 1, 0, byref(self.handle)), "tlccs_init")
+            self.connected = True
+            self.bus.status.emit(f"Connected: {resource_name}")
+
+            self._check(
+                self.lib.tlccs_setIntegrationTime(self.handle, c_double(self.integration_time_s)),
+                "tlccs_setIntegrationTime",
+            )
+
+            wavelengths = (c_double * self.CCS_PIXELS)()
+            self._check(
+                self.lib.tlccs_getWavelengthData(self.handle, 0, byref(wavelengths), c_void_p(None), c_void_p(None)),
+                "tlccs_getWavelengthData",
+            )
+            wavelength_array = np.array(list(wavelengths), dtype=np.float64)
+
+            while not self.stop_event.is_set():
+                self._check(self.lib.tlccs_startScan(self.handle), "tlccs_startScan")
+                self._wait_for_scan()
+                data_array = (c_double * self.CCS_PIXELS)()
+                self._check(self.lib.tlccs_getScanData(self.handle, byref(data_array)), "tlccs_getScanData")
+                intensities = np.array(list(data_array), dtype=np.float64)
+                self.bus.spectrum.emit(wavelength_array, intensities)
+                self.stop_event.wait(self.plot_interval_s)
+        except Exception as e:
+            self.bus.error.emit(f"Spectrometer error: {e}")
+        finally:
+            self._close_device()
+            if self.connected:
+                self.bus.status.emit("Spectrometer disconnected.")
+
+    def _load_tlccs_library(self):
+        candidates = [
+            "TLCCS_64.dll",
+            r"C:\Program Files\IVI Foundation\VISA\Win64\Bin\TLCCS_64.dll",
+            r"C:\Program Files\IVI Foundation\VISA\Win64\TLCCS\Bin\TLCCS_64.dll",
+            r"C:\Program Files\Thorlabs\Scientific Imaging\ThorSpectra\TLCCS_64.dll",
+        ]
+        errors = []
+        for path in candidates:
+            try:
+                if os.path.isabs(path) and not os.path.exists(path):
+                    continue
+                return cdll.LoadLibrary(path)
+            except Exception as e:
+                errors.append(f"{path}: {e}")
+        detail = "; ".join(errors[:2])
+        raise RuntimeError(
+            "Could not load TLCCS_64.dll. Install the Thorlabs CCS/ThorSpectra driver so the DLL is available."
+            + (f" Details: {detail}" if detail else "")
+        )
+
+    def _find_ccs_resource(self):
+        try:
+            pyvisa = __import__("pyvisa")
+        except ImportError:
+            raise RuntimeError("PyVISA is not installed in this environment.")
+
+        rm = pyvisa.ResourceManager()
+        try:
+            resources = list(rm.list_resources("?*"))
+        finally:
+            rm.close()
+
+        ccs_resources = []
+        preferred_aliases = [
+            "Thorlabs CCS100 spectrumeter",
+            "Thorlabs CCS100 spectrometer",
+        ]
+        for alias in preferred_aliases:
+            if alias in resources:
+                ccs_resources.append(alias)
+
+        for resource in resources:
+            resource_upper = str(resource).upper()
+            if "CCS" in resource_upper or "SPECTROMETER" in resource_upper or "SPECTRUMETER" in resource_upper:
+                ccs_resources.append(str(resource))
+                continue
+            if "USB" not in resource_upper or "0X1313" not in resource_upper:
+                continue
+            if any(pid in resource_upper for pid in self.CCS_PRODUCT_IDS):
+                ccs_resources.append(str(resource))
+
+        if ccs_resources:
+            resource = ccs_resources[0]
+            if resource.upper().endswith("::INSTR"):
+                resource = resource[:-7] + "::RAW"
+            return resource
+
+        raise RuntimeError(f"No Thorlabs CCS spectrometer VISA resource found. Current resources: {resources}")
+
+    def _wait_for_scan(self):
+        status = c_int(0)
+        deadline = time.monotonic() + max(2.0, self.integration_time_s * 5.0 + 1.0)
+        while not self.stop_event.is_set():
+            self._check(self.lib.tlccs_getDeviceStatus(self.handle, byref(status)), "tlccs_getDeviceStatus")
+            if (status.value & 0x0010) != 0:
+                return
+            if time.monotonic() > deadline:
+                raise TimeoutError("Timed out waiting for spectrometer scan")
+            time.sleep(0.005)
+
+    def _check(self, code, operation):
+        if int(code) != 0:
+            raise RuntimeError(f"{operation} failed with code {int(code)}")
+
+    def _close_device(self):
+        try:
+            if self.lib is not None and self.handle.value:
+                self.lib.tlccs_close(self.handle)
+        except Exception:
+            pass
+        self.handle = c_int(0)
 
 #import the camera functinality from another file
 # -------- Main GUI Application -------- #
@@ -66,6 +751,20 @@ class CameraApp(QWidget):
         self.ui_bus.autofocus_finished.connect(self._on_autofocus_finished)
         self.af_cancel = threading.Event()
         self.af_thread = None
+
+        self.power_meter_bus = PowerMeterBus()
+        self.power_meter_bus.sample.connect(self._on_power_meter_sample)
+        self.power_meter_bus.status.connect(self._on_power_meter_status)
+        self.power_meter_bus.error.connect(self._on_power_meter_error)
+        self.power_meter_thread = None
+        self.power_meter_window = None
+
+        self.spectrometer_bus = SpectrometerBus()
+        self.spectrometer_bus.spectrum.connect(self._on_spectrometer_spectrum)
+        self.spectrometer_bus.status.connect(self._on_spectrometer_status)
+        self.spectrometer_bus.error.connect(self._on_spectrometer_error)
+        self.spectrometer_thread = None
+        self.spectrometer_window = None
 
         #use the class instead
         self.cam_mgr = CameraManager(save_dir=r"C:\Users\stimscope1\Documents\OptiSuite\screenshots")
@@ -106,7 +805,7 @@ class CameraApp(QWidget):
         # Reserve enough vertical space for stacked bottom control rows
         bottom_panel_h = 360
         caption_h = 22
-        control_h = 60
+        control_h = 260
         preview_h = int((max_win_h - bottom_panel_h) / rows) - caption_h - control_h
         preview_h = max(220, min(360, preview_h))
 
@@ -120,7 +819,8 @@ class CameraApp(QWidget):
             if hasattr(self.cam_mgr, "camera_names") and i < len(self.cam_mgr.camera_names):
                 model = str(self.cam_mgr.camera_names[i])
 
-            title = QLabel(f"Cam {i + 1}" + (f": {model}" if model else ""))
+            cam_title = "Cam 1: Microscope" if i == 0 else f"Cam {i + 1}"
+            title = QLabel(cam_title + (f" ({model})" if model else ""))
             title.setStyleSheet("font-weight: 600;")
 
             label = QLabel("")
@@ -224,7 +924,65 @@ class CameraApp(QWidget):
             rec_btn.clicked.connect(toggle_rec)
             panel2.addWidget(rec_btn)
 
-            self.grid.addLayout(panel, i // cols * 2 + 1, i % cols)
+            control_stack = QVBoxLayout()
+            control_stack.addLayout(panel)
+            control_stack.addLayout(panel2)
+
+            if i == 1:
+                characterization_box = QGroupBox("Charactrization plate")
+                characterization_box.setStyleSheet(
+                    "QGroupBox { font-weight: 600; border: 1px solid #8a8a8a; border-radius: 5px; "
+                    "margin-top: 12px; padding-top: 10px; background: #f7f7f7; } "
+                    "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
+                )
+                characterization_panel = QHBoxLayout(characterization_box)
+                characterization_panel.setContentsMargins(12, 14, 12, 12)
+
+                circular_btn_style = (
+                    "QPushButton { border: 2px solid #555; border-radius: 52px; background: #ffffff; "
+                    "font-weight: 600; padding: 4px; } "
+                    "QPushButton:hover { background: #e8f0ff; } "
+                    "QPushButton:pressed { background: #cfe0ff; } "
+                    "QPushButton:disabled { color: #777; background: #e5e5e5; }"
+                )
+                rainbow_btn_style = (
+                    "QPushButton { border: 2px solid #555; border-radius: 52px; color: #111; "
+                    "font-weight: 700; padding: 4px; "
+                    "background: qconicalgradient(cx:0.5, cy:0.5, angle:0, "
+                    "stop:0 #ff3b30, stop:0.16 #ff9500, stop:0.32 #ffcc00, "
+                    "stop:0.48 #34c759, stop:0.64 #007aff, stop:0.80 #5856d6, stop:1 #ff2d55); } "
+                    "QPushButton:hover { border: 3px solid #333; } "
+                    "QPushButton:pressed { background: qconicalgradient(cx:0.5, cy:0.5, angle:45, "
+                    "stop:0 #ff3b30, stop:0.16 #ff9500, stop:0.32 #ffcc00, "
+                    "stop:0.48 #34c759, stop:0.64 #007aff, stop:0.80 #5856d6, stop:1 #ff2d55); } "
+                    "QPushButton:disabled { color: #777; background: #e5e5e5; }"
+                )
+
+                spectrometer_btn = QPushButton("Spectrumeter")
+                spectrometer_btn.setFixedSize(104, 104)
+                spectrometer_btn.setStyleSheet(rainbow_btn_style)
+                spectrometer_btn.clicked.connect(self.open_spectrometer_plot)
+
+                power_btn = QPushButton("")
+                power_btn.setFixedSize(104, 104)
+                power_btn.setStyleSheet(circular_btn_style)
+                power_btn.setIcon(make_gauge_icon(72))
+                power_btn.setIconSize(power_btn.size() * 0.65)
+                power_btn.setToolTip("Power Meter")
+                power_btn.clicked.connect(self.open_power_meter_plot)
+
+                button_stack = QVBoxLayout()
+                button_stack.addWidget(spectrometer_btn)
+                button_stack.addSpacing(12)
+                button_stack.addWidget(power_btn)
+
+                characterization_panel.addStretch(1)
+                characterization_panel.addLayout(button_stack)
+                control_stack.addWidget(characterization_box)
+                self.spectrometer_btn = spectrometer_btn
+                self.power_meter_btn = power_btn
+
+            self.grid.addLayout(control_stack, i // cols * 2 + 1, i % cols)
             self.control_panels.append(panel)
 
         # Top area: camera grid + C# stage status/log
@@ -244,7 +1002,7 @@ class CameraApp(QWidget):
         # Fix window size so it doesn't grow while streaming.
         # Adjust here if you change preview/log widths.
         win_w = cols * preview_w + self.stage_log.width() + 80
-        win_h = rows * (preview_h + caption_h + 60) + bottom_panel_h
+        win_h = rows * (preview_h + caption_h + control_h) + bottom_panel_h
         self.resize(win_w, win_h)
 
 
@@ -916,6 +1674,140 @@ class CameraApp(QWidget):
             self.resumeRoutine_btn.setEnabled(True)
         self.preview_status.hide()
 
+    def open_power_meter_plot(self):
+        if self.power_meter_window is not None:
+            self.power_meter_window.show()
+            self.power_meter_window.raise_()
+            self.power_meter_window.activateWindow()
+            if not (self.power_meter_thread and self.power_meter_thread.is_alive()):
+                self.start_power_meter_stream()
+            return
+
+        self.power_meter_window = PowerMeterWindow(
+            start_callback=self.start_power_meter_stream,
+            stop_callback=self.stop_power_meter_stream,
+        )
+        self.power_meter_window.closed.connect(self._on_power_meter_window_closed)
+        self.power_meter_window.show()
+        self.start_power_meter_stream()
+
+    def start_power_meter_stream(self):
+        if self.power_meter_thread and self.power_meter_thread.is_alive():
+            self._on_power_meter_status("Power meter stream already running.")
+            return
+
+        if hasattr(self, "power_meter_btn"):
+            self.power_meter_btn.setEnabled(False)
+
+        self.power_meter_thread = PowerMeterWorker(self.power_meter_bus, sample_interval_s=0.2)
+        self.power_meter_thread.start()
+        if self.power_meter_window is not None:
+            self.power_meter_window.set_stream_running(True)
+
+    def stop_power_meter_stream(self):
+        if self.power_meter_thread:
+            self.power_meter_thread.stop()
+            self.power_meter_thread = None
+        if hasattr(self, "power_meter_btn"):
+            self.power_meter_btn.setEnabled(True)
+        if self.power_meter_window is not None:
+            self.power_meter_window.set_stream_running(False)
+
+    def _on_power_meter_sample(self, elapsed_s: float, power_w: float):
+        if self.power_meter_window is not None:
+            self.power_meter_window.add_sample(elapsed_s, power_w)
+
+    def _on_power_meter_status(self, text: str):
+        if self.power_meter_window is not None:
+            self.power_meter_window.set_status(text)
+        self.append_local_log(f"[PowerMeter] {text}")
+        if text.startswith("Connected:") and self.power_meter_window is not None:
+            self.power_meter_window.set_stream_running(True)
+        if text == "Power meter disconnected." and hasattr(self, "power_meter_btn"):
+            self.power_meter_btn.setEnabled(True)
+            if self.power_meter_window is not None:
+                self.power_meter_window.set_stream_running(False)
+
+    def _on_power_meter_error(self, text: str):
+        if self.power_meter_window is not None:
+            self.power_meter_window.set_status(text)
+            self.power_meter_window.set_stream_running(False)
+        self.append_local_log(f"[PowerMeter] {text}")
+        if hasattr(self, "power_meter_btn"):
+            self.power_meter_btn.setEnabled(True)
+
+    def _on_power_meter_window_closed(self):
+        self.power_meter_window = None
+
+    def open_spectrometer_plot(self):
+        if self.spectrometer_window is not None:
+            self.spectrometer_window.show()
+            self.spectrometer_window.raise_()
+            self.spectrometer_window.activateWindow()
+            if not (self.spectrometer_thread and self.spectrometer_thread.is_alive()):
+                self.start_spectrometer_stream()
+            return
+
+        self.spectrometer_window = SpectrometerWindow(
+            start_callback=self.start_spectrometer_stream,
+            stop_callback=self.stop_spectrometer_stream,
+        )
+        self.spectrometer_window.closed.connect(self._on_spectrometer_window_closed)
+        self.spectrometer_window.show()
+        self.start_spectrometer_stream()
+
+    def start_spectrometer_stream(self):
+        if self.spectrometer_thread and self.spectrometer_thread.is_alive():
+            self._on_spectrometer_status("Spectrometer stream already running.")
+            return
+
+        if hasattr(self, "spectrometer_btn"):
+            self.spectrometer_btn.setEnabled(False)
+
+        self.spectrometer_thread = SpectrometerWorker(
+            self.spectrometer_bus,
+            integration_time_s=10.0e-3,
+            plot_interval_s=0.2,
+        )
+        self.spectrometer_thread.start()
+        if self.spectrometer_window is not None:
+            self.spectrometer_window.set_stream_running(True)
+
+    def stop_spectrometer_stream(self):
+        if self.spectrometer_thread:
+            self.spectrometer_thread.stop()
+            self.spectrometer_thread = None
+        if hasattr(self, "spectrometer_btn"):
+            self.spectrometer_btn.setEnabled(True)
+        if self.spectrometer_window is not None:
+            self.spectrometer_window.set_stream_running(False)
+
+    def _on_spectrometer_spectrum(self, wavelengths, intensities):
+        if self.spectrometer_window is not None:
+            self.spectrometer_window.set_spectrum(wavelengths, intensities)
+
+    def _on_spectrometer_status(self, text: str):
+        if self.spectrometer_window is not None:
+            self.spectrometer_window.set_status(text)
+        self.append_local_log(f"[Spectrometer] {text}")
+        if text.startswith("Connected:") and self.spectrometer_window is not None:
+            self.spectrometer_window.set_stream_running(True)
+        if text == "Spectrometer disconnected." and hasattr(self, "spectrometer_btn"):
+            self.spectrometer_btn.setEnabled(True)
+            if self.spectrometer_window is not None:
+                self.spectrometer_window.set_stream_running(False)
+
+    def _on_spectrometer_error(self, text: str):
+        if self.spectrometer_window is not None:
+            self.spectrometer_window.set_status(text)
+            self.spectrometer_window.set_stream_running(False)
+        self.append_local_log(f"[Spectrometer] {text}")
+        if hasattr(self, "spectrometer_btn"):
+            self.spectrometer_btn.setEnabled(True)
+
+    def _on_spectrometer_window_closed(self):
+        self.spectrometer_window = None
+
     #make the json & pass it to the zmq class to send
     def send_message(self):
         if not (self.zmq_thread and self.zmq_thread.running):
@@ -983,6 +1875,14 @@ class CameraApp(QWidget):
         if self.zmq_events:
             self.zmq_events.stop()
             self.zmq_events = None
+        self.stop_power_meter_stream()
+        if self.power_meter_window is not None:
+            self.power_meter_window.close()
+            self.power_meter_window = None
+        self.stop_spectrometer_stream()
+        if self.spectrometer_window is not None:
+            self.spectrometer_window.close()
+            self.spectrometer_window = None
         event.accept()
 
     def _on_screenshot(self, cam_index: int):
