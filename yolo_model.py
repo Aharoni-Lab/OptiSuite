@@ -6,6 +6,15 @@ import matplotlib.pyplot as plt
 
 _MODEL_CACHE = {}
 MODEL_PATH = Path("./models/best23.pt")
+NUM_MODEL_PATH = Path("./models/best_num_classify.pt")
+
+
+def classify_number(img):
+    img = cv2.resize(img, (100, 100))
+    model = YOLO(NUM_MODEL_PATH)
+    results = model(img)
+    result = results[0]
+    return result
 
 
 def get_yolo_model(model_path):

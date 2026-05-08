@@ -3,7 +3,7 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 from pathlib import Path
-from yolo_model import extract_yolo_detections, visualize_detections
+from yolo_model import extract_yolo_detections, visualize_detections, classify_number
 from scipy.signal import savgol_filter
 
 
@@ -21,7 +21,7 @@ from scipy.signal import savgol_filter
 #debug const
 DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = True             # overview photo
-YOLO_DETECT = True              # yolo detection
+YOLO_DETECT = False              # yolo detection
 GRADIENT_MIN = True
 FLIPED_TARGET = True           # true if target is fliped
 G1 = 2                          # first group number
@@ -38,6 +38,9 @@ SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge t
 #anchor coordinate for performing secondary coordinate calibration
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
+zoom_box = {0: (-0.87,-1.73), 1: (1.19,-3.71)}
+left_number_coord = (-2.43, 1.03)
+right_number_coord = (1.92, 1.05)
 
 
 # Global list to store all valid square polygons found during corner detection
@@ -170,6 +173,8 @@ group_positions = {
     130: (0.47 + g7x_offset, (-2.55 + g7y_offset) * g7y_scale),                               131: (0.4705 + g7x_offset, (-2.5622 + g7y_offset) * g7y_scale),
     
 }
+
+
 
 #score table to covert score to group and element number
 score_table = {
@@ -864,6 +869,23 @@ def extend_line(pt_a: tuple[int, int], pt_b: tuple[int, int], extend_length: flo
     return new_a, new_b
 
 
+def usaf2screen(pt, center_x, center_y, angle, side_length):
+    # This scales the usaf coordinates to pixel scale
+    scale = side_length
+    loc = (pt[0] * scale, pt[1] * scale)
+
+    # Convert from pixel usaf coordinate to screen coordinate
+    # x were fliped b/c the usaf target is fliped
+    # y were fliped b/c the screen coordinate system
+    flip = -1 if FLIPED_TARGET else 1
+    pt_a = get_rotated_pt(center_x, center_y, flip * loc[0], -loc[1], angle)
+    return pt_a
+
+
+
+
+
+
 def calculate_focus_scores(image_path, yolo_detections=None):
     '''
     Calculate the focus scores for each group element based on the defined scanlines and the detected corners for coordinate calibration.
@@ -942,21 +964,14 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         for i in range(0, len(group_positions), 2):
             yolo_repl = False
             local_min = False
+
             # Get the raw usaf coordinates (tuples)
             raw_a = group_positions[i]
             raw_b = group_positions[i+1]
 
-            # This scales the usaf coordinates to pixel scale
-            scale = side_length
-            loc_a = (raw_a[0] * scale, raw_a[1] * scale)
-            loc_b = (raw_b[0] * scale, raw_b[1] * scale)
-
             # Convert from pixel usaf coordinate to screen coordinate
-            # x were fliped b/c the usaf target is fliped
-            # y were fliped b/c the screen coordinate system
-            flip = -1 if FLIPED_TARGET else 1
-            pt_a = get_rotated_pt(center_x, center_y, flip * loc_a[0], -loc_a[1], angle)
-            pt_b = get_rotated_pt(center_x, center_y, flip * loc_b[0], -loc_b[1], angle)
+            pt_a = usaf2screen(raw_a, center_x, center_y, angle, side_length)
+            pt_b = usaf2screen(raw_b, center_x, center_y, angle, side_length)
 
             # if the pts fall outside the image, retry with the next best square
             if (pt_a[0] < 0 or pt_a[0] >= gray.shape[1] or pt_a[1] < 0 or pt_a[1] >= gray.shape[0] or \
@@ -1078,6 +1093,40 @@ def calculate_focus_scores(image_path, yolo_detections=None):
     if yolo_detections is not None and len(yolo_detections) > 15:
         misalignment_handling(clean_detection, clean_img.copy(), normalized_gray)
 
+
+    left_number_pt = usaf2screen(left_number_coord, center_x, center_y, angle, side_length)
+    right_number_pt = usaf2screen(right_number_coord, center_x, center_y, angle, side_length)
+
+    num_box_offset = 100
+    # Crop for the left number
+    y1_l, y2_l = int(left_number_pt[1] - num_box_offset), int(left_number_pt[1] + num_box_offset)
+    x1_l, x2_l = int(left_number_pt[0] - num_box_offset), int(left_number_pt[0] + num_box_offset)
+    left_crop = img[y1_l:y2_l, x1_l:x2_l]
+    # Crop for the right number
+    y1_r, y2_r = int(right_number_pt[1] - num_box_offset), int(right_number_pt[1] + num_box_offset)
+    x1_r, x2_r = int(right_number_pt[0] - num_box_offset), int(right_number_pt[0] + num_box_offset)
+    right_crop = img[y1_r:y2_r, x1_r:x2_r]
+
+    # make sure the crop is inside image if it is out of the image discard entirely
+    if x1_l < 0 or y1_l < 0 or x2_l > img.shape[1] or y2_l > img.shape[0]:
+        left_crop = None
+    if x1_r < 0 or y1_r < 0 or x2_r > img.shape[1] or y2_r > img.shape[0]:
+        right_crop = None
+
+    classified_left_number = -1
+    classified_right_number = -1
+    if left_crop is not None:
+        result = classify_number(left_crop)
+        predict_index = result.probs.top1
+        classified_left_number = result.names[predict_index]
+    
+    if right_crop is not None:
+        result = classify_number(right_crop)
+        predict_index = result.probs.top1
+        classified_right_number = result.names[predict_index]
+
+    print(f"Left number: {classified_left_number}, Right number: {classified_right_number}")
+
     if PREVIEW_MODE:
         # Display the result
         # convert the right reference corner and left reference corner from standard to screen coordinates
@@ -1090,13 +1139,13 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         left_region_size_px = int((1.0/5.0) * side_length)
         # convert the right reference corner and left reference corner from usaf to screen coordinates, then draw the region around them,
         # cast to int for cv2.rectangle
-        right_scaled_pt = (int(right_ref_coord[0] * side_length), int(right_ref_coord[1] * side_length))
-        left_scaled_pt = (int(left_ref_coord[0] * side_length), int(left_ref_coord[1] * side_length))
-        flip = -1 if FLIPED_TARGET else 1
-        right_rotated_pt = get_rotated_pt(center_x, center_y, flip * right_scaled_pt[0], -right_scaled_pt[1], angle)
-        left_rotated_pt = get_rotated_pt(center_x, center_y, flip * left_scaled_pt[0], -left_scaled_pt[1], angle)
+        right_rotated_pt = usaf2screen(right_ref_coord, center_x, center_y, angle, side_length)
+        left_rotated_pt = usaf2screen(left_ref_coord, center_x, center_y, angle, side_length)
         cv2.rectangle(img, (int(right_rotated_pt[0] - right_region_size_px), int(right_rotated_pt[1] - right_region_size_px)),                  (int(right_rotated_pt[0] + right_region_size_px), int(right_rotated_pt[1] + right_region_size_px)), (255, 0, 255), 2)
         cv2.rectangle(img, (int(left_rotated_pt[0] - left_region_size_px), int(left_rotated_pt[1] - left_region_size_px)),                  (int(left_rotated_pt[0] + left_region_size_px), int(left_rotated_pt[1] + left_region_size_px)), (255, 255, 0), 2)
+        cv2.rectangle(img, (int(right_number_pt[0] - num_box_offset), int(right_number_pt[1] - num_box_offset)),                  (int(right_number_pt[0] + num_box_offset), int(right_number_pt[1] + num_box_offset)), (0, 255, 255), 2)
+        cv2.rectangle(img, (int(left_number_pt[0] - num_box_offset), int(left_number_pt[1] - num_box_offset)),                  (int(left_number_pt[0] + num_box_offset), int(left_number_pt[1] + num_box_offset)), (0, 255, 255), 2)
+    
         # mark the center of the square with a blue circle
         cv2.circle(img, (int(center_x), int(center_y)), 8, (255, 0, 0), -1)  # blue for center of the square
         
