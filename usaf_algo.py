@@ -39,8 +39,12 @@ SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge t
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
 zoom_box = {0: (-0.87,-1.73), 1: (1.19,-3.71)}
-left_number_coord = (-2.43, 1.03)
-right_number_coord = (1.92, 1.05)
+left_num_coord1 = (-2.43, 1.03)
+right_num_coord1 = (1.92, 1.05)
+left_num_coord2 = (-0.35, -1.72)
+right_num_coord2 = (0.72, -1.73)
+left_num_coord3 = (0.148, -2.416)
+right_num_coord3 = (0.426, -2.411)
 
 
 # Global list to store all valid square polygons found during corner detection
@@ -882,6 +886,34 @@ def usaf2screen(pt, center_x, center_y, angle, side_length):
     return pt_a
 
 
+def classify_left_right_numbers(img, left_number_pt, right_number_pt, num_box_offset):
+    def crop_number(number_pt):
+        y1, y2 = int(number_pt[1] - num_box_offset), int(number_pt[1] + num_box_offset)
+        x1, x2 = int(number_pt[0] - num_box_offset), int(number_pt[0] + num_box_offset)
+
+        if x1 < 0 or y1 < 0 or x2 > img.shape[1] or y2 > img.shape[0]:
+            return None
+
+        #mirror the image horizontally if FLIPED_TARGET is True
+        if FLIPED_TARGET:
+            img_final = cv2.flip(img, 1)
+
+        return img_final[y1:y2, x1:x2]
+
+    def classify_crop(crop):
+        if crop is None:
+            return -1
+
+        result = classify_number(crop)
+        predict_index = result.probs.top1
+        return result.names[predict_index]
+
+    left_crop = crop_number(left_number_pt)
+    right_crop = crop_number(right_number_pt)
+
+    return classify_crop(left_crop), classify_crop(right_crop)
+
+
 
 
 
@@ -1094,38 +1126,36 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         misalignment_handling(clean_detection, clean_img.copy(), normalized_gray)
 
 
-    left_number_pt = usaf2screen(left_number_coord, center_x, center_y, angle, side_length)
-    right_number_pt = usaf2screen(right_number_coord, center_x, center_y, angle, side_length)
+    left_number_pt1 = usaf2screen(left_num_coord1, center_x, center_y, angle, side_length)
+    right_number_pt1 = usaf2screen(right_num_coord1, center_x, center_y, angle, side_length)
+    left_number_pt2 = usaf2screen(left_num_coord2, center_x, center_y, angle, side_length)
+    right_number_pt2 = usaf2screen(right_num_coord2, center_x, center_y, angle, side_length)
+    left_number_pt3 = usaf2screen(left_num_coord3, center_x, center_y, angle, side_length)
+    right_number_pt3 = usaf2screen(right_num_coord3, center_x, center_y, angle, side_length)
 
-    num_box_offset = 100
-    # Crop for the left number
-    y1_l, y2_l = int(left_number_pt[1] - num_box_offset), int(left_number_pt[1] + num_box_offset)
-    x1_l, x2_l = int(left_number_pt[0] - num_box_offset), int(left_number_pt[0] + num_box_offset)
-    left_crop = img[y1_l:y2_l, x1_l:x2_l]
-    # Crop for the right number
-    y1_r, y2_r = int(right_number_pt[1] - num_box_offset), int(right_number_pt[1] + num_box_offset)
-    x1_r, x2_r = int(right_number_pt[0] - num_box_offset), int(right_number_pt[0] + num_box_offset)
-    right_crop = img[y1_r:y2_r, x1_r:x2_r]
+    num_box_offset1 = 0.5 * side_length
+    num_box_offset2 = 0.13 * side_length
+    num_box_offset3 = 0.032 * side_length
+    classified_left_number1, classified_right_number1 = classify_left_right_numbers(
+        img,
+        left_number_pt1,
+        right_number_pt1,
+        num_box_offset1,
+    )
+    classified_left_number2, classified_right_number2 = classify_left_right_numbers(
+        img,
+        left_number_pt2,
+        right_number_pt2,
+        num_box_offset2,
+    )
+    classified_left_number3, classified_right_number3 = classify_left_right_numbers(
+        img,
+        left_number_pt3,
+        right_number_pt3,
+        num_box_offset3,
+    )
 
-    # make sure the crop is inside image if it is out of the image discard entirely
-    if x1_l < 0 or y1_l < 0 or x2_l > img.shape[1] or y2_l > img.shape[0]:
-        left_crop = None
-    if x1_r < 0 or y1_r < 0 or x2_r > img.shape[1] or y2_r > img.shape[0]:
-        right_crop = None
-
-    classified_left_number = -1
-    classified_right_number = -1
-    if left_crop is not None:
-        result = classify_number(left_crop)
-        predict_index = result.probs.top1
-        classified_left_number = result.names[predict_index]
-    
-    if right_crop is not None:
-        result = classify_number(right_crop)
-        predict_index = result.probs.top1
-        classified_right_number = result.names[predict_index]
-
-    print(f"Left number: {classified_left_number}, Right number: {classified_right_number}")
+    print(f"Left number1: {classified_left_number1}, Right number1: {classified_right_number1}, Left number2: {classified_left_number2}, Right number2: {classified_right_number2}, Left number3: {classified_left_number3}, Right number3: {classified_right_number3}")
 
     if PREVIEW_MODE:
         # Display the result
@@ -1143,9 +1173,14 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         left_rotated_pt = usaf2screen(left_ref_coord, center_x, center_y, angle, side_length)
         cv2.rectangle(img, (int(right_rotated_pt[0] - right_region_size_px), int(right_rotated_pt[1] - right_region_size_px)),                  (int(right_rotated_pt[0] + right_region_size_px), int(right_rotated_pt[1] + right_region_size_px)), (255, 0, 255), 2)
         cv2.rectangle(img, (int(left_rotated_pt[0] - left_region_size_px), int(left_rotated_pt[1] - left_region_size_px)),                  (int(left_rotated_pt[0] + left_region_size_px), int(left_rotated_pt[1] + left_region_size_px)), (255, 255, 0), 2)
-        cv2.rectangle(img, (int(right_number_pt[0] - num_box_offset), int(right_number_pt[1] - num_box_offset)),                  (int(right_number_pt[0] + num_box_offset), int(right_number_pt[1] + num_box_offset)), (0, 255, 255), 2)
-        cv2.rectangle(img, (int(left_number_pt[0] - num_box_offset), int(left_number_pt[1] - num_box_offset)),                  (int(left_number_pt[0] + num_box_offset), int(left_number_pt[1] + num_box_offset)), (0, 255, 255), 2)
-    
+        cv2.rectangle(img, (int(right_number_pt1[0] - num_box_offset1), int(right_number_pt1[1] - num_box_offset1)),                  (int(right_number_pt1[0] + num_box_offset1), int(right_number_pt1[1] + num_box_offset1)), (0, 255, 255), 2)
+        cv2.rectangle(img, (int(left_number_pt1[0] - num_box_offset1), int(left_number_pt1[1] - num_box_offset1)),                  (int(left_number_pt1[0] + num_box_offset1), int(left_number_pt1[1] + num_box_offset1)), (0, 255, 255), 2)
+        cv2.rectangle(img, (int(right_number_pt2[0] - num_box_offset2), int(right_number_pt2[1] - num_box_offset2)),                  (int(right_number_pt2[0] + num_box_offset2), int(right_number_pt2[1] + num_box_offset2)), (0, 255, 255), 2)
+        cv2.rectangle(img, (int(left_number_pt2[0] - num_box_offset2), int(left_number_pt2[1] - num_box_offset2)),                  (int(left_number_pt2[0] + num_box_offset2), int(left_number_pt2[1] + num_box_offset2)), (0, 255, 255), 2)
+        cv2.rectangle(img, (int(right_number_pt3[0] - num_box_offset3), int(right_number_pt3[1] - num_box_offset3)),                  (int(right_number_pt3[0] + num_box_offset3), int(right_number_pt3[1] + num_box_offset3)), (0, 255, 255), 2)
+        cv2.rectangle(img, (int(left_number_pt3[0] - num_box_offset3), int(left_number_pt3[1] - num_box_offset3)),                  (int(left_number_pt3[0] + num_box_offset3), int(left_number_pt3[1] + num_box_offset3)), (0, 255, 255), 2)
+
+
         # mark the center of the square with a blue circle
         cv2.circle(img, (int(center_x), int(center_y)), 8, (255, 0, 0), -1)  # blue for center of the square
         
