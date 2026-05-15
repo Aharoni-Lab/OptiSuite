@@ -21,10 +21,10 @@ from scipy.signal import savgol_filter
 #debug const
 DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = True             # overview photo
-YOLO_DETECT = False              # yolo detection
+YOLO_DETECT = True              # yolo detection
 GRADIENT_MIN = True
-FLIPED_TARGET = True           # true if target is fliped
-G1 = 2                          # first group number
+FLIPED_TARGET = False           # true if target is fliped
+G1 = 2                          # first group numberk
 
 SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
 RETRY_OUTER = True              # if only inner corner detected, expand the scanline to outer target
@@ -38,7 +38,11 @@ SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge t
 #anchor coordinate for performing secondary coordinate calibration
 left_ref_coord = (2.64, 0.5)
 right_ref_coord = (-3.64, 0.5)
-zoom_box = {0: (-0.87,-1.73), 1: (1.19,-3.71)}
+
+zoom_box_coord = (0.27,-2.668)
+squ_scan_coord1 = (0.3, 0.6)
+squ_scan_coord2 = (0.3,-2.6)
+
 left_num_coord1 = (-2.43, 1.03)
 right_num_coord1 = (1.92, 1.05)
 left_num_coord2 = (-0.35, -1.72)
@@ -53,16 +57,12 @@ retry_count = 0
 
 # Process images
 images = [
-    # 'test_image_new.png',
-    # 'test_image_g4e4.png',
-    # 'test_image_g6e6.png',
-    # 'test_image_g5e4.png',
-    # 'test_image_g3e6.png',
-    # 'test_image_g3e6_(1).png',
-    # 'test_image_g6e1.png',
-    # 'SingleWell.png',
-    # 'harvardSetup_filterOnCube.bmp'
-    'test_img/test_image_new.png'
+    # 'test_img/test_image_new.png'
+    # 'test_img/test_image_g4e4.png'
+    # 'test_img/test_image_g5e4.png'
+    #'test_img/af_Z59_370_183653_20260227_183653.png'
+    # 'test_img/test_image_g3e6.png'
+    'test_img/image.png'
 ]
 
 # scanline definition in usaf coordinate
@@ -181,42 +181,45 @@ group_positions = {
 
 
 #score table to covert score to group and element number
-score_table = {
-    0: [G1,2],
-    1: [G1,3],
-    2: [G1,4],
-    3: [G1+1,1],
-    4: [G1+1,2],
-    5: [G1+1,3],
-    6: [G1+1,4],
-    7: [G1+1,5],
-    8: [G1+1,6],
-    9: [G1+2,1],
-    10: [G1+2,2],
-    11: [G1+2,3],
-    12: [G1+2,4],
-    13: [G1+2,5],
-    14: [G1+2,6],
-    15: [G1+3,1],
-    16: [G1+3,2],
-    17: [G1+3,3],
-    18: [G1+3,4],
-    19: [G1+3,5],
-    20: [G1+3,6],
-    21: [G1+4,1],
-    22: [G1+4,2],
-    23: [G1+4,3],
-    24: [G1+4,4],
-    25: [G1+4,5],
-    26: [G1+4,6],
-    27: [G1+5,1],
-    28: [G1+5,2],
-    29: [G1+5,3],
-    30: [G1+5,4],
-    31: [G1+5,5],
-    32: [G1+5,6]
-}
-
+score_table = {}
+def initialize_score_table():
+    global score_table
+    score_table = {
+        0: [G1,2],
+        1: [G1,3],
+        2: [G1,4],
+        3: [G1+1,1],
+        4: [G1+1,2],
+        5: [G1+1,3],
+        6: [G1+1,4],
+        7: [G1+1,5],
+        8: [G1+1,6],
+        9: [G1+2,1],
+        10: [G1+2,2],
+        11: [G1+2,3],
+        12: [G1+2,4],
+        13: [G1+2,5],
+        14: [G1+2,6],
+        15: [G1+3,1],
+        16: [G1+3,2],
+        17: [G1+3,3],
+        18: [G1+3,4],
+        19: [G1+3,5],
+        20: [G1+3,6],
+        21: [G1+4,1],
+        22: [G1+4,2],
+        23: [G1+4,3],
+        24: [G1+4,4],
+        25: [G1+4,5],
+        26: [G1+4,6],
+        27: [G1+5,1],
+        28: [G1+5,2],
+        29: [G1+5,3],
+        30: [G1+5,4],
+        31: [G1+5,5],
+        32: [G1+5,6]
+    }
+initialize_score_table()
 
 
 def usaf_lp_per_mm(group: int, element: int) -> float:
@@ -676,28 +679,14 @@ def coordinate_calibration(gray, corners):
 
 
 def point_in_bbox(point, bbox):
-    '''
-    Check if a point (x, y) falls within a bounding box (x1, y1, x2, y2).
-    
-    Args:
-        point: Tuple (x, y)
-        bbox: Tuple (x1, y1, x2, y2)
-    
-    Returns:
-        bool: True if point is inside bbox, False otherwise
-    '''
     x, y = point
     x1, y1, x2, y2 = bbox
     return x1 <= x <= x2 and y1 <= y <= y2
-
-
 
 def near_proximity(point, length, bbox):
     center = ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
     distance = np.sqrt((point[0] - center[0]) ** 2 + (point[1] - center[1]) ** 2)
     return distance <= length * 1.2
-
-
 
 def find_replacement_keypoints(pt_a, pt_b, yolo_detections):
     '''
@@ -852,6 +841,25 @@ def sample_line_profile(gray, pt_a, pt_b, sample_count=200):
     return coords, line_pixels
 
 
+
+def is_image_clear(image_path, threshold=3.0):
+    image = cv2.imread(image_path)
+    if image is None or image.size == 0:
+        return 0.0
+
+    # 2. Convert to Grayscale
+    if image.ndim == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image
+
+    denoised = cv2.bilateralFilter(gray, 5, 75, 75)
+    laplacian_mtt = cv2.Laplacian(denoised, cv2.CV_64F)
+    score = laplacian_mtt.var()
+    print("blurry score: ", score)
+    return score >= threshold
+
+
 def extend_line(pt_a: tuple[int, int], pt_b: tuple[int, int], extend_length: float = 1.0) -> tuple[tuple[int, int], tuple[int, int]]:
     """
     Extends the line segment AB in both directions by a specified number of pixels.
@@ -871,6 +879,78 @@ def extend_line(pt_a: tuple[int, int], pt_b: tuple[int, int], extend_length: flo
     new_a = (int(new_a[0]), int(new_a[1]))
     new_b = (int(new_b[0]), int(new_b[1]))
     return new_a, new_b
+
+
+def scanline_jmp(
+    gray,
+    squ_scan_pt1,
+    squ_scan_pt2,
+    sample_count=100,
+    extend_fraction=None,
+    savgol_window=15,
+    savgol_polyorder=3,
+    deriv_eps=0.0001,
+    refine_radius=2,
+):
+    """
+    Sample pixels along squ_scan_pt1 -> squ_scan_pt2 (screen coordinates, same as sample_line_profile).
+
+    Smooth the profile and count local maxima (peaks) via derivative zero-crossings from positive to
+    negative, matching the pattern used for local minima in the GRADIENT_MIN scanline scoring block.
+
+    Returns:
+        has_three_peaks: True if exactly three separated peaks are found.
+        peak_count: number of peaks after merging adjacent indices.
+        peak_screen_pts: (N, 2) float array of (x, y) screen coords per peak, for plotting.
+        peak_indices: 1D indices along the sampled profile (same order as peak_screen_pts).
+        line_pixels: raw sampled intensities along the scanline.
+    """
+    pt_a, pt_b = squ_scan_pt1, squ_scan_pt2
+    if extend_fraction is not None:
+        pt_a, pt_b = extend_line(pt_a, pt_b, extend_length=extend_fraction)
+
+    coords, line_pixels = sample_line_profile(gray, pt_a, pt_b, sample_count=sample_count)
+    empty_pts = np.empty((0, 2), dtype=np.float64)
+    empty_idx = np.array([], dtype=np.int64)
+    if len(line_pixels) < 3:
+        return False, 0, empty_pts, empty_idx, line_pixels
+
+    n = len(line_pixels)
+    wl = min(int(savgol_window), n)
+    if wl % 2 == 0:
+        wl -= 1
+    if wl < 5:
+        smooth_pixels = line_pixels.astype(np.float64, copy=False)
+    else:
+        po = min(int(savgol_polyorder), wl - 1)
+        smooth_pixels = savgol_filter(line_pixels, window_length=wl, polyorder=max(1, po))
+
+    dy = np.gradient(smooth_pixels)
+    # Peaks: derivative crosses from positive to negative (opposite of local minima in GRADIENT_MIN).
+    is_peak = (dy[:-1] > deriv_eps) | (dy[1:] < -deriv_eps)
+    peak_indices = np.where(is_peak)[0]
+
+    if len(peak_indices) > 1:
+        diffs = np.diff(peak_indices)
+        keep = np.concatenate(([True], diffs > 1))
+        filtered = peak_indices[keep]
+    else:
+        filtered = peak_indices
+
+    peak_count = int(len(filtered))
+    if peak_count == 0:
+        return False, 0, empty_pts, empty_idx, line_pixels
+
+    # Refine each peak to the local maximum on the smoothed profile, then map index -> screen (x, y).
+    refined = []
+    for idx in filtered:
+        lo = max(0, int(idx) - refine_radius)
+        hi = min(n, int(idx) + refine_radius + 1)
+        refined.append(lo + int(np.argmax(smooth_pixels[lo:hi])))
+    refined = np.asarray(refined, dtype=np.int64)
+    peak_screen_pts = coords[refined].astype(np.float64)
+
+    return peak_count == 3, peak_count, peak_screen_pts, refined, line_pixels
 
 
 def usaf2screen(pt, center_x, center_y, angle, side_length):
@@ -929,6 +1009,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
     
     Return a ordered dictionary of scores for each group element, where the key is the group element number and the value is the focus score.
     '''
+    global G1
     img = cv2.imread(image_path)
     if img is None:
         return None
@@ -1061,6 +1142,8 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                         filtered_min_indices = min_indices
                         local_min_count = len(min_indices)
 
+                    local_min = local_min_count >= 2
+
                     # # Print local minima positions for group 6 element 5
                     # if i // 2 == 32:
                     #     print(f"Local minima positions for group 6 element 5: {filtered_min_indices}")
@@ -1083,7 +1166,6 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                     #     plt.tight_layout()
                     #     plt.show()
 
-                    local_min = local_min_count >= 2
 
 
 
@@ -1132,30 +1214,54 @@ def calculate_focus_scores(image_path, yolo_detections=None):
     right_number_pt2 = usaf2screen(right_num_coord2, center_x, center_y, angle, side_length)
     left_number_pt3 = usaf2screen(left_num_coord3, center_x, center_y, angle, side_length)
     right_number_pt3 = usaf2screen(right_num_coord3, center_x, center_y, angle, side_length)
+    zoom_box_pt = usaf2screen(zoom_box_coord, center_x, center_y, angle, side_length)
+    squ_scan_pt1 = usaf2screen(squ_scan_coord1, center_x, center_y, angle, side_length)
+    squ_scan_pt2 = usaf2screen(squ_scan_coord2, center_x, center_y, angle, side_length)
+
+    # square detection function
+    _, peak_num, peak_screen_pts, _, _ = scanline_jmp(
+        normalized_gray, squ_scan_pt1, squ_scan_pt2, sample_count = 500, savgol_window=10, deriv_eps = 0.1
+    )
+    G1 = 8 - peak_num
+    initialize_score_table()
 
     num_box_offset1 = 0.5 * side_length
     num_box_offset2 = 0.13 * side_length
     num_box_offset3 = 0.032 * side_length
-    classified_left_number1, classified_right_number1 = classify_left_right_numbers(
-        img,
-        left_number_pt1,
-        right_number_pt1,
-        num_box_offset1,
-    )
-    classified_left_number2, classified_right_number2 = classify_left_right_numbers(
-        img,
-        left_number_pt2,
-        right_number_pt2,
-        num_box_offset2,
-    )
-    classified_left_number3, classified_right_number3 = classify_left_right_numbers(
-        img,
-        left_number_pt3,
-        right_number_pt3,
-        num_box_offset3,
-    )
+    zoom_box_offset = 80
+    # classified_left_number1, classified_right_number1 = classify_left_right_numbers(
+    #     img,
+    #     left_number_pt1,
+    #     right_number_pt1,
+    #     num_box_offset1,
+    # )
+    # classified_left_number2, classified_right_number2 = classify_left_right_numbers(
+    #     img,
+    #     left_number_pt2,
+    #     right_number_pt2,
+    #     num_box_offset2,
+    # )
+    # classified_left_number3, classified_right_number3 = classify_left_right_numbers(
+    #     img,
+    #     left_number_pt3,
+    #     right_number_pt3,
+    #     num_box_offset3,
+    # )
+    # print(f"Left number1: {classified_left_number1}, Right number1: {classified_right_number1}, Left number2: {classified_left_number2}, Right number2: {classified_right_number2}, Left number3: {classified_left_number3}, Right number3: {classified_right_number3}")
 
-    print(f"Left number1: {classified_left_number1}, Right number1: {classified_right_number1}, Left number2: {classified_left_number2}, Right number2: {classified_right_number2}, Left number3: {classified_left_number3}, Right number3: {classified_right_number3}")
+    # Crop the image around the zoom box
+    zoom_box_img = clean_img[int(zoom_box_pt[1] - zoom_box_offset):int(zoom_box_pt[1] + zoom_box_offset), int(zoom_box_pt[0] - zoom_box_offset):int(zoom_box_pt[0] + zoom_box_offset)]
+    #show the zoom box image
+    print("The number of square is: ", peak_num)
+    plt.figure("Zoom Box Image")
+    plt.imshow(cv2.cvtColor(zoom_box_img, cv2.COLOR_BGR2RGB))
+    plt.title("Zoom Box Image")
+    plt.show()
+
+    # save the image
+    cv2.imwrite("zoom_box_img.png", zoom_box_img)
+
+
 
     if PREVIEW_MODE:
         # Display the result
@@ -1179,7 +1285,9 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         cv2.rectangle(img, (int(left_number_pt2[0] - num_box_offset2), int(left_number_pt2[1] - num_box_offset2)),                  (int(left_number_pt2[0] + num_box_offset2), int(left_number_pt2[1] + num_box_offset2)), (0, 255, 255), 2)
         cv2.rectangle(img, (int(right_number_pt3[0] - num_box_offset3), int(right_number_pt3[1] - num_box_offset3)),                  (int(right_number_pt3[0] + num_box_offset3), int(right_number_pt3[1] + num_box_offset3)), (0, 255, 255), 2)
         cv2.rectangle(img, (int(left_number_pt3[0] - num_box_offset3), int(left_number_pt3[1] - num_box_offset3)),                  (int(left_number_pt3[0] + num_box_offset3), int(left_number_pt3[1] + num_box_offset3)), (0, 255, 255), 2)
-
+        cv2.line(img, squ_scan_pt1, squ_scan_pt2, (0, 0, 255), 2)
+        for pt_coordinate in peak_screen_pts:
+             cv2.circle(img, (int(pt_coordinate[0]), int(pt_coordinate[1])), 8, (255, 0, 0), -1)
 
         # mark the center of the square with a blue circle
         cv2.circle(img, (int(center_x), int(center_y)), 8, (255, 0, 0), -1)  # blue for center of the square
@@ -1188,6 +1296,12 @@ def calculate_focus_scores(image_path, yolo_detections=None):
         plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         plt.title("Preview Scanlines")
         plt.show()
+
+
+
+
+
+
 
     final_score = {}
     scanline_map = {}
@@ -1284,6 +1398,10 @@ def find_usaf_score(image_path, imgsz=2048):
     Returns:
         Tuple of (group_number, element_number) indicating best focus group
     '''
+    if not is_image_clear(image_path, 4):          
+        print("The image is too blurry for detection")
+        return None
+
     yolo_detections = None
     if YOLO_DETECT:
         yolo_detections, _result, _img = extract_yolo_detections(image_path, imgsz=imgsz)
