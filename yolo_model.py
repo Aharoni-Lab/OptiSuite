@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 _MODEL_CACHE = {}
 MODEL_PATH = Path("./models/best23.pt")
 NUM_MODEL_PATH = Path("./models/best_num_classify.pt")
+PT4_MODEL_PATH = Path("./models/best_4p_4_focused.pt")
 
 
 def classify_number(img):
@@ -17,6 +18,40 @@ def classify_number(img):
     return result
 
 
+def count_4pts_pattern(img):
+    # Safety Check 1: Make sure the image actually exists
+    if img is None:
+        print("Error: Input image is None!")
+        return 0
+        
+    img = cv2.resize(img, (1280, 1280))
+    
+    # Safety Check 2: Ensure model path is valid
+    try:
+        model = YOLO(PT4_MODEL_PATH)
+    except Exception as e:
+        print(f"Error loading model from {PT4_MODEL_PATH}: {e}")
+        return 0
+        
+    results = model(img, imgsz=640, iou=0.3, conf=0.25)
+    
+    # Safety Check 3: Check what YOLO actually returned
+    if not results or len(results) == 0:
+        print("Warning: YOLO returned an empty results list.")
+        return 0
+        
+    # YOLO returns a list of Results objects (one per image). 
+    # We grab the first image's results.
+    first_result = results[0]
+    
+    if first_result.boxes is None:
+        print("Warning: .boxes attribute is None.")
+        return 0
+
+    return first_result
+    
+
+
 def get_yolo_model(model_path):
     model_path = str(model_path)
     if model_path not in _MODEL_CACHE:
@@ -24,9 +59,12 @@ def get_yolo_model(model_path):
     return _MODEL_CACHE[model_path]
 
 
-def extract_yolo_detections(image_path, model_path = MODEL_PATH, imgsz=2048):
+def extract_yolo_detections(curr_image, model_path = MODEL_PATH, imgsz=2048):
     """
     Extract YOLO detections including bounding boxes and keypoints for each detected object.
+
+    Args:
+        curr_image: BGR numpy array, or a path string/Path (loaded internally).
     
     Returns:
         Tuple of:
@@ -37,11 +75,18 @@ def extract_yolo_detections(image_path, model_path = MODEL_PATH, imgsz=2048):
         - img: Original image
     """
     model = get_yolo_model(model_path)
-    img = cv2.imread(str(image_path))
-    if img is None:
-        raise FileNotFoundError(f"Could not read image: {image_path}")
-    
-    results = model(str(image_path), imgsz=imgsz, iou=0.5, conf=0.25)
+    if isinstance(curr_image, (str, Path)):
+        img = cv2.imread(str(curr_image))
+        if img is None:
+            raise FileNotFoundError(f"Could not read image: {curr_image}")
+        source = str(curr_image)
+    else:
+        img = curr_image
+        if img is None or img.size == 0:
+            raise ValueError("Invalid image array")
+        source = img
+
+    results = model(source, imgsz=imgsz, iou=0.5, conf=0.25)
     result = results[0]
     
     detections = []

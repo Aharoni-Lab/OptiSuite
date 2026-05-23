@@ -3,7 +3,7 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 from pathlib import Path
-from yolo_model import extract_yolo_detections, visualize_detections, classify_number
+from yolo_model import extract_yolo_detections, visualize_detections, classify_number, count_4pts_pattern
 from scipy.signal import savgol_filter
 
 
@@ -21,23 +21,28 @@ from scipy.signal import savgol_filter
 #debug const
 DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = True             # overview photo
-YOLO_DETECT = True              # yolo detection
-GRADIENT_MIN = True
+YOLO_DETECT = False              # yolo detection
+GRADIENT_MIN = False
 FLIPED_TARGET = False           # true if target is fliped
 G1 = 2                          # first group numberk
 
 SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
-RETRY_OUTER = True              # if only inner corner detected, expand the scanline to outer target
+RETRY_OUTER = False              # if only inner corner detected, expand the scanline to outer target
 RETRY_OFF_IMAGE = False         # if any scanline goes out of image, retry with next best square
 AUTO_ADJUST = False             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
-ADJUST_THRESH = 0.8             # white threshold, between 0 and 1 of the normalzed grayscale value
-SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
+ADJUST_THRESH = 0.7             # white threshold, between 0 and 1 of the normalzed grayscale value
+FOUR_KP = False                  # use four reference corners to calibrate the target
 
+CORNER_METHOD = "threshold"     # "threshold", "default", method to detect the corner
+SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
+CROPED_WINDOW_RETRY = False     # if the corner detection window is off image, retry with next best square
 
 
 #anchor coordinate for performing secondary coordinate calibration
-left_ref_coord = (2.64, 0.5)
-right_ref_coord = (-3.64, 0.5)
+top_left_ref_coord = (2.64, 0.5)
+top_right_ref_coord = (-3.64, 0.5)
+low_left_ref_coord = (2.39,-5.89)
+low_right_ref_coord = (-3.57,-5.88)
 
 zoom_box_coord = (0.27,-2.668)
 squ_scan_coord1 = (0.3, 0.6)
@@ -58,11 +63,13 @@ retry_count = 0
 # Process images
 images = [
     # 'test_img/test_image_new.png'
-    # 'test_img/test_image_g4e4.png'
-    # 'test_img/test_image_g5e4.png'
-    #'test_img/af_Z59_370_183653_20260227_183653.png'
-    # 'test_img/test_image_g3e6.png'
-    'test_img/image.png'
+    # 'test_img/test_image_g4e4.png',
+    # 'test_img/test_image_g5e4.png',
+    # 'test_img/af_Z59_370_183653_20260227_183653.png',
+    # 'test_img/test_image_g3e6.png',
+     'test_img/image.png',
+    # 'test_img/test_image_new.png'
+    # 'test_img/image_g67only.png'
 ]
 
 # scanline definition in usaf coordinate
@@ -220,6 +227,14 @@ def initialize_score_table():
         32: [G1+5,6]
     }
 initialize_score_table()
+
+
+prefer_dir_table =  [
+                    [1, 3, 4, 2], 
+                    [3, 2, 1, 4],
+                    [2, 4, 3, 1],
+                    [4, 1, 2, 3] 
+                    ]
 
 
 def usaf_lp_per_mm(group: int, element: int) -> float:
@@ -390,6 +405,21 @@ def get_rotated_pt(cx, cy, local_x, local_y, angle):
 
 
 
+def bright_pixels_as_corners(region, threshold=128):
+    """
+    Same layout as cv2.goodFeaturesToTrack: (N, 1, 2) float32 with region-local (x, y),
+    one entry per pixel whose grayscale is >= threshold. Returns None if no pixels match.
+    """
+    region_u8 = region if region.dtype == np.uint8 else region.astype(np.uint8)
+    ys, xs = np.where(region_u8 >= threshold)
+    if len(xs) == 0:
+        return None
+    pts = np.empty((len(xs), 1, 2), dtype=np.float32)
+    pts[:, 0, 0] = xs.astype(np.float32)
+    pts[:, 0, 1] = ys.astype(np.float32)
+    return pts
+
+
 def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, region_center, region_size, prefer_dir = 0):
     """
     Find the location of a white corner on black background within a square region.
@@ -416,8 +446,8 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     y2 = int(region_center_img[1] + region_size_px)
     
     # if the region is out of image return none
-    # if x2 >= gray.shape[1] or x1 < 0 or y2 >= gray.shape[0] or y1 < 0:
-    #     return None
+    if x2 >= gray.shape[1] or x1 < 0 or y2 >= gray.shape[0] or y1 < 0 and CROPED_WINDOW_RETRY:
+        return None
     # Clip to image bounds
     x1 = max(0, x1)
     x2 = min(gray.shape[1], x2)
@@ -429,15 +459,18 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     if region.size == 0:
         return None
     
-    # Apply Shi-Tomasi corner detection on white pixels
-    corners_shi_tomasi = cv2.goodFeaturesToTrack(region.astype(np.uint8), 20, 0.01, 4)
-    # Subpixel refinement if needed
-    if region.shape[0] > 30 and region.shape[1] > 30 and SUBPIXEL:             # If the region is small, skip subpixel refinement
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001)
-        cv2.cornerSubPix(region.astype(np.uint8), corners_shi_tomasi, (10, 10), (-1, -1), criteria)
-    copy_corners = corners_shi_tomasi.copy()
+    if CORNER_METHOD == "threshold":
+        corners_shi_tomasi = bright_pixels_as_corners(region)
+    else:
+        # Apply Shi-Tomasi corner detection on white pixels
+        corners_shi_tomasi = cv2.goodFeaturesToTrack(region.astype(np.uint8), 20, 0.001, 1)
+        # Subpixel refinement if needed
+        if region.shape[0] > 30 and region.shape[1] > 30 and SUBPIXEL:             # If the region is small, skip subpixel refinement
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001)
+            cv2.cornerSubPix(region.astype(np.uint8), corners_shi_tomasi, (10, 10), (-1, -1), criteria)
 
-    if len(corners_shi_tomasi) > 0:
+    if corners_shi_tomasi is not None and len(corners_shi_tomasi) > 0:
+        copy_corners = corners_shi_tomasi.copy()
         # Return the corner closest to the preference direction
         corner_x = corners_shi_tomasi[:, 0, 0]  # x-coordinates
         corner_y = corners_shi_tomasi[:, 0, 1]  # y-coordinates
@@ -448,11 +481,11 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
             search_idx = np.argmin(corner_dist)
         elif prefer_dir == 3:                   #prefer top
             search_idx = np.argmin(corner_y)
-        elif prefer_dir == 7:                   #prefer bottom
+        elif prefer_dir == 4:                   #prefer bottom
             search_idx = np.argmax(corner_y)
         elif prefer_dir == 1:                   #prefer left
             search_idx = np.argmin(corner_x)
-        elif prefer_dir == 5:                   #prefer right
+        elif prefer_dir == 2:                   #prefer right
             search_idx = np.argmax(corner_x)
         corner_local = corners_shi_tomasi[search_idx, 0]
 
@@ -576,6 +609,84 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
     return min_index
 
 
+def get_adjusted_top_corners_from_enclosing_rectangle(top_right_corner, top_left_corner, low_right_corner, low_left_corner):
+    """
+    Use all four detected reference corners to build a minimum-area enclosing rectangle,
+    then select the two rectangle corners closest to the original top-right/top-left corners.
+    """
+    points = np.array([top_right_corner, top_left_corner, low_right_corner, low_left_corner], dtype=np.float64)
+
+    # 1. Calculate the true center of the points (invariant under rotation)
+    true_center = np.mean(points, axis=0)
+
+    best_area = None
+    best_theta = 0.0
+    best_dimensions = (0.0, 0.0)  # (half_width, half_height)
+
+    # Search orientation in [0, pi): Rectangles have 180-degree symmetry
+    thetas = np.linspace(0.0, np.pi, 1440, endpoint=False)
+    for theta in thetas:
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        
+        # Rotate points around the true center
+        centered_pts = points - true_center
+        x_rot = centered_pts[:, 0] * cos_t + centered_pts[:, 1] * sin_t
+        y_rot = -centered_pts[:, 0] * sin_t + centered_pts[:, 1] * cos_t
+
+        min_x, max_x = np.min(x_rot), np.max(x_rot)
+        min_y, max_y = np.min(y_rot), np.max(y_rot)
+        
+        # Calculate distinct dimensions and the resulting area
+        width = max_x - min_x
+        height = max_y - min_y
+        area = width * height
+
+        if best_area is None or area < best_area:
+            best_area = area
+            best_theta = theta
+            # Store the half-dimensions to construct the rectangle easily later
+            best_dimensions = (width * 0.5, height * 0.5)
+
+    half_w, half_h = best_dimensions
+
+    # 2. Build the perfect rectangle in the rotated space centered at (0, 0)
+    # The order of these points doesn't strictly matter as step 4 matches by proximity
+    rect_rot = np.array([
+        [-half_w, -half_h],
+        [ half_w, -half_h],
+        [ half_w,  half_h],
+        [-half_w,  half_h],
+    ], dtype=np.float64)
+
+    # 3. Rotate the rectangle corners back and add the true center back
+    cos_t = np.cos(best_theta)
+    sin_t = np.sin(best_theta)
+    
+    rect_std = np.zeros_like(rect_rot)
+    rect_std[:, 0] = rect_rot[:, 0] * cos_t - rect_rot[:, 1] * sin_t + true_center[0]
+    rect_std[:, 1] = rect_rot[:, 0] * sin_t + rect_rot[:, 1] * cos_t + true_center[1]
+
+    # 4. Match the closest corners to top_right and top_left
+    tr = np.array(top_right_corner, dtype=np.float64)
+    tl = np.array(top_left_corner, dtype=np.float64)
+    best_pair = (0, 1)
+    best_dist = None
+    
+    for i in range(4):
+        for j in range(4):
+            if i == j:
+                continue
+            dist = np.linalg.norm(rect_std[i] - tr) + np.linalg.norm(rect_std[j] - tl)
+            if best_dist is None or dist < best_dist:
+                best_dist = dist
+                best_pair = (i, j)
+
+    adjusted_top_right = tuple(rect_std[best_pair[0]])
+    adjusted_top_left = tuple(rect_std[best_pair[1]])
+    
+    return adjusted_top_right, adjusted_top_left
+
 
 def coordinate_calibration(gray, corners):
     '''
@@ -619,7 +730,8 @@ def coordinate_calibration(gray, corners):
     #find angle of unit vector with y axis, negate because the screen coordinate system is flipped
     angle = -np.arctan2(unit_vector[1], unit_vector[0])
 
-
+    if 0.9 * np.pi / 2 < np.abs(angle) or 0.1 * np.pi / 2 > np.abs(angle):
+        raise ValueError("Angle too small or large, retrying with rotation...")
 
     # find orientation of the target
     orientation = find_target_orientation(gray, center_x, center_y, unit_vector, side_length)
@@ -629,12 +741,29 @@ def coordinate_calibration(gray, corners):
 
     #Seconary coordinate calibration using the reference corners
     # left and right ref corner are in standard coordinates 
-    flip = -1 if FLIPED_TARGET else 1
-    right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, right_ref_coord, 1.0/5.0, ((orientation) * 2 + 2 - flip) % 8)
-    left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, left_ref_coord, 1.0/5.0, ((orientation) * 2 + 2 + flip) % 8)
+    TL_dir = prefer_dir_table[orientation][0]
+    TR_dir = prefer_dir_table[orientation][1]
+    BL_dir = prefer_dir_table[orientation][2]
+    BR_dir = prefer_dir_table[orientation][3]
+    if FLIPED_TARGET:
+        TR_dir, TL_dir = TL_dir, TR_dir
+        BR_dir, BL_dir = BL_dir, BR_dir
+    
+    top_right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, top_right_ref_coord, 1.0/5.0, TL_dir)
+    top_left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, top_left_ref_coord, 1.0/5.0, TR_dir)
+    low_right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, low_right_ref_coord, 1.0/5.0, BL_dir)
+    low_left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, low_left_ref_coord, 1.0/5.0, BR_dir)
 
-    if right_ref_corner is not None and left_ref_corner is not None:
-        ref_vector = np.array(right_ref_corner) - np.array(left_ref_corner)
+
+    if top_right_ref_corner is not None and top_left_ref_corner is not None and low_right_ref_corner is not None and low_left_ref_corner is not None and FOUR_KP == True:
+        adjusted_top_right, adjusted_top_left = get_adjusted_top_corners_from_enclosing_rectangle(
+            top_right_ref_corner,
+            top_left_ref_corner,
+            low_right_ref_corner,
+            low_left_ref_corner,
+        )
+
+        ref_vector = np.array(adjusted_top_right) - np.array(adjusted_top_left)
         ref_unit_vector = ref_vector / np.linalg.norm(ref_vector)
         flip = 1 if FLIPED_TARGET else -1
         ref_normal_vector = flip * np.array([-ref_unit_vector[1], ref_unit_vector[0]])
@@ -660,11 +789,11 @@ def coordinate_calibration(gray, corners):
         #the left reference corner in the direction of the unit vector from left reference corner to right reference corner
         if dist > 0:
             # Calculate the offset distance in usaf axis but standard scale based on ratio
-            sum_length = left_ref_coord[0] + np.abs(right_ref_coord[0])
-            offset_dist_x = left_ref_coord[0] * dist / sum_length
+            sum_length = top_left_ref_coord[0] + np.abs(top_right_ref_coord[0])
+            offset_dist_x = top_left_ref_coord[0] * dist / sum_length
             offset_dist_y = 1.00 * dist * 0.5 / sum_length
-            center_x = left_ref_corner[0] + (ref_unit_vector[0] * offset_dist_x) - (ref_normal_vector[0] * offset_dist_y)
-            center_y = left_ref_corner[1] + (ref_unit_vector[1] * offset_dist_x) - (ref_normal_vector[1] * offset_dist_y)
+            center_x = adjusted_top_left[0] + (ref_unit_vector[0] * offset_dist_x) - (ref_normal_vector[0] * offset_dist_y)
+            center_y = adjusted_top_left[1] + (ref_unit_vector[1] * offset_dist_x) - (ref_normal_vector[1] * offset_dist_y)
             # convert from standard coordinate back to screen coordinates
             center_y = gray.shape[0] - 1 - center_y
 
@@ -672,7 +801,47 @@ def coordinate_calibration(gray, corners):
             # evil magic scaling factor 1.007
             side_length = 1.00 * dist * 1.007 / sum_length
 
-        return [center_x, center_y, angle, side_length, right_ref_corner, left_ref_corner]
+        return [center_x, center_y, angle, side_length, adjusted_top_right, adjusted_top_left, low_right_ref_corner, low_left_ref_corner]
+    elif top_right_ref_corner is not None and top_left_ref_corner is not None and FOUR_KP == False:
+        ref_vector = np.array(top_right_ref_corner) - np.array(top_left_ref_corner)
+        ref_unit_vector = ref_vector / np.linalg.norm(ref_vector)
+        flip = 1 if FLIPED_TARGET else -1
+        ref_normal_vector = flip * np.array([-ref_unit_vector[1], ref_unit_vector[0]])
+        dist = np.sqrt(ref_vector[0]**2 + ref_vector[1]**2)
+        #recalculate angle using the right reference corner and left reference corner
+
+        #find angle of ref_normal_vector with y axis, negate because the screen coordinate system is flipped for top case
+        angle = np.arctan2(np.abs(ref_unit_vector[1]), np.abs(ref_unit_vector[0]))
+        if orientation == 0:                     #top case
+            angle = -angle
+        elif orientation == 3:                   #left case
+            angle = angle - np.pi
+        elif orientation == 2:                   #bottom case
+            angle = np.pi - angle
+        elif orientation == 1:                   #right case
+            angle = angle
+
+        if DEBUG_MODE:
+            print(f"Angle: {angle / np.pi * 180}")
+
+        #recalculate center_x and center_y using the right reference corner and left reference corner
+        #the center should be 0.579617834395 * distance from right reference corner to left reference corner away from 
+        #the left reference corner in the direction of the unit vector from left reference corner to right reference corner
+        if dist > 0:
+            # Calculate the offset distance in usaf axis but standard scale based on ratio
+            sum_length = top_left_ref_coord[0] + np.abs(top_right_ref_coord[0])
+            offset_dist_x = top_left_ref_coord[0] * dist / sum_length
+            offset_dist_y = 1.00 * dist * 0.5 / sum_length
+            center_x = top_left_ref_corner[0] + (ref_unit_vector[0] * offset_dist_x) - (ref_normal_vector[0] * offset_dist_y)
+            center_y = top_left_ref_corner[1] + (ref_unit_vector[1] * offset_dist_x) - (ref_normal_vector[1] * offset_dist_y)
+            # convert from standard coordinate back to screen coordinates
+            center_y = gray.shape[0] - 1 - center_y
+
+            #recalculate side_length using the distance between the right reference corner and left reference corner
+            # evil magic scaling factor 1.007
+            side_length = 1.00 * dist * 1.007 / sum_length
+
+        return [center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, None, None]
     else:
         return None
 
@@ -842,16 +1011,15 @@ def sample_line_profile(gray, pt_a, pt_b, sample_count=200):
 
 
 
-def is_image_clear(image_path, threshold=3.0):
-    image = cv2.imread(image_path)
-    if image is None or image.size == 0:
+def is_image_clear(curr_image, threshold=3.0):
+    if curr_image is None or curr_image.size == 0:
         return 0.0
 
     # 2. Convert to Grayscale
-    if image.ndim == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    if curr_image.ndim == 3:
+        gray = cv2.cvtColor(curr_image, cv2.COLOR_BGR2GRAY)
     else:
-        gray = image
+        gray = curr_image
 
     denoised = cv2.bilateralFilter(gray, 5, 75, 75)
     laplacian_mtt = cv2.Laplacian(denoised, cv2.CV_64F)
@@ -998,21 +1166,21 @@ def classify_left_right_numbers(img, left_number_pt, right_number_pt, num_box_of
 
 
 
-def calculate_focus_scores(image_path, yolo_detections=None):
+def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0):
     '''
     Calculate the focus scores for each group element based on the defined scanlines and the detected corners for coordinate calibration.
     If YOLO detections are provided, replace scanline endpoints that fall within YOLO bounding boxes with YOLO keypoints.
     
     Args:
-        image_path: Path to the image
+        curr_image: BGR image array (same format as cv2.imread)
         yolo_detections: Optional list of YOLO detections with 'bbox' and 'keypoints' keys
     
     Return a ordered dictionary of scores for each group element, where the key is the group element number and the value is the focus score.
     '''
     global G1
-    img = cv2.imread(image_path)
-    if img is None:
+    if curr_image is None:
         return None
+    img = curr_image
     
     clean_img = img.copy()
     clean_detection = yolo_detections.copy() if yolo_detections is not None else None
@@ -1051,7 +1219,7 @@ def calculate_focus_scores(image_path, yolo_detections=None):
                 print(f"Retrying coordinate calibration with next best square... Attempt {retry_count}")
             continue
 
-        [center_x, center_y, angle, side_length, right_ref_corner, left_ref_corner] = output_list
+        [center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner] = output_list
 
 
 
@@ -1191,7 +1359,14 @@ def calculate_focus_scores(image_path, yolo_detections=None):
             cv2.line(img, pt_a, pt_b, line_color, 2)
 
         if not retry_condition:
-            break
+            if retry_instance <= 0:
+                break
+
+            if retry_origin == False:
+                retry_count = retry_count + 1
+                retry_instance = retry_instance - 1
+                continue
+
 
         if retry_origin == False:
             retry_count = retry_count + 1
@@ -1202,92 +1377,85 @@ def calculate_focus_scores(image_path, yolo_detections=None):
     if retry_count == valid_squares.__len__():
         print(f"Failed to find valid square after {retry_count} attempts")
         scores = {}  # reset scores
-        raise Exception("Failed to find valid square for coordinate calibration")
+        return None, None
 
     if yolo_detections is not None and len(yolo_detections) > 15:
         misalignment_handling(clean_detection, clean_img.copy(), normalized_gray)
 
 
-    left_number_pt1 = usaf2screen(left_num_coord1, center_x, center_y, angle, side_length)
-    right_number_pt1 = usaf2screen(right_num_coord1, center_x, center_y, angle, side_length)
-    left_number_pt2 = usaf2screen(left_num_coord2, center_x, center_y, angle, side_length)
-    right_number_pt2 = usaf2screen(right_num_coord2, center_x, center_y, angle, side_length)
-    left_number_pt3 = usaf2screen(left_num_coord3, center_x, center_y, angle, side_length)
-    right_number_pt3 = usaf2screen(right_num_coord3, center_x, center_y, angle, side_length)
-    zoom_box_pt = usaf2screen(zoom_box_coord, center_x, center_y, angle, side_length)
-    squ_scan_pt1 = usaf2screen(squ_scan_coord1, center_x, center_y, angle, side_length)
-    squ_scan_pt2 = usaf2screen(squ_scan_coord2, center_x, center_y, angle, side_length)
+
+    # squ_scan_pt1 = usaf2screen(squ_scan_coord1, center_x, center_y, angle, side_length)
+    # squ_scan_pt2 = usaf2screen(squ_scan_coord2, center_x, center_y, angle, side_length)
 
     # square detection function
-    _, peak_num, peak_screen_pts, _, _ = scanline_jmp(
-        normalized_gray, squ_scan_pt1, squ_scan_pt2, sample_count = 500, savgol_window=10, deriv_eps = 0.1
-    )
-    G1 = 8 - peak_num
+    # _, peak_num, peak_screen_pts, _, _ = scanline_jmp(
+    #     normalized_gray, squ_scan_pt1, squ_scan_pt2, sample_count = 500, savgol_window=10, deriv_eps = 0.1
+    # )
+    # print("The number of square is: ", peak_num)
+
+
+
+    pt4_pattern_result = count_4pts_pattern(clean_img)
+    pattern_count = len(pt4_pattern_result.boxes)
+    G1 = 8 - pattern_count * 2 + retry_count * 2
+    print("G1 is: ", G1)
     initialize_score_table()
+    # show image with annotation
+    if DEBUG_MODE:
+        # 1. Plot the YOLO results (outputs BGR image)
+        annotated = pt4_pattern_result.plot(font_size=1, line_width=1)
 
-    num_box_offset1 = 0.5 * side_length
-    num_box_offset2 = 0.13 * side_length
-    num_box_offset3 = 0.032 * side_length
+        # 2. Convert from BGR to RGB exactly ONCE
+        annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+
+        # 3. Display the already-converted image
+        plt.figure(figsize=(10, 8))
+        plt.imshow(annotated_rgb)  # <-- Fixed: Just pass the RGB image here
+        plt.title("Custom Keypoint Visualization")
+        plt.axis("off")  
+        plt.tight_layout()
+        plt.show()
+
+    zoom_box_pt = usaf2screen(zoom_box_coord, center_x, center_y, angle, side_length)
     zoom_box_offset = 80
-    # classified_left_number1, classified_right_number1 = classify_left_right_numbers(
-    #     img,
-    #     left_number_pt1,
-    #     right_number_pt1,
-    #     num_box_offset1,
-    # )
-    # classified_left_number2, classified_right_number2 = classify_left_right_numbers(
-    #     img,
-    #     left_number_pt2,
-    #     right_number_pt2,
-    #     num_box_offset2,
-    # )
-    # classified_left_number3, classified_right_number3 = classify_left_right_numbers(
-    #     img,
-    #     left_number_pt3,
-    #     right_number_pt3,
-    #     num_box_offset3,
-    # )
-    # print(f"Left number1: {classified_left_number1}, Right number1: {classified_right_number1}, Left number2: {classified_left_number2}, Right number2: {classified_right_number2}, Left number3: {classified_left_number3}, Right number3: {classified_right_number3}")
-
     # Crop the image around the zoom box
     zoom_box_img = clean_img[int(zoom_box_pt[1] - zoom_box_offset):int(zoom_box_pt[1] + zoom_box_offset), int(zoom_box_pt[0] - zoom_box_offset):int(zoom_box_pt[0] + zoom_box_offset)]
-    #show the zoom box image
-    print("The number of square is: ", peak_num)
-    plt.figure("Zoom Box Image")
-    plt.imshow(cv2.cvtColor(zoom_box_img, cv2.COLOR_BGR2RGB))
-    plt.title("Zoom Box Image")
-    plt.show()
-
-    # save the image
-    cv2.imwrite("zoom_box_img.png", zoom_box_img)
-
 
 
     if PREVIEW_MODE:
         # Display the result
         # convert the right reference corner and left reference corner from standard to screen coordinates
-        right_ref_corner = (right_ref_corner[0], gray.shape[0] - right_ref_corner[1] - 1)
-        left_ref_corner = (left_ref_corner[0], gray.shape[0] - left_ref_corner[1] - 1)
-        cv2.circle(img, right_ref_corner, 8, (255, 0, 255), -1)  # magenta for right reference corner
-        cv2.circle(img, left_ref_corner, 8, (255, 255, 0), -1)  # cyan for left reference corner
+        top_right_ref_corner = (int(top_right_ref_corner[0]), int(gray.shape[0] - top_right_ref_corner[1] - 1))
+        top_left_ref_corner = (int(top_left_ref_corner[0]), int(gray.shape[0] - top_left_ref_corner[1] - 1))
+        cv2.circle(img, top_right_ref_corner, 2, (255, 0, 255), -1)  # magenta for right reference corner
+        cv2.circle(img, top_left_ref_corner, 2, (255, 255, 0), -1)  # cyan for left reference corner
+
+
+        if FOUR_KP == True:
+            low_right_ref_corner = (int(low_right_ref_corner[0]), int(gray.shape[0] - low_right_ref_corner[1] - 1))
+            low_left_ref_corner = (int(low_left_ref_corner[0]), int(gray.shape[0] - low_left_ref_corner[1] - 1))
+            cv2.circle(img, low_right_ref_corner, 2, (255, 0, 255), -1)  # magenta for right reference corner
+            cv2.circle(img, low_left_ref_corner, 2, (255, 255, 0), -1)  # cyan for left reference corner
+
+
         # calculate region dimension and draw the region 
         right_region_size_px = int((1.0/5.0) * side_length)
         left_region_size_px = int((1.0/5.0) * side_length)
         # convert the right reference corner and left reference corner from usaf to screen coordinates, then draw the region around them,
         # cast to int for cv2.rectangle
-        right_rotated_pt = usaf2screen(right_ref_coord, center_x, center_y, angle, side_length)
-        left_rotated_pt = usaf2screen(left_ref_coord, center_x, center_y, angle, side_length)
+        right_rotated_pt = usaf2screen(top_right_ref_coord, center_x, center_y, angle, side_length)
+        left_rotated_pt = usaf2screen(top_left_ref_coord, center_x, center_y, angle, side_length)
         cv2.rectangle(img, (int(right_rotated_pt[0] - right_region_size_px), int(right_rotated_pt[1] - right_region_size_px)),                  (int(right_rotated_pt[0] + right_region_size_px), int(right_rotated_pt[1] + right_region_size_px)), (255, 0, 255), 2)
         cv2.rectangle(img, (int(left_rotated_pt[0] - left_region_size_px), int(left_rotated_pt[1] - left_region_size_px)),                  (int(left_rotated_pt[0] + left_region_size_px), int(left_rotated_pt[1] + left_region_size_px)), (255, 255, 0), 2)
-        cv2.rectangle(img, (int(right_number_pt1[0] - num_box_offset1), int(right_number_pt1[1] - num_box_offset1)),                  (int(right_number_pt1[0] + num_box_offset1), int(right_number_pt1[1] + num_box_offset1)), (0, 255, 255), 2)
-        cv2.rectangle(img, (int(left_number_pt1[0] - num_box_offset1), int(left_number_pt1[1] - num_box_offset1)),                  (int(left_number_pt1[0] + num_box_offset1), int(left_number_pt1[1] + num_box_offset1)), (0, 255, 255), 2)
-        cv2.rectangle(img, (int(right_number_pt2[0] - num_box_offset2), int(right_number_pt2[1] - num_box_offset2)),                  (int(right_number_pt2[0] + num_box_offset2), int(right_number_pt2[1] + num_box_offset2)), (0, 255, 255), 2)
-        cv2.rectangle(img, (int(left_number_pt2[0] - num_box_offset2), int(left_number_pt2[1] - num_box_offset2)),                  (int(left_number_pt2[0] + num_box_offset2), int(left_number_pt2[1] + num_box_offset2)), (0, 255, 255), 2)
-        cv2.rectangle(img, (int(right_number_pt3[0] - num_box_offset3), int(right_number_pt3[1] - num_box_offset3)),                  (int(right_number_pt3[0] + num_box_offset3), int(right_number_pt3[1] + num_box_offset3)), (0, 255, 255), 2)
-        cv2.rectangle(img, (int(left_number_pt3[0] - num_box_offset3), int(left_number_pt3[1] - num_box_offset3)),                  (int(left_number_pt3[0] + num_box_offset3), int(left_number_pt3[1] + num_box_offset3)), (0, 255, 255), 2)
-        cv2.line(img, squ_scan_pt1, squ_scan_pt2, (0, 0, 255), 2)
-        for pt_coordinate in peak_screen_pts:
-             cv2.circle(img, (int(pt_coordinate[0]), int(pt_coordinate[1])), 8, (255, 0, 0), -1)
+        # cv2.rectangle(img, (int(right_number_pt1[0] - num_box_offset1), int(right_number_pt1[1] - num_box_offset1)),                  (int(right_number_pt1[0] + num_box_offset1), int(right_number_pt1[1] + num_box_offset1)), (0, 255, 255), 2)
+        # cv2.rectangle(img, (int(left_number_pt1[0] - num_box_offset1), int(left_number_pt1[1] - num_box_offset1)),                  (int(left_number_pt1[0] + num_box_offset1), int(left_number_pt1[1] + num_box_offset1)), (0, 255, 255), 2)
+        # cv2.rectangle(img, (int(right_number_pt2[0] - num_box_offset2), int(right_number_pt2[1] - num_box_offset2)),                  (int(right_number_pt2[0] + num_box_offset2), int(right_number_pt2[1] + num_box_offset2)), (0, 255, 255), 2)
+        # cv2.rectangle(img, (int(left_number_pt2[0] - num_box_offset2), int(left_number_pt2[1] - num_box_offset2)),                  (int(left_number_pt2[0] + num_box_offset2), int(left_number_pt2[1] + num_box_offset2)), (0, 255, 255), 2)
+        # cv2.rectangle(img, (int(right_number_pt3[0] - num_box_offset3), int(right_number_pt3[1] - num_box_offset3)),                  (int(right_number_pt3[0] + num_box_offset3), int(right_number_pt3[1] + num_box_offset3)), (0, 255, 255), 2)
+        # cv2.rectangle(img, (int(left_number_pt3[0] - num_box_offset3), int(left_number_pt3[1] - num_box_offset3)),                  (int(left_number_pt3[0] + num_box_offset3), int(left_number_pt3[1] + num_box_offset3)), (0, 255, 255), 2)
+        # cv2.line(img, squ_scan_pt1, squ_scan_pt2, (0, 0, 255), 2)
+        # for pt_coordinate in peak_screen_pts:
+        #      cv2.circle(img, (int(pt_coordinate[0]), int(pt_coordinate[1])), 8, (255, 0, 0), -1)
 
         # mark the center of the square with a blue circle
         cv2.circle(img, (int(center_x), int(center_y)), 8, (255, 0, 0), -1)  # blue for center of the square
@@ -1350,6 +1518,8 @@ def find_best_focus_group(scores_list, threshold=0.2):
     Return the corresponding group and element number from the score table.
     '''
     # We need at least 2 scores to compare
+    if scores_list is None:
+        return None, None
     chosen_index = 0
     if len(scores_list) < 2:
         print("Not enough scores to compare")
@@ -1398,30 +1568,81 @@ def find_usaf_score(image_path, imgsz=2048):
     Returns:
         Tuple of (group_number, element_number) indicating best focus group
     '''
-    if not is_image_clear(image_path, 4):          
+    curr_image = cv2.imread(image_path)
+    if curr_image is None:
+        return None
+
+    if not is_image_clear(curr_image, 4):
         print("The image is too blurry for detection")
         return None
-
-    yolo_detections = None
-    if YOLO_DETECT:
-        yolo_detections, _result, _img = extract_yolo_detections(image_path, imgsz=imgsz)
-    if PREVIEW_MODE and YOLO_DETECT:
-        visualize_detections(_img, _result, yolo_detections)
-    # Calculate focus scores
-    try:
-        scores, scanline_map = calculate_focus_scores(image_path, yolo_detections)
-    except Exception as e:
-        print(f"Failed to calculate focus scores for {image_path}: {e}")
-        return None
     
-    if scores is not None and DEBUG_MODE:
-        print(f"Scores for {image_path}: {scores}")
+    while True:
+        yolo_detections = None
+        if YOLO_DETECT:
+            yolo_detections, _result, _img = extract_yolo_detections(curr_image, imgsz=imgsz)
+        if PREVIEW_MODE and YOLO_DETECT:
+            visualize_detections(_img, _result, yolo_detections)
+        # Calculate focus scores
+        scores = {}
+        scanline_map = {}
+        best_focus_group = {}
+        chosen_index = {}
+        try:
+            scores[0], scanline_map[0] = calculate_focus_scores(curr_image, yolo_detections, 0)
+            best_focus_group[0], chosen_index[0] = find_best_focus_group(scores[0], threshold=0.2)
+            print("best_focus_group[0]", best_focus_group[0])
 
-    # find the index in the scores where the descending order of scores changes to ascending order, 
-    # that is the index of the best focus group
-    best_focus_group, chosen_index = find_best_focus_group(scores, threshold=0.2)
-    print(f"Best focus group for {image_path}: {best_focus_group[0]}, element {best_focus_group[1]}")
-    return best_focus_group
+            scores[1], scanline_map[1] = calculate_focus_scores(curr_image, yolo_detections, 1)
+            best_focus_group[1], chosen_index[1] = find_best_focus_group(scores[1], threshold=0.2)
+            print("best_focus_group[1]", best_focus_group[1])
+
+            scores[2], scanline_map[2] = calculate_focus_scores(curr_image, yolo_detections, 2)
+            best_focus_group[2], chosen_index[2] = find_best_focus_group(scores[2], threshold=0.2)
+            print("best_focus_group[2]",best_focus_group[2])
+            break
+        except ValueError:
+            # rotate current image by 30 degrees and fill background with black
+            (h, w) = curr_image.shape[:2]
+            center = (w // 2, h // 2)
+            matrix = cv2.getRotationMatrix2D(center, -30, 1.0)
+
+            cos = np.abs(matrix[0, 0])
+            sin = np.abs(matrix[0, 1])
+            new_w = int((h * sin) + (w * cos))
+            new_h = int((h * cos) + (w * sin))
+            matrix[0, 2] += (new_w / 2) - center[0]
+            matrix[1, 2] += (new_h / 2) - center[1]
+
+            curr_image = cv2.warpAffine(curr_image, matrix, (new_w, new_h))
+
+        except Exception as e:
+            print(f"Failed to calculate focus scores for {image_path}: {e}")
+            return None
+    
+    # Keep only valid focus group entries (some attempts can return None).
+    best_focus_info = []
+    for i in range(3):
+        group = best_focus_group[i]
+        if group is None:
+            continue
+        if not isinstance(group, (list, tuple)) or len(group) < 2:
+            continue
+        best_focus_info.append([group, chosen_index[i], scanline_map[i], scores[i]])
+        print("candidate best focus group", group)
+
+    if not best_focus_info:
+        print("No best focus group found")
+        return None
+
+    # Winner: highest group number, then highest element number.
+    final_best_focus_info = max(best_focus_info, key=lambda x: (x[0][0], x[0][1]))
+
+    if final_best_focus_info[3] is not None and DEBUG_MODE:
+        print(f"Scores for {image_path}: {final_best_focus_info[3]}")
+
+    print(f"Best focus group for {image_path}: {final_best_focus_info[0][0]}, element {final_best_focus_info[0][1]}")
+
+    return final_best_focus_info[0]
 
 
 for image_path in images:
