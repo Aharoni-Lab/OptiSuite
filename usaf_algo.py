@@ -20,11 +20,11 @@ from scipy.signal import savgol_filter
 
 #debug const
 DEBUG_MODE = False              # debug log + photo
-PREVIEW_MODE = True             # overview photo
+PREVIEW_MODE = False             # overview photo
 YOLO_DETECT = False              # yolo detection
 GRADIENT_MIN = False
-FLIPED_TARGET = False           # true if target is fliped
-G1 = 2                          # first group numberk
+FLIPED_TARGET = True           # true if target is fliped
+G1 = 2                          # first group number
 
 SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
 RETRY_OUTER = False              # if only inner corner detected, expand the scanline to outer target
@@ -37,6 +37,7 @@ CORNER_METHOD = "threshold"     # "threshold", "default", method to detect the c
 SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
 CROPED_WINDOW_RETRY = False     # if the corner detection window is off image, retry with next best square
 
+INITIAL_ANGLE = 0
 
 #anchor coordinate for performing secondary coordinate calibration
 top_left_ref_coord = (2.64, 0.5)
@@ -62,14 +63,18 @@ retry_count = 0
 
 # Process images
 images = [
-    # 'test_img/test_image_new.png'
+    'test_img/test_image_new.png',
     # 'test_img/test_image_g4e4.png',
     # 'test_img/test_image_g5e4.png',
     # 'test_img/af_Z59_370_183653_20260227_183653.png',
-    # 'test_img/test_image_g3e6.png',
-     'test_img/image.png',
-    # 'test_img/test_image_new.png'
+    # 'test_img/test_image_g3e6.png'
+    # 'test_img/image.png',
+    #'test_img/test_image_new.png'
     # 'test_img/image_g67only.png'
+    # 'test_img/test_image_g6e6.png'
+    # 'test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png',
+    # 'test_img/Image0001.bmp',
+    # 'test_img/Screenshot_2026-05-06_085659.png'
 ]
 
 # scanline definition in usaf coordinate
@@ -247,7 +252,7 @@ def usaf_resolution_mm(group: int, element: int) -> float:
 
 
 
-def is_valid_square(approx, gray, white_threshold=200, angle_tolerance=5, side_ratio_tolerance=1.1):
+def is_valid_square(approx, gray, white_threshold=230, angle_tolerance=5, side_ratio_tolerance=1.2):
     '''
     Check if the approximated polygon is a valid square with:
     - Ratio between max and min side length between 1 and 1.5
@@ -313,15 +318,15 @@ def is_valid_square(approx, gray, white_threshold=200, angle_tolerance=5, side_r
     
     white_ratio = np.sum(interior_pixels > white_threshold) / len(interior_pixels)
     
-    # At least 70% of interior should be white
-    if white_ratio < 0.7:
+    # At least 90% of interior should be white
+    if white_ratio < 0.9:
         return False
     
     return True
 
 
 
-def find_square_corners(gray):
+def find_square_corners(gray, brightest):
     '''
     find the square in the usaf target for initial coordinate calibration, 
     return the corners in standard coordinates (x, y)
@@ -341,6 +346,7 @@ def find_square_corners(gray):
     # Sort contours by area (largest first)
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
+    approx_polys = []
     best_square_corners = None
     best_area = 0
 
@@ -352,17 +358,73 @@ def find_square_corners(gray):
         peri = cv2.arcLength(cnt, True)
         # Increase the 0.02 factor if it still fails (e.g., 0.04)
         approx = cv2.approxPolyDP(cnt, 0.03 * peri, True)
+        approx_polys.append(approx)
 
         # Look for 4-sided polygons that form valid squares
         if len(approx) == 4:
             # Check if this polygon meets the square criteria
-            if is_valid_square(approx, gray):
+            if is_valid_square(approx, thresh):
                 valid_squares.append(approx)  # Store in global list
                 
                 # Keep track of the largest valid square
                 if area > best_area:
                     best_area = area
                     best_square_corners = approx
+
+    if DEBUG_MODE:
+        # Show approxPolyDP output (polygonal approximation of contours).
+        approx_img = img.copy()
+        for approx in approx_polys:
+            color = (0, 255, 255) if len(approx) == 4 else (255, 0, 0)  # yellow for quads, blue for others
+            cv2.polylines(approx_img, [approx], True, color, 2)
+
+        max_w, max_h = 1600, 900
+        h_ap, w_ap = approx_img.shape[:2]
+        scale_ap = min(max_w / w_ap, max_h / h_ap, 1.0)
+        if scale_ap < 1.0:
+            approx_img = cv2.resize(
+                approx_img,
+                (int(w_ap * scale_ap), int(h_ap * scale_ap)),
+                interpolation=cv2.INTER_AREA,
+            )
+
+        plt.figure("approxPolyDP", figsize=(12, 7))
+        plt.clf()
+        plt.imshow(cv2.cvtColor(approx_img, cv2.COLOR_BGR2RGB))
+        plt.title("approxPolyDP")
+        plt.axis("off")
+        plt.tight_layout()
+        plt.show(block=False)
+        plt.pause(0.001)
+
+    if DEBUG_MODE:
+        # Visualize all detected valid squares and highlight the best one.
+        detected_img = img.copy()
+        if len(valid_squares) > 0:
+            cv2.drawContours(detected_img, valid_squares, -1, (0, 255, 255), 2)  # yellow: all detected squares
+            for idx, square in enumerate(valid_squares):
+                center = np.mean(square.reshape(-1, 2), axis=0).astype(int)
+                cv2.putText(detected_img, str(idx), tuple(center), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 0), 2)
+        if best_square_corners is not None:
+            cv2.drawContours(detected_img, [best_square_corners], -1, (0, 0, 255), 3)  # red: best square
+
+        # Fit full image into a large window so it is not clipped on screen.
+        max_w, max_h = 1600, 900
+        h, w = detected_img.shape[:2]
+        scale = min(max_w / w, max_h / h, 1.0)
+        if scale < 1.0:
+            show_img = cv2.resize(detected_img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+        else:
+            show_img = detected_img
+
+        plt.figure("Detected Squares", figsize=(12, 7))
+        plt.clf()
+        plt.imshow(cv2.cvtColor(show_img, cv2.COLOR_BGR2RGB))
+        plt.title("Detected Squares")
+        plt.axis("off")
+        plt.tight_layout()
+        plt.show(block=False)
+        plt.pause(0.001)
 
     if best_square_corners is not None:
         # Create a copy because the valid squares list is by ref
@@ -498,7 +560,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
                 if i_ctr != search_idx:
                     cv2.circle(debug_img, (int(corner[0][0]), int(corner[0][1])), 1, (0, 0, 255), -1)
                 i_ctr += 1
-                print(f"Corner {i_ctr}: ({corner[0][0]}, {corner[0][1]})")
+                # print(f"Corner {i_ctr}: ({corner[0][0]}, {corner[0][1]})")
             cv2.circle(debug_img, (int(corner_local[0]), int(corner_local[1])), 1, (0, 200, 0), -1)
             plt.figure("Debug Region")
             plt.imshow(cv2.cvtColor(debug_img, cv2.COLOR_BGR2RGB))
@@ -1024,7 +1086,8 @@ def is_image_clear(curr_image, threshold=3.0):
     denoised = cv2.bilateralFilter(gray, 5, 75, 75)
     laplacian_mtt = cv2.Laplacian(denoised, cv2.CV_64F)
     score = laplacian_mtt.var()
-    print("blurry score: ", score)
+    if DEBUG_MODE:
+        print("blurry score: ", score)
     return score >= threshold
 
 
@@ -1178,6 +1241,8 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     Return a ordered dictionary of scores for each group element, where the key is the group element number and the value is the focus score.
     '''
     global G1
+    global INITIAL_ANGLE
+    initial_retry_instance = retry_instance
     if curr_image is None:
         return None
     img = curr_image
@@ -1194,7 +1259,7 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     normalized_gray = np.clip(normalized_gray, 0, 1)
 
     # Find square corners
-    corners = find_square_corners(gray)
+    corners = find_square_corners(gray, brightest)
 
     # Coordinate calibration
     global retry_count
@@ -1375,13 +1440,18 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
             print(f"Found out image scanline, Retrying with next best square... Attempt {retry_count}")
 
     if retry_count == valid_squares.__len__():
-        print(f"Failed to find valid square after {retry_count} attempts")
+        if DEBUG_MODE:
+            print(f"Failed to find valid square after {retry_count} attempts")
         scores = {}  # reset scores
         return None, None
 
     if yolo_detections is not None and len(yolo_detections) > 15:
         misalignment_handling(clean_detection, clean_img.copy(), normalized_gray)
 
+    if initial_retry_instance != 0 and not (0.9 * INITIAL_ANGLE < np.abs(angle) < 1.1 * INITIAL_ANGLE):
+        if DEBUG_MODE:
+            print("large angles diff quit")
+        return None, None
 
 
     # squ_scan_pt1 = usaf2screen(squ_scan_coord1, center_x, center_y, angle, side_length)
@@ -1394,27 +1464,30 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     # print("The number of square is: ", peak_num)
 
 
+    if initial_retry_instance == 0:
+        pt4_pattern_result = count_4pts_pattern(clean_img)
+        pattern_count = len(pt4_pattern_result.boxes)
+        G1 = 8 - pattern_count * 2 + retry_count * 2
+        if DEBUG_MODE:
+            print("G1 is: ", G1)
+        if G1 > 6:
+            return None, None
+        initialize_score_table()
+        # show image with annotation
+        if DEBUG_MODE:
+            # 1. Plot the YOLO results (outputs BGR image)
+            annotated = pt4_pattern_result.plot(font_size=1, line_width=1)
 
-    pt4_pattern_result = count_4pts_pattern(clean_img)
-    pattern_count = len(pt4_pattern_result.boxes)
-    G1 = 8 - pattern_count * 2 + retry_count * 2
-    print("G1 is: ", G1)
-    initialize_score_table()
-    # show image with annotation
-    if DEBUG_MODE:
-        # 1. Plot the YOLO results (outputs BGR image)
-        annotated = pt4_pattern_result.plot(font_size=1, line_width=1)
+            # 2. Convert from BGR to RGB exactly ONCE
+            annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
 
-        # 2. Convert from BGR to RGB exactly ONCE
-        annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-
-        # 3. Display the already-converted image
-        plt.figure(figsize=(10, 8))
-        plt.imshow(annotated_rgb)  # <-- Fixed: Just pass the RGB image here
-        plt.title("Custom Keypoint Visualization")
-        plt.axis("off")  
-        plt.tight_layout()
-        plt.show()
+            # 3. Display the already-converted image
+            plt.figure(figsize=(10, 8))
+            plt.imshow(annotated_rgb)  # <-- Fixed: Just pass the RGB image here
+            plt.title("Custom Keypoint Visualization")
+            plt.axis("off")  
+            plt.tight_layout()
+            plt.show()
 
     zoom_box_pt = usaf2screen(zoom_box_coord, center_x, center_y, angle, side_length)
     zoom_box_offset = 80
@@ -1507,6 +1580,9 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
             "resolution_mm": usaf_resolution_mm(group, element),
         }
 
+        if retry_instance == 0:
+            INITIAL_ANGLE = np.abs(angle)
+
     return final_score, scanline_map
 
 
@@ -1590,15 +1666,18 @@ def find_usaf_score(image_path, imgsz=2048):
         try:
             scores[0], scanline_map[0] = calculate_focus_scores(curr_image, yolo_detections, 0)
             best_focus_group[0], chosen_index[0] = find_best_focus_group(scores[0], threshold=0.2)
-            print("best_focus_group[0]", best_focus_group[0])
+            if DEBUG_MODE:
+                print("best_focus_group[0]", best_focus_group[0])
 
             scores[1], scanline_map[1] = calculate_focus_scores(curr_image, yolo_detections, 1)
             best_focus_group[1], chosen_index[1] = find_best_focus_group(scores[1], threshold=0.2)
-            print("best_focus_group[1]", best_focus_group[1])
+            if DEBUG_MODE:
+                print("best_focus_group[1]", best_focus_group[1])
 
             scores[2], scanline_map[2] = calculate_focus_scores(curr_image, yolo_detections, 2)
             best_focus_group[2], chosen_index[2] = find_best_focus_group(scores[2], threshold=0.2)
-            print("best_focus_group[2]",best_focus_group[2])
+            if DEBUG_MODE:
+                print("best_focus_group[2]",best_focus_group[2])
             break
         except ValueError:
             # rotate current image by 30 degrees and fill background with black
@@ -1628,7 +1707,8 @@ def find_usaf_score(image_path, imgsz=2048):
         if not isinstance(group, (list, tuple)) or len(group) < 2:
             continue
         best_focus_info.append([group, chosen_index[i], scanline_map[i], scores[i]])
-        print("candidate best focus group", group)
+        if DEBUG_MODE:
+            print("candidate best focus group", group)
 
     if not best_focus_info:
         print("No best focus group found")
