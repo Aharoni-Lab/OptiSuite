@@ -8,6 +8,21 @@ from PIL import Image
 
 from core.results import AnalyzerResult, OverlayItem
 
+_RUNTIME_IMAGE_CACHE: dict[str, np.ndarray] = {}
+
+
+def register_runtime_image(image_path: str, image: np.ndarray | None) -> None:
+    if image is None:
+        return
+    _RUNTIME_IMAGE_CACHE[str(Path(image_path))] = image.copy()
+
+
+def get_runtime_image(image_path: str) -> np.ndarray | None:
+    cached = _RUNTIME_IMAGE_CACHE.get(str(Path(image_path)))
+    if cached is None:
+        return None
+    return cached.copy()
+
 
 def draw_overlay_item(image: np.ndarray, item: OverlayItem) -> None:
     color = tuple(int(value) for value in item.color)
@@ -31,7 +46,9 @@ def render_result_image(
     max_size: tuple[int, int] | None = None,
     extra_overlay_items: list[OverlayItem] | None = None,
 ) -> Image.Image:
-    image = cv2.imread(str(result.image_path))
+    image_key = str(Path(result.image_path))
+    cached_image = _RUNTIME_IMAGE_CACHE.get(image_key)
+    image = cached_image.copy() if cached_image is not None else cv2.imread(image_key)
     if image is None:
         fallback = Image.new("RGB", max_size or (640, 480), color=(30, 30, 30))
         return fallback

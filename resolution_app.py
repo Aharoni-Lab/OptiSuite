@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 
 from core.results import AnalyzerConfig, AnalyzerResult, ChartType, OverlayItem
 from core.router import SUPPORTED_CHART_TYPES, TargetRouter
-from core.visualization import render_result_image
+from core.visualization import get_runtime_image, render_result_image
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -666,7 +666,7 @@ class ResolutionApp:
             return
 
         line_data = scanlines[key]
-        normalized_gray = self._load_normalized_gray(result.image_path)
+        normalized_gray = self._load_normalized_gray(result)
         plot_line_data = self._build_plot_line_data(line_data, normalized_gray.shape)
         plot_image_full = self._build_cross_section_plot_image(normalized_gray, plot_line_data, group, element)
         self.current_plot_image = plot_image_full.copy()
@@ -696,10 +696,12 @@ class ResolutionApp:
         ]
         self._show_result_preview(result, extra_overlay_items=extra_overlay_items, preserve_view=True)
 
-    def _load_normalized_gray(self, image_path: str) -> np.ndarray:
-        image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+    def _load_normalized_gray(self, result: AnalyzerResult) -> np.ndarray:
+        image = get_runtime_image(result.image_path)
         if image is None:
-            raise FileNotFoundError(f"Could not read image: {image_path}")
+            image = cv2.imread(str(result.image_path), cv2.IMREAD_UNCHANGED)
+        if image is None:
+            raise FileNotFoundError(f"Could not read image: {result.image_path}")
 
         if image.ndim == 2:
             gray = image

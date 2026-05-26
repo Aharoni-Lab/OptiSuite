@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from yolo_model import extract_yolo_detections, visualize_detections, classify_number, count_4pts_pattern
 from scipy.signal import savgol_filter
+import random
 
 
 
@@ -23,6 +24,10 @@ DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = False             # overview photo
 YOLO_DETECT = False              # yolo detection
 GRADIENT_MIN = False
+GRADIENT_PLOT_ENABLE = False       # visualize selected scanline intensity + gradient
+GRADIENT_PLOT_GROUP = 6            # group to inspect when GRADIENT_PLOT_ENABLE is True
+GRADIENT_PLOT_ELEMENT = 5          # element to inspect when GRADIENT_PLOT_ENABLE is True
+GRADIENT_PLOT_ORIENTATION = "both" # "vertical", "horizontal", "both"
 FLIPED_TARGET = True           # true if target is fliped
 G1 = 2                          # first group number
 
@@ -252,7 +257,7 @@ def usaf_resolution_mm(group: int, element: int) -> float:
 
 
 
-def is_valid_square(approx, gray, white_threshold=230, angle_tolerance=5, side_ratio_tolerance=1.2):
+def is_valid_square(approx, gray, white_threshold=250, angle_tolerance=5, side_ratio_tolerance=1.2):
     '''
     Check if the approximated polygon is a valid square with:
     - Ratio between max and min side length between 1 and 1.5
@@ -319,14 +324,14 @@ def is_valid_square(approx, gray, white_threshold=230, angle_tolerance=5, side_r
     white_ratio = np.sum(interior_pixels > white_threshold) / len(interior_pixels)
     
     # At least 90% of interior should be white
-    if white_ratio < 0.9:
+    if white_ratio < 0.99:
         return False
     
     return True
 
 
 
-def find_square_corners(gray, brightest):
+def find_square_corners(gray):
     '''
     find the square in the usaf target for initial coordinate calibration, 
     return the corners in standard coordinates (x, y)
@@ -337,39 +342,82 @@ def find_square_corners(gray, brightest):
 
     # RGB color of gray
     img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-    # Use GaussianBlur to reduce noise before thresholding
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    # Use Otsu's thresholding to automatically find the best light/dark split
-    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    # Find all contours
-    contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    # Sort contours by area (largest first)
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    # Multi-scale contour detection can recover squares that are weak at a single scale.
+    scale_factors = [1.0, 1.5, 2.0]
+    approx_polys = []  # all approximated polygons mapped to original image coordinates
+    square_candidates = []
 
-    approx_polys = []
-    best_square_corners = None
-    best_area = 0
+    def _bbox_iou(rect_a, rect_b):
+        ax1, ay1, aw, ah = rect_a
+        bx1, by1, bw, bh = rect_b
+        ax2, ay2 = ax1 + aw, ay1 + ah
+        bx2, by2 = bx1 + bw, by1 + bh
+        inter_w = max(0, min(ax2, bx2) - max(ax1, bx1))
+        inter_h = max(0, min(ay2, by2) - max(ay1, by1))
+        inter = inter_w * inter_h
+        if inter <= 0:
+            return 0.0
+        union = aw * ah + bw * bh - inter
+        return inter / union if union > 0 else 0.0
 
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < 500: # Ignore tiny noise
-            continue
-            
-        peri = cv2.arcLength(cnt, True)
-        # Increase the 0.02 factor if it still fails (e.g., 0.04)
-        approx = cv2.approxPolyDP(cnt, 0.03 * peri, True)
-        approx_polys.append(approx)
+    for scale in scale_factors:
+        if scale == 1.0:
+            scaled_gray = gray
+        else:
+            interp = cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA
+            scaled_gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=interp)
 
-        # Look for 4-sided polygons that form valid squares
-        if len(approx) == 4:
-            # Check if this polygon meets the square criteria
-            if is_valid_square(approx, thresh):
-                valid_squares.append(approx)  # Store in global list
-                
-                # Keep track of the largest valid square
-                if area > best_area:
-                    best_area = area
-                    best_square_corners = approx
+        # Use GaussianBlur to reduce noise before thresholding
+        blurred = cv2.GaussianBlur(scaled_gray, (5, 5), 0)
+        # Use Otsu's thresholding to automatically find the best light/dark split
+        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # Find all contours
+        contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        # Sort contours by area (largest first)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+        for cnt in contours:
+            area_scaled = cv2.contourArea(cnt)
+            if area_scaled < 500:  # Ignore tiny noise on the current scale
+                continue
+
+            peri = cv2.arcLength(cnt, True)
+            # Increase the 0.02 factor if it still fails (e.g., 0.04)
+            approx = cv2.approxPolyDP(cnt, 0.03 * peri, True)
+
+            # Map approximated polygon back to original-image coordinates for unified downstream use.
+            approx_orig = np.array(approx, dtype=np.float32)
+            if scale != 1.0:
+                approx_orig /= scale
+            approx_orig = np.round(approx_orig).astype(np.int32)
+            approx_orig[:, 0, 0] = np.clip(approx_orig[:, 0, 0], 0, gray.shape[1] - 1)
+            approx_orig[:, 0, 1] = np.clip(approx_orig[:, 0, 1], 0, gray.shape[0] - 1)
+            approx_polys.append(approx_orig)
+
+            # Look for 4-sided polygons that form valid squares
+            if len(approx) == 4 and is_valid_square(approx, thresh):
+                area_orig = area_scaled / (scale * scale)
+                square_candidates.append((area_orig, approx_orig))
+
+    # Sort all candidates by area descending so retry starts from largest square.
+    square_candidates.sort(key=lambda item: item[0], reverse=True)
+
+    # IoU-based deduplication in sorted order (keep largest in each overlap cluster).
+    dedup_iou_threshold = 0.7
+    deduped_candidates = []
+    for area_orig, approx_orig in square_candidates:
+        rect = cv2.boundingRect(approx_orig)
+        duplicate = False
+        for _, kept_approx in deduped_candidates:
+            kept_rect = cv2.boundingRect(kept_approx)
+            if _bbox_iou(rect, kept_rect) >= dedup_iou_threshold:
+                duplicate = True
+                break
+        if not duplicate:
+            deduped_candidates.append((area_orig, approx_orig))
+
+    valid_squares = [approx for _, approx in deduped_candidates]
+    best_square_corners = valid_squares[0] if len(valid_squares) > 0 else None
 
     if DEBUG_MODE:
         # Show approxPolyDP output (polygonal approximation of contours).
@@ -394,8 +442,7 @@ def find_square_corners(gray, brightest):
         plt.title("approxPolyDP")
         plt.axis("off")
         plt.tight_layout()
-        plt.show(block=False)
-        plt.pause(0.001)
+        plt.show(block=True)
 
     if DEBUG_MODE:
         # Visualize all detected valid squares and highlight the best one.
@@ -403,8 +450,8 @@ def find_square_corners(gray, brightest):
         if len(valid_squares) > 0:
             cv2.drawContours(detected_img, valid_squares, -1, (0, 255, 255), 2)  # yellow: all detected squares
             for idx, square in enumerate(valid_squares):
-                center = np.mean(square.reshape(-1, 2), axis=0).astype(int)
-                cv2.putText(detected_img, str(idx), tuple(center), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 0), 2)
+                center = np.mean(square.reshape(-1, 2), axis=0).astype(int) + random.randint(-10, 10)
+                cv2.putText(detected_img, str(idx), tuple(center), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 200, 0), 2)
         if best_square_corners is not None:
             cv2.drawContours(detected_img, [best_square_corners], -1, (0, 0, 255), 3)  # red: best square
 
@@ -423,8 +470,8 @@ def find_square_corners(gray, brightest):
         plt.title("Detected Squares")
         plt.axis("off")
         plt.tight_layout()
-        plt.show(block=False)
-        plt.pause(0.001)
+        plt.show(block=True)
+
 
     if best_square_corners is not None:
         # Create a copy because the valid squares list is by ref
@@ -448,7 +495,7 @@ def find_square_corners(gray, brightest):
         if DEBUG_MODE:
             print("Square not detected. Showing thresholded image for debugging...")
             plt.figure("Debug Thresh")
-            plt.imshow(thresh, cmap='gray')
+            plt.imshow(gray, cmap='gray')
             plt.title("Debug Thresh")
             plt.show()
         return None
@@ -1259,7 +1306,7 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     normalized_gray = np.clip(normalized_gray, 0, 1)
 
     # Find square corners
-    corners = find_square_corners(gray, brightest)
+    corners = find_square_corners(gray)
 
     # Coordinate calibration
     global retry_count
@@ -1377,27 +1424,49 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
 
                     local_min = local_min_count >= 2
 
-                    # # Print local minima positions for group 6 element 5
-                    # if i // 2 == 32:
-                    #     print(f"Local minima positions for group 6 element 5: {filtered_min_indices}")
-                    #     print(f"Local minima count for group 6 element 5: {local_min_count}")
+                    if GRADIENT_PLOT_ENABLE:
+                        scan_idx = i // 2
+                        unique_count = len(score_table)
+                        base_idx = scan_idx % unique_count
+                        orientation = "vertical" if scan_idx < unique_count else "horizontal"
+                        group, element = score_table[base_idx]
+                        group_match = GRADIENT_PLOT_GROUP is None or group == GRADIENT_PLOT_GROUP
+                        element_match = GRADIENT_PLOT_ELEMENT is None or element == GRADIENT_PLOT_ELEMENT
+                        orient_match = GRADIENT_PLOT_ORIENTATION in ("both", orientation)
 
-                    # # Plot pixel values and gradient for group 6 element 5 (index 25)
-                    # if i // 2 == 32 and len(line_pixels) >= 3:
-                    #     dy = np.gradient(smooth_pixels)
-                    #     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
-                    #     ax1.plot(smooth_pixels, label='Pixel Values')
-                    #     ax1.set_title('Pixel Values along Scanline (Group 6 Element 5)')
-                    #     ax1.set_xlabel('Position')
-                    #     ax1.set_ylabel('Intensity')
-                    #     ax1.grid(True)
-                    #     ax2.plot(dy, label='Gradient', color='orange')
-                    #     ax2.set_title('Gradient along Scanline')
-                    #     ax2.set_xlabel('Position')
-                    #     ax2.set_ylabel('Gradient')
-                    #     ax2.grid(True)
-                    #     plt.tight_layout()
-                    #     plt.show()
+                        if group_match and element_match and orient_match:
+                            print(
+                                f"Gradient debug: G{group} E{element} ({orientation}) "
+                                f"min_count={local_min_count}, minima={filtered_min_indices.tolist() if hasattr(filtered_min_indices, 'tolist') else filtered_min_indices}"
+                            )
+
+                            fig, (ax1, ax2) = plt.subplots(2, 1, num="Gradient Debug", figsize=(10, 6), clear=True)
+                            ax1.plot(smooth_pixels, label="Smoothed intensity", color="tab:blue", linewidth=1.5)
+                            if len(filtered_min_indices) > 0:
+                                ax1.scatter(
+                                    filtered_min_indices,
+                                    smooth_pixels[filtered_min_indices],
+                                    color="red",
+                                    s=20,
+                                    label="Detected minima",
+                                    zorder=3,
+                                )
+                            ax1.set_title(f"Intensity profile - G{group} E{element} ({orientation})")
+                            ax1.set_xlabel("Sample index")
+                            ax1.set_ylabel("Intensity")
+                            ax1.grid(True, alpha=0.3)
+                            ax1.legend(loc="best")
+
+                            ax2.plot(dy, label="Gradient", color="tab:orange", linewidth=1.5)
+                            ax2.axhline(0.0, color="gray", linestyle="--", linewidth=1.0)
+                            ax2.set_title("Gradient profile")
+                            ax2.set_xlabel("Sample index")
+                            ax2.set_ylabel("dI/dx")
+                            ax2.grid(True, alpha=0.3)
+                            ax2.legend(loc="best")
+
+                            plt.tight_layout()
+                            plt.show(block=True)
 
 
 
@@ -1632,7 +1701,7 @@ def find_best_focus_group(scores_list, threshold=0.2):
 
 
 
-def find_usaf_score(image_path, imgsz=2048):
+def find_usaf_score(image_path, imgsz=2048, threshold=0.2):
     '''
     Find the usaf focus score for a given image path, which is the best focus group number 
     based on the defined scanlines and the detected corners for coordinate calibration.
@@ -1644,6 +1713,7 @@ def find_usaf_score(image_path, imgsz=2048):
     Returns:
         Tuple of (group_number, element_number) indicating best focus group
     '''
+    global G1
     curr_image = cv2.imread(image_path)
     if curr_image is None:
         return None
@@ -1665,17 +1735,17 @@ def find_usaf_score(image_path, imgsz=2048):
         chosen_index = {}
         try:
             scores[0], scanline_map[0] = calculate_focus_scores(curr_image, yolo_detections, 0)
-            best_focus_group[0], chosen_index[0] = find_best_focus_group(scores[0], threshold=0.2)
+            best_focus_group[0], chosen_index[0] = find_best_focus_group(scores[0], threshold=threshold)
             if DEBUG_MODE:
                 print("best_focus_group[0]", best_focus_group[0])
 
             scores[1], scanline_map[1] = calculate_focus_scores(curr_image, yolo_detections, 1)
-            best_focus_group[1], chosen_index[1] = find_best_focus_group(scores[1], threshold=0.2)
+            best_focus_group[1], chosen_index[1] = find_best_focus_group(scores[1], threshold=threshold)
             if DEBUG_MODE:
                 print("best_focus_group[1]", best_focus_group[1])
 
             scores[2], scanline_map[2] = calculate_focus_scores(curr_image, yolo_detections, 2)
-            best_focus_group[2], chosen_index[2] = find_best_focus_group(scores[2], threshold=0.2)
+            best_focus_group[2], chosen_index[2] = find_best_focus_group(scores[2], threshold=threshold)
             if DEBUG_MODE:
                 print("best_focus_group[2]",best_focus_group[2])
             break
@@ -1722,8 +1792,12 @@ def find_usaf_score(image_path, imgsz=2048):
 
     print(f"Best focus group for {image_path}: {final_best_focus_info[0][0]}, element {final_best_focus_info[0][1]}")
 
-    return final_best_focus_info[0]
+    G1 = 2
+    initialize_score_table()
+
+    # Return legacy outputs plus processed image used during scoring.
+    return final_best_focus_info[0], final_best_focus_info[1], final_best_focus_info[2], final_best_focus_info[3], curr_image
 
 
-for image_path in images:
-    find_usaf_score(image_path)
+# for image_path in images:
+#     find_usaf_score(image_path)

@@ -11,6 +11,7 @@ import numpy as np
 import usaf_algo
 import yolo_model
 from analyzers.base import ResolutionAnalyzer
+from core.visualization import register_runtime_image
 from core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
 
 
@@ -48,12 +49,6 @@ def _legacy_config_scope(config: USAFAnalyzerConfig) -> Iterator[None]:
     finally:
         for key, value in original.items():
             setattr(usaf_algo, key, value)
-
-
-def _calculate_scores_and_scanlines(context, yolo_detections=None):
-    image_path = context.image_path
-    final_scores, scanline_map = usaf_algo.calculate_focus_scores(image_path, yolo_detections)
-    return final_scores, scanline_map
 
 
 def _candidate_quality(scores: list[float], threshold: float) -> float:
@@ -120,21 +115,6 @@ class USAFAnalyzer(ResolutionAnalyzer):
     def analyze(self, context) -> AnalyzerResult:
         warnings: list[str] = []
         threshold = self.config.contrast_threshold
-        detections = None
-        _result = None
-        _img = None
-
-        if self.config.allow_model_assist:
-            model_path = Path(self.config.model_path)
-            if model_path.exists():
-                detections, _result, _img = yolo_model.extract_yolo_detections(
-                    context.image_path,
-                    model_path,
-                    imgsz=self.config.imgsz,
-                )
-            else:
-                warnings.append(f"Model file not found: {model_path}")
-
         candidate_results: list[dict] = []
         last_exception: Exception | None = None
 
@@ -142,20 +122,29 @@ class USAFAnalyzer(ResolutionAnalyzer):
             candidate_config = replace(self.config, flipped_target=flipped_target)
             try:
                 with _legacy_config_scope(candidate_config):
-                    if usaf_algo.PREVIEW_MODE and usaf_algo.YOLO_DETECT and detections is not None:
-                        usaf_algo.visualize_detections(_img, _result, detections)
-                    scores, scanline_map = _calculate_scores_and_scanlines(context, detections)
-                    scores_list = [scores[i]["score"] for i in range(len(scores))]
+                    usaf_payload = usaf_algo.find_usaf_score(context.image_path, imgsz=self.config.imgsz, threshold=threshold)
+                    if usaf_payload is None:
+                        raise RuntimeError("USAF score calculation failed.")
+
+                    processed_image = None
+                    if len(usaf_payload) == 5:
+                        best_focus_group, chosen_index, scanline_map, scores, processed_image = usaf_payload
+                    elif len(usaf_payload) == 4:
+                        best_focus_group, chosen_index, scanline_map, scores = usaf_payload
+                    else:
+                        raise RuntimeError("Unexpected payload shape from usaf_algo.find_usaf_score.")
+
                     if not scores:
                         raise RuntimeError("USAF score calculation did not return any scores.")
-                    best_focus_group, chosen_index = usaf_algo.find_best_focus_group(scores, threshold=threshold)
                     if best_focus_group is None:
                         raise RuntimeError(
                             f"No USAF group/element met the configured contrast threshold of {threshold:.0%}."
                         )
+                    scores_list = [scores[i]["score"] for i in range(len(scores))]
 
                     overlay_items: list[OverlayItem] = []
                     corners = usaf_algo.find_square_corners(context.gray_image.copy())
+                    corners = None
                     if corners is not None:
                         screen_points = [(int(x), int(context.gray_image.shape[0] - y - 1)) for x, y in corners]
                         overlay_items.append(OverlayItem(kind="polygon", points=screen_points, color=(0, 255, 255), thickness=2))
@@ -170,6 +159,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
                         "best_focus_group": best_focus_group,
                         "chosen_index": chosen_index,
                         "overlay_items": overlay_items,
+                        "processed_image": processed_image,
                         "quality": _candidate_quality(list(scores_list), threshold),
                     }
                 )
@@ -205,6 +195,10 @@ class USAFAnalyzer(ResolutionAnalyzer):
         best_focus_group = chosen["best_focus_group"]
         chosen_index = chosen["chosen_index"]
         overlay_items = chosen["overlay_items"]
+        processed_image = chosen.get("processed_image")
+
+        if processed_image is not None:
+            register_runtime_image(context.image_path, processed_image)
 
 
 
