@@ -21,15 +21,16 @@ import random
 
 #debug const
 DEBUG_MODE = False              # debug log + photo
-PREVIEW_MODE = False             # overview photo
+PREVIEW_MODE = True             # overview photo
 YOLO_DETECT = False              # yolo detection
 GRADIENT_MIN = False
 GRADIENT_PLOT_ENABLE = False       # visualize selected scanline intensity + gradient
 GRADIENT_PLOT_GROUP = 6            # group to inspect when GRADIENT_PLOT_ENABLE is True
 GRADIENT_PLOT_ELEMENT = 5          # element to inspect when GRADIENT_PLOT_ENABLE is True
 GRADIENT_PLOT_ORIENTATION = "both" # "vertical", "horizontal", "both"
-FLIPED_TARGET = True           # true if target is fliped
+FLIPED_TARGET = False           # true if target is fliped
 G1 = 2                          # first group number
+
 
 SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
 RETRY_OUTER = False              # if only inner corner detected, expand the scanline to outer target
@@ -37,6 +38,16 @@ RETRY_OFF_IMAGE = False         # if any scanline goes out of image, retry with 
 AUTO_ADJUST = False             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
 ADJUST_THRESH = 0.7             # white threshold, between 0 and 1 of the normalzed grayscale value
 FOUR_KP = False                  # use four reference corners to calibrate the target
+
+USE_SIFT_REF_CALIBRATION = True # if True, use SIFT+homography for secondary ref corners
+SIFT_REF_IMAGE_PATH = "test_img/SIFT_ref_image.png"
+SIFT_REF_ORIGIN = (195.0, 66.5)  # origin on reference image in pixel coordinates
+SIFT_REF_PIXELS_PER_UNIT_X = 44.3  # x-axis pixels per unit on reference image
+SIFT_REF_PIXELS_PER_UNIT_Y = 43.0  # y-axis pixels per unit on reference image
+SIFT_REF_RATIO_TEST = 0.75
+SIFT_REF_RANSAC_REPROJ = 3.0
+SIFT_REF_MIN_MATCH_COUNT = 8
+SIFT_REF_SHOW_PLOT = DEBUG_MODE
 
 CORNER_METHOD = "threshold"     # "threshold", "default", method to detect the corner
 SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
@@ -65,21 +76,24 @@ right_num_coord3 = (0.426, -2.411)
 # Global list to store all valid square polygons found during corner detection
 valid_squares = []
 retry_count = 0
+pattern_count = 0
+_SIFT_REF_IMAGE_CACHE = None
 
 # Process images
 images = [
-    'test_img/test_image_new.png',
+    # 'test_img/test_image_new.png',
     # 'test_img/test_image_g4e4.png',
     # 'test_img/test_image_g5e4.png',
     # 'test_img/af_Z59_370_183653_20260227_183653.png',
-    # 'test_img/test_image_g3e6.png'
-    # 'test_img/image.png',
+    # 'test_img/test_image_g3e6.png',
+    'test_img/image.png',
     #'test_img/test_image_new.png'
     # 'test_img/image_g67only.png'
     # 'test_img/test_image_g6e6.png'
     # 'test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png',
     # 'test_img/Image0001.bmp',
     # 'test_img/Screenshot_2026-05-06_085659.png'
+    # 'test_img/image.png',
 ]
 
 # scanline definition in usaf coordinate
@@ -257,6 +271,132 @@ def usaf_resolution_mm(group: int, element: int) -> float:
 
 
 
+def sift_homography_with_origin(
+    image1,
+    image2,
+    origin1=(0.0, 0.0),
+    pixels_per_unit_x=1.0,
+    pixels_per_unit_y=1.0,
+    ratio_test=0.75,
+    ransac_reproj_threshold=3.0,
+    min_match_count=8,
+    show_plot=True,
+):
+    """
+    Find SIFT keypoints on image1/image2 and estimate homography from image1 to image2.
+    image1 points are shifted to a local coordinate frame with origin at `origin1`,
+    then scaled independently on x/y by `pixels_per_unit_x` and `pixels_per_unit_y`.
+    """
+    if image1 is None or image2 is None:
+        raise ValueError("image1 and image2 must not be None")
+    if pixels_per_unit_x <= 0 or pixels_per_unit_y <= 0:
+        raise ValueError("pixels_per_unit_x and pixels_per_unit_y must be > 0")
+
+    if image1.ndim == 3:
+        gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
+        vis1 = cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)
+    else:
+        gray1 = image1.copy()
+        vis1 = cv2.cvtColor(image1, cv2.COLOR_GRAY2RGB)
+
+    if image2.ndim == 3:
+        gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
+        vis2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
+    else:
+        gray2 = image2.copy()
+        vis2 = cv2.cvtColor(image2, cv2.COLOR_GRAY2RGB)
+
+    if not hasattr(cv2, "SIFT_create"):
+        raise RuntimeError("OpenCV SIFT is unavailable in this build (missing cv2.SIFT_create)")
+
+    sift = cv2.SIFT_create()
+    kp1, des1 = sift.detectAndCompute(gray1, None)
+    kp2, des2 = sift.detectAndCompute(gray2, None)
+    if des1 is None or des2 is None or len(kp1) == 0 or len(kp2) == 0:
+        raise RuntimeError("Failed to extract SIFT descriptors from one or both images")
+
+    matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+    knn_matches = matcher.knnMatch(des1, des2, k=2)
+    good_matches = []
+    for pair in knn_matches:
+        if len(pair) < 2:
+            continue
+        m, n = pair
+        if m.distance < ratio_test * n.distance:
+            good_matches.append(m)
+
+    if len(good_matches) < min_match_count:
+        raise RuntimeError(f"Not enough good SIFT matches ({len(good_matches)}), need at least {min_match_count}")
+
+    src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches])
+    dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches])
+    origin1 = np.array(origin1, dtype=np.float32)
+    src_pts_local = src_pts - origin1[None, :]
+    src_pts_local[:, 0] = src_pts_local[:, 0] / float(pixels_per_unit_x)
+    src_pts_local[:, 1] = src_pts_local[:, 1] / float(pixels_per_unit_y)
+
+    H, inlier_mask = cv2.findHomography(src_pts_local, dst_pts, cv2.RANSAC, ransac_reproj_threshold)
+    if H is None or inlier_mask is None:
+        raise RuntimeError("Failed to estimate homography from SIFT correspondences")
+
+    inlier_mask = inlier_mask.ravel().astype(bool)
+    src_inlier = src_pts[inlier_mask]
+    dst_inlier = dst_pts[inlier_mask]
+
+    origin_local = np.array([[[0.0, 0.0]]], dtype=np.float32)
+    origin_in_image2 = cv2.perspectiveTransform(origin_local, H)[0, 0]
+
+    if show_plot:
+        _, (ax1, ax2) = plt.subplots(1, 2, num="SIFT Homography Debug", figsize=(13, 6), clear=True)
+
+        ax1.imshow(vis1)
+        ax1.scatter([k.pt[0] for k in kp1], [k.pt[1] for k in kp1], s=6, c="yellow", alpha=0.35, label="All keypoints")
+        if len(src_inlier) > 0:
+            ax1.scatter(src_inlier[:, 0], src_inlier[:, 1], s=12, c="lime", alpha=0.9, label="Inlier matches")
+        ax1.scatter([origin1[0]], [origin1[1]], s=80, c="red", marker="x", linewidths=2, label="Origin (image1)")
+        ax1.set_title("Image1 keypoints + origin")
+        ax1.set_xlim(0, vis1.shape[1])
+        ax1.set_ylim(vis1.shape[0], 0)
+        ax1.legend(loc="best")
+
+        ax2.imshow(vis2)
+        ax2.scatter([k.pt[0] for k in kp2], [k.pt[1] for k in kp2], s=6, c="yellow", alpha=0.35, label="All keypoints")
+        if len(dst_inlier) > 0:
+            ax2.scatter(dst_inlier[:, 0], dst_inlier[:, 1], s=12, c="cyan", alpha=0.9, label="Inlier matches")
+        ax2.scatter([origin_in_image2[0]], [origin_in_image2[1]], s=80, c="magenta", marker="x", linewidths=2, label="Mapped origin")
+        ax2.set_title("Image2 keypoints + mapped origin")
+        ax2.set_xlim(0, vis2.shape[1])
+        ax2.set_ylim(vis2.shape[0], 0)
+        ax2.legend(loc="best")
+
+        plt.tight_layout()
+        plt.show(block=True)
+
+    result = {
+        "keypoints1": kp1,
+        "keypoints2": kp2,
+        "good_matches": good_matches,
+        "inlier_mask": inlier_mask,
+        "src_pts": src_pts,
+        "src_pts_local": src_pts_local,
+        "dst_pts": dst_pts,
+        "src_inlier": src_inlier,
+        "dst_inlier": dst_inlier,
+        "origin1": (float(origin1[0]), float(origin1[1])),
+        "pixels_per_unit_x": float(pixels_per_unit_x),
+        "pixels_per_unit_y": float(pixels_per_unit_y),
+        "origin_in_image2": (float(origin_in_image2[0]), float(origin_in_image2[1])),
+    }
+    return H, result
+
+
+def get_sift_reference_image():
+    global _SIFT_REF_IMAGE_CACHE
+    if _SIFT_REF_IMAGE_CACHE is None:
+        _SIFT_REF_IMAGE_CACHE = cv2.imread(SIFT_REF_IMAGE_PATH)
+    return _SIFT_REF_IMAGE_CACHE
+
+
 def is_valid_square(approx, gray, white_threshold=250, angle_tolerance=5, side_ratio_tolerance=1.2):
     '''
     Check if the approximated polygon is a valid square with:
@@ -371,7 +511,36 @@ def find_square_corners(gray):
         blurred = cv2.GaussianBlur(scaled_gray, (5, 5), 0)
         # Use Otsu's thresholding to automatically find the best light/dark split
         _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        # Find all contours
+
+        # # find gradient of the image
+        # # 1. Calculate horizontal edges (dx=1, dy=0)
+        # sobelx = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=3)
+
+        # # 2. Calculate vertical edges (dx=0, dy=1)
+        # sobely = cv2.Sobel(blurred, cv2.CV_64F, 0, 1, ksize=3)
+
+        # # 3. Combine them using the Pythagorean theorem approximation (Magnitude)
+        # # cv2.convertScaleAbs converts the gradients back to unsigned 8-bit integers
+        # sobelx_abs = cv2.convertScaleAbs(sobelx)
+        # sobely_abs = cv2.convertScaleAbs(sobely)
+        # gradient = cv2.addWeighted(sobelx_abs, 0.5, sobely_abs, 0.5, 0)
+
+        # # 4. Display the combined result
+        # plt.figure("True Gradient Magnitude")
+        # plt.imshow(gradient, cmap='gray')
+        # plt.title("Combined Sobel (X + Y)")
+        # plt.show(block=True)
+
+        # # convert to binary image
+        # # perform median filter
+        # gradient = cv2.medianBlur(gradient, 9)
+        # _, thresh = cv2.threshold(gradient, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # plt.figure("Thresh")
+        # plt.imshow(thresh, cmap='gray')
+        # plt.title("Thresh")
+        # plt.show(block=True)
+
+        # # Find all contours
         contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         # Sort contours by area (largest first)
         contours = sorted(contours, key=cv2.contourArea, reverse=True)
@@ -495,7 +664,7 @@ def find_square_corners(gray):
         if DEBUG_MODE:
             print("Square not detected. Showing thresholded image for debugging...")
             plt.figure("Debug Thresh")
-            plt.imshow(gray, cmap='gray')
+            plt.imshow(thresh, cmap='gray')
             plt.title("Debug Thresh")
             plt.show()
         return None
@@ -858,10 +1027,77 @@ def coordinate_calibration(gray, corners):
         TR_dir, TL_dir = TL_dir, TR_dir
         BR_dir, BL_dir = BL_dir, BR_dir
     
-    top_right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, top_right_ref_coord, 1.0/5.0, TL_dir)
-    top_left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, top_left_ref_coord, 1.0/5.0, TR_dir)
-    low_right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, low_right_ref_coord, 1.0/5.0, BL_dir)
-    low_left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, low_left_ref_coord, 1.0/5.0, BR_dir)
+    if USE_SIFT_REF_CALIBRATION:
+        ref_image = get_sift_reference_image()
+        if ref_image is None:
+            if DEBUG_MODE:
+                print(f"Failed to load SIFT reference image: {SIFT_REF_IMAGE_PATH}")
+            return None
+        try:
+            ref_image_sift = ref_image
+            sift_origin = SIFT_REF_ORIGIN
+            if FLIPED_TARGET:
+                # Mirror the reference image to match flipped target orientation.
+                ref_image_sift = cv2.flip(ref_image, 1)
+                sift_origin = (ref_image.shape[1] - 1 - SIFT_REF_ORIGIN[0], SIFT_REF_ORIGIN[1])
+
+            h_matrix, _ = sift_homography_with_origin(
+                ref_image_sift,
+                gray,
+                origin1=sift_origin,
+                pixels_per_unit_x=SIFT_REF_PIXELS_PER_UNIT_X,
+                pixels_per_unit_y=SIFT_REF_PIXELS_PER_UNIT_Y,
+                ratio_test=SIFT_REF_RATIO_TEST,
+                ransac_reproj_threshold=SIFT_REF_RANSAC_REPROJ,
+                min_match_count=SIFT_REF_MIN_MATCH_COUNT,
+                show_plot=SIFT_REF_SHOW_PLOT,
+            )
+            # Use same axis/sign convention as usaf2screen:
+            # x may flip by FLIPED_TARGET, and y is inverted for screen coordinates.
+            flip = -1 if FLIPED_TARGET else 1
+            ref_pts_local = np.array(
+                [
+                    [[flip * top_right_ref_coord[0], -top_right_ref_coord[1]]],
+                    [[flip * top_left_ref_coord[0], -top_left_ref_coord[1]]],
+                    [[flip * low_right_ref_coord[0], -low_right_ref_coord[1]]],
+                    [[flip * low_left_ref_coord[0], -low_left_ref_coord[1]]],
+                ],
+                dtype=np.float32,
+            )
+            mapped = cv2.perspectiveTransform(ref_pts_local, h_matrix).reshape(-1, 2)
+            # mapped points are in screen coordinates; convert to standard coordinates
+            # to match the legacy find_white_corner_in_region() output convention.
+            top_right_ref_corner = (float(mapped[0, 0]), float(gray.shape[0] - 1 - mapped[0, 1]))
+            top_left_ref_corner = (float(mapped[1, 0]), float(gray.shape[0] - 1 - mapped[1, 1]))
+            low_right_ref_corner = (float(mapped[2, 0]), float(gray.shape[0] - 1 - mapped[2, 1]))
+            low_left_ref_corner = (float(mapped[3, 0]), float(gray.shape[0] - 1 - mapped[3, 1]))
+
+            if SIFT_REF_SHOW_PLOT:
+                sift_vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+                labels = ["TR", "TL", "LR", "LL"]
+                colors = ["magenta", "cyan", "yellow", "lime"]
+                plt.figure("SIFT mapped ref corners", figsize=(8, 8))
+                plt.clf()
+                plt.imshow(sift_vis)
+                for idx, (x, y) in enumerate(mapped):
+                    x_i, y_i = int(round(x)), int(round(y))
+                    plt.scatter([x_i], [y_i], s=60, c=colors[idx], marker="x")
+                    plt.text(x_i + 6, y_i - 6, labels[idx], color=colors[idx], fontsize=9)
+                    print(f"Mapped reference corner {labels[idx]}: ({x_i}, {y_i})")
+                plt.title("Mapped reference corners on test image")
+                plt.xlim(0, sift_vis.shape[1])
+                plt.ylim(sift_vis.shape[0], 0)
+                plt.tight_layout()
+                plt.show(block=True)
+        except Exception as exc:
+            if DEBUG_MODE:
+                print(f"SIFT reference calibration failed: {exc}")
+            return None
+    else:
+        top_right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, top_right_ref_coord, 1.0/5.0, TL_dir)
+        top_left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, top_left_ref_coord, 1.0/5.0, TR_dir)
+        low_right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, low_right_ref_coord, 1.0/5.0, BL_dir)
+        low_left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, low_left_ref_coord, 1.0/5.0, BR_dir)
 
 
     if top_right_ref_corner is not None and top_left_ref_corner is not None and low_right_ref_corner is not None and low_left_ref_corner is not None and FOUR_KP == True:
@@ -1289,6 +1525,8 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     '''
     global G1
     global INITIAL_ANGLE
+    global retry_count
+    global pattern_count
     initial_retry_instance = retry_instance
     if curr_image is None:
         return None
@@ -1309,7 +1547,6 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     corners = find_square_corners(gray)
 
     # Coordinate calibration
-    global retry_count
     retry_count = 0
     retry_condition = False
     retry_origin = False
@@ -1391,10 +1628,9 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
             line_pixels = normalized_gray[mask > 0]
 
             if len(line_pixels) > 0:
-                brightest = np.max(line_pixels)
-                darkest = np.min(line_pixels)
-                diff = brightest - darkest
-                score = diff                    
+                p95 = np.percentile(line_pixels, 98)
+                p5 = np.percentile(line_pixels, 2)
+                score = p95 - p5
             else:
                 score = 0
 
@@ -1536,12 +1772,6 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     if initial_retry_instance == 0:
         pt4_pattern_result = count_4pts_pattern(clean_img)
         pattern_count = len(pt4_pattern_result.boxes)
-        G1 = 8 - pattern_count * 2 + retry_count * 2
-        if DEBUG_MODE:
-            print("G1 is: ", G1)
-        if G1 > 6:
-            return None, None
-        initialize_score_table()
         # show image with annotation
         if DEBUG_MODE:
             # 1. Plot the YOLO results (outputs BGR image)
@@ -1557,6 +1787,13 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
             plt.axis("off")  
             plt.tight_layout()
             plt.show()
+
+    G1 = 8 - pattern_count * 2 + retry_count * 2
+    if DEBUG_MODE:
+        print("G1 is: ", G1)
+    if G1 > 6:
+        return None, None
+    initialize_score_table()
 
     zoom_box_pt = usaf2screen(zoom_box_coord, center_x, center_y, angle, side_length)
     zoom_box_offset = 80
@@ -1656,7 +1893,7 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
 
 
 
-def find_best_focus_group(scores_list, threshold=0.2):
+def find_best_focus_group(scores_list, threshold=0.3):
     '''
     Find the index in the scores where the descending order of scores changes to ascending order,
     or where the score drops below a certain threshold (e.g., 0.2), which indicates the best focus group.
@@ -1689,7 +1926,7 @@ def find_best_focus_group(scores_list, threshold=0.2):
     
     for i in range(last_index, len(scores_list)):     
         # If the score starts going UP, the previous index was the "bottom"
-        if scores_list[i]["score"] > scores_list[i-1]["score"] * 1.1 or scores_list[i]["score"] < threshold:
+        if scores_list[i]["score"] > scores_list[i-1]["score"] * 1.5 or scores_list[i]["score"] < threshold:
             # Return the score of the last group before it went up or dropped too low
             chosen_index = min(i-1, len(score_table) - 1)
             return score_table[chosen_index], chosen_index
@@ -1701,7 +1938,7 @@ def find_best_focus_group(scores_list, threshold=0.2):
 
 
 
-def find_usaf_score(image_path, imgsz=2048, threshold=0.2):
+def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
     '''
     Find the usaf focus score for a given image path, which is the best focus group number 
     based on the defined scanlines and the detected corners for coordinate calibration.
@@ -1718,7 +1955,7 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.2):
     if curr_image is None:
         return None
 
-    if not is_image_clear(curr_image, 4):
+    if not is_image_clear(curr_image, 2):
         print("The image is too blurry for detection")
         return None
     
@@ -1733,21 +1970,14 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.2):
         scanline_map = {}
         best_focus_group = {}
         chosen_index = {}
+        run_indices = [0] if USE_SIFT_REF_CALIBRATION else [0, 1, 2]
         try:
-            scores[0], scanline_map[0] = calculate_focus_scores(curr_image, yolo_detections, 0)
-            best_focus_group[0], chosen_index[0] = find_best_focus_group(scores[0], threshold=threshold)
-            if DEBUG_MODE:
-                print("best_focus_group[0]", best_focus_group[0])
-
-            scores[1], scanline_map[1] = calculate_focus_scores(curr_image, yolo_detections, 1)
-            best_focus_group[1], chosen_index[1] = find_best_focus_group(scores[1], threshold=threshold)
-            if DEBUG_MODE:
-                print("best_focus_group[1]", best_focus_group[1])
-
-            scores[2], scanline_map[2] = calculate_focus_scores(curr_image, yolo_detections, 2)
-            best_focus_group[2], chosen_index[2] = find_best_focus_group(scores[2], threshold=threshold)
-            if DEBUG_MODE:
-                print("best_focus_group[2]",best_focus_group[2])
+            for idx in run_indices:
+                scores[idx], scanline_map[idx] = calculate_focus_scores(curr_image, yolo_detections, idx)
+                best_focus_group[idx], chosen_index[idx] = find_best_focus_group(scores[idx], threshold=threshold)
+                if DEBUG_MODE:
+                    print(f"scores[{idx}]", scores[idx])
+                    print(f"best_focus_group[{idx}]", best_focus_group[idx])
             break
         except ValueError:
             # rotate current image by 30 degrees and fill background with black
@@ -1770,7 +2000,7 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.2):
     
     # Keep only valid focus group entries (some attempts can return None).
     best_focus_info = []
-    for i in range(3):
+    for i in run_indices:
         group = best_focus_group[i]
         if group is None:
             continue
