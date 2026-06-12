@@ -32,11 +32,12 @@ FLIPED_TARGET = False           # true if target is fliped
 G1 = 2                          # first group number
 
 
+
 SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
 RETRY_OUTER = False              # if only inner corner detected, expand the scanline to outer target
 RETRY_OFF_IMAGE = False         # if any scanline goes out of image, retry with next best square
 AUTO_ADJUST = False             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
-ADJUST_THRESH = 0.7             # white threshold, between 0 and 1 of the normalzed grayscale value
+ADJUST_THRESH = 0.8             # white threshold, between 0 and 1 of the normalzed grayscale value
 FOUR_KP = False                  # use four reference corners to calibrate the target
 
 USE_SIFT_REF_CALIBRATION = True # if True, use SIFT+homography for secondary ref corners
@@ -50,10 +51,11 @@ SIFT_REF_MIN_MATCH_COUNT = 8
 SIFT_REF_SHOW_PLOT = DEBUG_MODE
 
 CORNER_METHOD = "threshold"     # "threshold", "default", method to detect the corner
-SCORE_METHOD = "mean"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
+SCORE_METHOD = "max"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
 CROPED_WINDOW_RETRY = False     # if the corner detection window is off image, retry with next best square
 
 INITIAL_ANGLE = 0
+FOCUS_GROUP_LAST_ABOVE_THRESHOLD = False  # True: last score above threshold in loop; False: inflection
 
 #anchor coordinate for performing secondary coordinate calibration
 top_left_ref_coord = (2.64, 0.5)
@@ -78,6 +80,7 @@ valid_squares = []
 retry_count = 0
 pattern_count = 0
 _SIFT_REF_IMAGE_CACHE = None
+_sift_h_matrix = None  # ref->test homography from last coordinate_calibration (SIFT path)
 
 # Process images
 images = [
@@ -86,14 +89,12 @@ images = [
     # 'test_img/test_image_g5e4.png',
     # 'test_img/af_Z59_370_183653_20260227_183653.png',
     # 'test_img/test_image_g3e6.png',
-    'test_img/image.png',
-    #'test_img/test_image_new.png'
-    # 'test_img/image_g67only.png'
-    # 'test_img/test_image_g6e6.png'
+    # 'test_img/test_image_g6e6.png',
     # 'test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png',
+    'test_img/image.png',
+    # 'test_img/image_g67only.png',
     # 'test_img/Image0001.bmp',
-    # 'test_img/Screenshot_2026-05-06_085659.png'
-    # 'test_img/image.png',
+    # 'test_img/Screenshot_2026-05-06_085659.png',
 ]
 
 # scanline definition in usaf coordinate
@@ -397,6 +398,28 @@ def get_sift_reference_image():
     return _SIFT_REF_IMAGE_CACHE
 
 
+def make_dummy_valid_square(gray):
+    """
+    Build a centered diamond-shaped contour so SIFT calibration still gets one
+    attempt when no physical square was detected.
+    """
+    h, w = gray.shape[:2]
+    cx = w // 2
+    cy = h // 2
+    radius = max(8, min(h, w) // 12)
+    radius = min(radius, max(1, cx - 1), max(1, cy - 1), max(1, w - cx - 2), max(1, h - cy - 2))
+
+    return np.array(
+        [
+            [[cx, cy - radius]],
+            [[cx + radius, cy]],
+            [[cx, cy + radius]],
+            [[cx - radius, cy]],
+        ],
+        dtype=np.int32,
+    )
+
+
 def is_valid_square(approx, gray, white_threshold=250, angle_tolerance=5, side_ratio_tolerance=1.2):
     '''
     Check if the approximated polygon is a valid square with:
@@ -586,6 +609,10 @@ def find_square_corners(gray):
             deduped_candidates.append((area_orig, approx_orig))
 
     valid_squares = [approx for _, approx in deduped_candidates]
+    if len(valid_squares) == 0 and USE_SIFT_REF_CALIBRATION:
+        valid_squares = [make_dummy_valid_square(gray)]
+        if DEBUG_MODE:
+            print("No valid square detected; using dummy square for SIFT calibration.")
     best_square_corners = valid_squares[0] if len(valid_squares) > 0 else None
 
     if DEBUG_MODE:
@@ -970,7 +997,8 @@ def coordinate_calibration(gray, corners):
     '''
     Calibrates the coordinate system using the corners of the square
     '''
-
+    global _sift_h_matrix
+    _sift_h_matrix = None
 
     # if any corner is on the edge of the image, return None to trigger retry with next best square
     for corner in corners:
@@ -1052,6 +1080,7 @@ def coordinate_calibration(gray, corners):
                 min_match_count=SIFT_REF_MIN_MATCH_COUNT,
                 show_plot=SIFT_REF_SHOW_PLOT,
             )
+            _sift_h_matrix = h_matrix
             # Use same axis/sign convention as usaf2screen:
             # x may flip by FLIPED_TARGET, and y is inverted for screen coordinates.
             flip = -1 if FLIPED_TARGET else 1
@@ -1480,6 +1509,61 @@ def usaf2screen(pt, center_x, center_y, angle, side_length):
     return pt_a
 
 
+def _sift_ref_origin_for_target():
+    """Origin on the SIFT reference image, mirrored when FLIPED_TARGET (matches coordinate_calibration)."""
+    origin = SIFT_REF_ORIGIN
+    if FLIPED_TARGET:
+        ref_image = get_sift_reference_image()
+        if ref_image is not None:
+            origin = (ref_image.shape[1] - 1 - SIFT_REF_ORIGIN[0], SIFT_REF_ORIGIN[1])
+    return origin
+
+
+def usaf_to_ref_pixel(pt, angle=0):
+    """
+    Map a USAF-coordinate point to reference-image pixel coordinates using
+    SIFT_REF_ORIGIN and SIFT_REF_PIXELS_PER_UNIT_* with no rotation (angle=0).
+    Uses the same axis/sign convention as usaf2screen and sift_homography_with_origin.
+    """
+    if angle != 0:
+        raise ValueError("usaf_to_ref_pixel only supports angle=0")
+    origin = _sift_ref_origin_for_target()
+    flip = -1 if FLIPED_TARGET else 1
+    local_x = flip * pt[0]
+    local_y = -pt[1]
+    ref_x = origin[0] + local_x * SIFT_REF_PIXELS_PER_UNIT_X
+    ref_y = origin[1] + local_y * SIFT_REF_PIXELS_PER_UNIT_Y
+    return (ref_x, ref_y)
+
+
+def usaf2screen_homography(pt, h_matrix):
+    """
+    Map a USAF-coordinate point to test-image screen coordinates via the reference
+    image and homography from sift_homography_with_origin (ref -> test).
+
+    1. USAF -> ref image pixels (angle=0, SIFT calibration constants, FLIPED_TARGET).
+    2. Ref pixel -> local USAF frame -> test image via h_matrix (handles shear and other warps).
+
+    h_matrix must be the matrix returned when calibrating with sift_homography_with_origin
+    on the same (possibly flipped) reference image and sift origin as coordinate_calibration.
+    """
+    ref_x, ref_y = usaf_to_ref_pixel(pt, angle=0)
+    origin = _sift_ref_origin_for_target()
+    local_x = (ref_x - origin[0]) / SIFT_REF_PIXELS_PER_UNIT_X
+    local_y = (ref_y - origin[1]) / SIFT_REF_PIXELS_PER_UNIT_Y
+    pt_local = np.array([[[local_x, local_y]]], dtype=np.float32)
+    mapped = cv2.perspectiveTransform(pt_local, h_matrix)[0, 0]
+    return (float(mapped[0]), float(mapped[1]))
+
+
+def usaf_point_to_screen(pt, center_x, center_y, angle, side_length):
+    """Map USAF coords to test-image screen pixels for scanlines."""
+    if _sift_h_matrix is not None:
+        x, y = usaf2screen_homography(pt, _sift_h_matrix)
+        return (int(round(x)), int(round(y)))
+    return usaf2screen(pt, center_x, center_y, angle, side_length)
+
+
 def classify_left_right_numbers(img, left_number_pt, right_number_pt, num_box_offset):
     def crop_number(number_pt):
         y1, y2 = int(number_pt[1] - num_box_offset), int(number_pt[1] + num_box_offset)
@@ -1599,9 +1683,11 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
             raw_a = group_positions[i]
             raw_b = group_positions[i+1]
 
-            # Convert from pixel usaf coordinate to screen coordinate
+            # Convert USAF coords to screen coordinates (uses _sift_h_matrix when SIFT calibration ran)
             pt_a = usaf2screen(raw_a, center_x, center_y, angle, side_length)
             pt_b = usaf2screen(raw_b, center_x, center_y, angle, side_length)
+            # pt_a = usaf_point_to_screen(raw_a, center_x, center_y, angle, side_length)
+            # pt_b = usaf_point_to_screen(raw_b, center_x, center_y, angle, side_length)
 
             # if the pts fall outside the image, retry with the next best square
             if (pt_a[0] < 0 or pt_a[0] >= gray.shape[1] or pt_a[1] < 0 or pt_a[1] >= gray.shape[0] or \
@@ -1893,6 +1979,8 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
 
 
 
+
+
 def find_best_focus_group(scores_list, threshold=0.3):
     '''
     Find the index in the scores where the descending order of scores changes to ascending order,
@@ -1924,13 +2012,18 @@ def find_best_focus_group(scores_list, threshold=0.3):
         chosen_index = len(score_table) - 1
         return score_table[chosen_index], chosen_index
     
-    for i in range(last_index, len(scores_list)):     
-        # If the score starts going UP, the previous index was the "bottom"
-        if scores_list[i]["score"] > scores_list[i-1]["score"] * 1.5 or scores_list[i]["score"] < threshold:
-            # Return the score of the last group before it went up or dropped too low
-            chosen_index = min(i-1, len(score_table) - 1)
+    for i in range(last_index, len(scores_list)):
+        if FOCUS_GROUP_LAST_ABOVE_THRESHOLD:
+            if scores_list[i]["score"] > threshold:
+                chosen_index = min(i, len(score_table) - 1)
+        elif scores_list[i]["score"] > scores_list[i - 1]["score"] * 1.5 or scores_list[i]["score"] < threshold:
+            # If the score starts going UP, the previous index was the "bottom"
+            chosen_index = min(i - 1, len(score_table) - 1)
             return score_table[chosen_index], chosen_index
-    
+
+    if FOCUS_GROUP_LAST_ABOVE_THRESHOLD:
+        return score_table[chosen_index], chosen_index
+
     # If it never goes up, return first element
     print("No score goes up")
     chosen_index = len(score_table) - 1
@@ -2029,5 +2122,5 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
     return final_best_focus_info[0], final_best_focus_info[1], final_best_focus_info[2], final_best_focus_info[3], curr_image
 
 
-# for image_path in images:
-#     find_usaf_score(image_path)
+for image_path in images:
+    find_usaf_score(image_path)
