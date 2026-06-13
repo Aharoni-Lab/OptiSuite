@@ -2,7 +2,7 @@ import threading
 
 import zmq
 
-# used in 2camera_ZeroMQ_102325.py
+# used in 2camera_ZeroMQ_06132026.py
 #python gui to c# stage
 class ZMQWorker(threading.Thread):
     """

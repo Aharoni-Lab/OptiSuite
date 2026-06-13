@@ -3,7 +3,7 @@ import time
 
 import zmq
 
-# used in 2camera_ZeroMQ_102325.py
+# used in 2camera_ZeroMQ_06132026.py
 #c# stage events to python gui
 class ZMQPullListener(threading.Thread):
     """

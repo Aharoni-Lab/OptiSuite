@@ -8,7 +8,7 @@ import time
 from ctypes import byref, c_double, c_int, c_void_p, cdll
 from collections import deque
 from datetime import datetime, timezone
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QComboBox, QHBoxLayout, QGridLayout, QLineEdit, QSpinBox
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QComboBox, QHBoxLayout, QGridLayout, QLineEdit, QSpinBox, QSizePolicy
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QGroupBox
 from PyQt5.QtWidgets import QDoubleSpinBox, QPlainTextEdit
@@ -719,7 +719,7 @@ class SpectrometerWorker(threading.Thread):
 class CameraApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("DaHeng Multi-Camera + ZeroMQ GUI")
+        self.setWindowTitle("OptiSuite GUI interface")
         # We set a fixed size later after building the layout.
 
         # ZMQ Setup
@@ -768,14 +768,15 @@ class CameraApp(QWidget):
 
         #use the class instead
         self.cam_mgr = CameraManager(save_dir=r"C:\Users\stimscope1\Documents\OptiSuite\screenshots")
-        self.zoom_labels = [None] * self.cam_mgr.num_cameras
+        self.camera_slot_count = max(2, self.cam_mgr.num_cameras)
+        self.zoom_labels = [None] * self.camera_slot_count
         # Per-camera view state for software zoom/pan
         # zoom: >= 1.0, cx/cy are normalized [0..1] center coordinates in the source frame
-        self.view_states = [{"zoom": 1.0, "cx": 0.5, "cy": 0.5} for _ in range(self.cam_mgr.num_cameras)]
+        self.view_states = [{"zoom": 1.0, "cx": 0.5, "cy": 0.5} for _ in range(self.camera_slot_count)]
         # Track last mouse position in label coords (for button zoom anchoring)
-        self.last_mouse_pos = [None] * self.cam_mgr.num_cameras
+        self.last_mouse_pos = [None] * self.camera_slot_count
         # Track last seen frame sizes (w, h) per camera
-        self.last_frame_sizes = [None] * self.cam_mgr.num_cameras
+        self.last_frame_sizes = [None] * self.camera_slot_count
        
         # - -   -   -   -   -
         # for the dual camera layout
@@ -791,7 +792,7 @@ class CameraApp(QWidget):
 
         # Layout is intentionally 1 camera per row (less cramped).
         cols = 1
-        n_cams = max(1, len(self.cam_mgr.cameras))
+        n_cams = self.camera_slot_count
         rows = (n_cams + cols - 1) // cols
 
         # Fit to screen so the bottom panel doesn't get pushed off-screen.
@@ -800,42 +801,114 @@ class CameraApp(QWidget):
         max_win_h = int(screen.height() * 0.95)
 
         stage_log_w = min(400, max(320, int(max_win_w * 0.32)))
-        self.stage_log.setFixedWidth(stage_log_w)
+        self.stage_log.setMinimumWidth(260)
+        self.stage_log.resize(stage_log_w, self.stage_log.height())
+        self.stage_log.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
-        # Reserve enough vertical space for stacked bottom control rows
-        bottom_panel_h = 360
+        # Reserve enough vertical space for stacked bottom control rows.
+        # Keep the initial preview size modest; resizing can then grow it.
+        bottom_panel_h = 320
         caption_h = 22
-        control_h = 260
+        control_h = 220
         preview_h = int((max_win_h - bottom_panel_h) / rows) - caption_h - control_h
-        preview_h = max(220, min(360, preview_h))
+        preview_h = max(140, min(260, preview_h))
 
         preview_w = min(520, max_win_w - stage_log_w - 80)
         preview_w = max(360, preview_w)
 
-        #1 for each camera
-        for i in range(len(self.cam_mgr.cameras)):
+        def add_characterization_controls(control_stack):
+            characterization_box = QGroupBox("Charactrization plate")
+            characterization_box.setStyleSheet(
+                "QGroupBox { font-weight: 600; border: 1px solid #8a8a8a; border-radius: 5px; "
+                "margin-top: 12px; padding-top: 10px; background: #f7f7f7; } "
+                "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
+            )
+            characterization_panel = QHBoxLayout(characterization_box)
+            characterization_panel.setContentsMargins(12, 14, 12, 12)
+
+            circular_btn_style = (
+                "QPushButton { border: 2px solid #555; border-radius: 52px; background: #ffffff; "
+                "font-weight: 600; padding: 4px; } "
+                "QPushButton:hover { background: #e8f0ff; } "
+                "QPushButton:pressed { background: #cfe0ff; } "
+                "QPushButton:disabled { color: #777; background: #e5e5e5; }"
+            )
+            rainbow_btn_style = (
+                "QPushButton { border: 2px solid #555; border-radius: 52px; color: #111; "
+                "font-weight: 700; padding: 4px; "
+                "background: qconicalgradient(cx:0.5, cy:0.5, angle:0, "
+                "stop:0 #ff3b30, stop:0.16 #ff9500, stop:0.32 #ffcc00, "
+                "stop:0.48 #34c759, stop:0.64 #007aff, stop:0.80 #5856d6, stop:1 #ff2d55); } "
+                "QPushButton:hover { border: 3px solid #333; } "
+                "QPushButton:pressed { background: qconicalgradient(cx:0.5, cy:0.5, angle:45, "
+                "stop:0 #ff3b30, stop:0.16 #ff9500, stop:0.32 #ffcc00, "
+                "stop:0.48 #34c759, stop:0.64 #007aff, stop:0.80 #5856d6, stop:1 #ff2d55); } "
+                "QPushButton:disabled { color: #777; background: #e5e5e5; }"
+            )
+
+            spectrometer_btn = QPushButton("Spectrometer")
+            spectrometer_btn.setFixedSize(104, 104)
+            spectrometer_btn.setStyleSheet(rainbow_btn_style)
+            spectrometer_btn.clicked.connect(self.open_spectrometer_plot)
+
+            power_btn = QPushButton("")
+            power_btn.setFixedSize(104, 104)
+            power_btn.setStyleSheet(circular_btn_style)
+            power_btn.setIcon(make_gauge_icon(72))
+            power_btn.setIconSize(power_btn.size() * 0.65)
+            power_btn.setToolTip("Power Meter")
+            power_btn.clicked.connect(self.open_power_meter_plot)
+
+            button_stack = QVBoxLayout()
+            button_stack.addWidget(spectrometer_btn)
+            button_stack.addSpacing(12)
+            button_stack.addWidget(power_btn)
+
+            characterization_panel.addStretch(1)
+            characterization_panel.addLayout(button_stack)
+            control_stack.addWidget(characterization_box)
+            self.spectrometer_btn = spectrometer_btn
+            self.power_meter_btn = power_btn
+
+        # Keep fixed camera slots so downstream instrument controls do not move when cameras are missing.
+        for i in range(self.camera_slot_count):
+            camera_detected = i < self.cam_mgr.num_cameras
             # ------- CAMERA TITLE + PREVIEW LABEL -------
             model = ""
-            if hasattr(self.cam_mgr, "camera_names") and i < len(self.cam_mgr.camera_names):
+            if camera_detected and hasattr(self.cam_mgr, "camera_names") and i < len(self.cam_mgr.camera_names):
                 model = str(self.cam_mgr.camera_names[i])
 
-            cam_title = "Cam 1: Microscope" if i == 0 else f"Cam {i + 1}"
-            title = QLabel(cam_title + (f" ({model})" if model else ""))
+            if i == 0:
+                cam_title = "Cam 1: Microscope"
+            elif i == 1:
+                cam_title = "Cam 2: Characterization plate"
+            else:
+                cam_title = f"Cam {i + 1}"
+            title_suffix = f" ({model})" if model else ""
+            if not camera_detected:
+                title_suffix = " (camera not detected)"
+            title = QLabel(cam_title + title_suffix)
             title.setStyleSheet("font-weight: 600;")
 
-            label = QLabel("")
+            label = QLabel("" if camera_detected else "Camera not detected")
             label.setAlignment(Qt.AlignCenter)
             label.setStyleSheet("border:1px solid gray; background:black; color:white;")
-            # Prevent feedback-loop resizing (pixmap sizeHint -> layout -> window growth).
-            label.setFixedSize(preview_w, preview_h)
-            label.setMouseTracking(True)
+            label.setMinimumSize(180, 80)
+            label.resize(preview_w, preview_h)
+            label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            label.setMouseTracking(camera_detected)
             label.setProperty("cam_index", i)
-            label.installEventFilter(self)
+            if camera_detected:
+                label.installEventFilter(self)
 
             cam_box = QVBoxLayout()
             cam_box.addWidget(title)
             cam_box.addWidget(label)
+            cam_box.setStretch(0, 0)
+            cam_box.setStretch(1, 1)
             self.grid.addLayout(cam_box, i // cols * 2, i % cols)
+            self.grid.setRowStretch(i // cols * 2, 1)
+            self.grid.setRowStretch(i // cols * 2 + 1, 0)
 
             self.cam_labels.append(label)
             self.cam_title_labels.append(title)
@@ -852,9 +925,15 @@ class CameraApp(QWidget):
             zoom_lbl = QLabel("1.0x")
             self.zoom_labels[i] = zoom_lbl
 
-            zoom_out_btn.clicked.connect(lambda _, c=i: self.adjust_zoom(c, 1 / 1.25))
-            zoom_in_btn.clicked.connect(lambda _, c=i: self.adjust_zoom(c, 1.25))
-            zoom_reset_btn.clicked.connect(lambda _, c=i: self.reset_zoom(c))
+            if camera_detected:
+                zoom_out_btn.clicked.connect(lambda _, c=i: self.adjust_zoom(c, 1 / 1.25))
+                zoom_in_btn.clicked.connect(lambda _, c=i: self.adjust_zoom(c, 1.25))
+                zoom_reset_btn.clicked.connect(lambda _, c=i: self.reset_zoom(c))
+            else:
+                zoom_out_btn.setEnabled(False)
+                zoom_in_btn.setEnabled(False)
+                zoom_reset_btn.setEnabled(False)
+                zoom_lbl.setText("--")
 
             panel.addWidget(zoom_out_btn)
             panel.addWidget(zoom_in_btn)
@@ -866,7 +945,7 @@ class CameraApp(QWidget):
             exp_input.setDecimals(2)
             exp_input.setKeyboardTracking(False)
 
-            exp_rng = self.cam_mgr.get_exposure_range(i)
+            exp_rng = self.cam_mgr.get_exposure_range(i) if camera_detected else None
             if exp_rng:
                 exp_input.setRange(float(exp_rng["min"]), float(exp_rng["max"]))
                 # Daheng typically uses µs; let user type any value, step is convenience only
@@ -875,9 +954,13 @@ class CameraApp(QWidget):
                 exp_input.setRange(0.0, 1e9)
                 exp_input.setSingleStep(1000.0)
 
-            exp_input.setValue(float(self.cam_mgr.get_exposure(i)))
+            exp_input.setValue(float(self.cam_mgr.get_exposure(i)) if camera_detected else 0.0)
             exp_apply = QPushButton("Set Exp")
-            exp_apply.clicked.connect(lambda _, c=i, w=exp_input: self.apply_exposure(c, w))
+            if camera_detected:
+                exp_apply.clicked.connect(lambda _, c=i, w=exp_input: self.apply_exposure(c, w))
+            else:
+                exp_input.setEnabled(False)
+                exp_apply.setEnabled(False)
 
             panel.addWidget(QLabel("Exp (us):"))
             panel.addWidget(exp_input)
@@ -889,7 +972,7 @@ class CameraApp(QWidget):
             gain_input.setDecimals(2)
             gain_input.setKeyboardTracking(False)
 
-            gain_rng = self.cam_mgr.get_gain_range(i)
+            gain_rng = self.cam_mgr.get_gain_range(i) if camera_detected else None
             if gain_rng:
                 gain_input.setRange(float(gain_rng["min"]), float(gain_rng["max"]))
                 gain_input.setSingleStep(0.5)
@@ -897,9 +980,13 @@ class CameraApp(QWidget):
                 gain_input.setRange(0.0, 100.0)
                 gain_input.setSingleStep(0.5)
 
-            gain_input.setValue(float(self.cam_mgr.get_gain(i)))
+            gain_input.setValue(float(self.cam_mgr.get_gain(i)) if camera_detected else 0.0)
             gain_apply = QPushButton("Set Gain")
-            gain_apply.clicked.connect(lambda _, c=i, w=gain_input: self.apply_gain(c, w))
+            if camera_detected:
+                gain_apply.clicked.connect(lambda _, c=i, w=gain_input: self.apply_gain(c, w))
+            else:
+                gain_input.setEnabled(False)
+                gain_apply.setEnabled(False)
 
             panel.addWidget(QLabel("Gain:"))
             panel.addWidget(gain_input)
@@ -909,19 +996,25 @@ class CameraApp(QWidget):
 
             # Screenshot
             ss_btn = QPushButton("Screenshot")
-            ss_btn.clicked.connect(lambda _, c=i: self._on_screenshot(c))
+            if camera_detected:
+                ss_btn.clicked.connect(lambda _, c=i: self._on_screenshot(c))
+            else:
+                ss_btn.setEnabled(False)
             panel2.addWidget(ss_btn)
 
             # Video Record
             rec_btn = QPushButton("▶")
-            def toggle_rec(cam_index=i, btn=rec_btn):
-                if not self.cam_mgr.recording[cam_index]:
-                    self.cam_mgr.start_recording(cam_index)
-                    btn.setText("⏹")
-                else:
-                    self.cam_mgr.stop_recording(cam_index)
-                    btn.setText("▶")
-            rec_btn.clicked.connect(toggle_rec)
+            if camera_detected:
+                def toggle_rec(cam_index=i, btn=rec_btn):
+                    if not self.cam_mgr.recording[cam_index]:
+                        self.cam_mgr.start_recording(cam_index)
+                        btn.setText("⏹")
+                    else:
+                        self.cam_mgr.stop_recording(cam_index)
+                        btn.setText("▶")
+                rec_btn.clicked.connect(toggle_rec)
+            else:
+                rec_btn.setEnabled(False)
             panel2.addWidget(rec_btn)
 
             control_stack = QVBoxLayout()
@@ -929,78 +1022,27 @@ class CameraApp(QWidget):
             control_stack.addLayout(panel2)
 
             if i == 1:
-                characterization_box = QGroupBox("Charactrization plate")
-                characterization_box.setStyleSheet(
-                    "QGroupBox { font-weight: 600; border: 1px solid #8a8a8a; border-radius: 5px; "
-                    "margin-top: 12px; padding-top: 10px; background: #f7f7f7; } "
-                    "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
-                )
-                characterization_panel = QHBoxLayout(characterization_box)
-                characterization_panel.setContentsMargins(12, 14, 12, 12)
-
-                circular_btn_style = (
-                    "QPushButton { border: 2px solid #555; border-radius: 52px; background: #ffffff; "
-                    "font-weight: 600; padding: 4px; } "
-                    "QPushButton:hover { background: #e8f0ff; } "
-                    "QPushButton:pressed { background: #cfe0ff; } "
-                    "QPushButton:disabled { color: #777; background: #e5e5e5; }"
-                )
-                rainbow_btn_style = (
-                    "QPushButton { border: 2px solid #555; border-radius: 52px; color: #111; "
-                    "font-weight: 700; padding: 4px; "
-                    "background: qconicalgradient(cx:0.5, cy:0.5, angle:0, "
-                    "stop:0 #ff3b30, stop:0.16 #ff9500, stop:0.32 #ffcc00, "
-                    "stop:0.48 #34c759, stop:0.64 #007aff, stop:0.80 #5856d6, stop:1 #ff2d55); } "
-                    "QPushButton:hover { border: 3px solid #333; } "
-                    "QPushButton:pressed { background: qconicalgradient(cx:0.5, cy:0.5, angle:45, "
-                    "stop:0 #ff3b30, stop:0.16 #ff9500, stop:0.32 #ffcc00, "
-                    "stop:0.48 #34c759, stop:0.64 #007aff, stop:0.80 #5856d6, stop:1 #ff2d55); } "
-                    "QPushButton:disabled { color: #777; background: #e5e5e5; }"
-                )
-
-                spectrometer_btn = QPushButton("Spectrumeter")
-                spectrometer_btn.setFixedSize(104, 104)
-                spectrometer_btn.setStyleSheet(rainbow_btn_style)
-                spectrometer_btn.clicked.connect(self.open_spectrometer_plot)
-
-                power_btn = QPushButton("")
-                power_btn.setFixedSize(104, 104)
-                power_btn.setStyleSheet(circular_btn_style)
-                power_btn.setIcon(make_gauge_icon(72))
-                power_btn.setIconSize(power_btn.size() * 0.65)
-                power_btn.setToolTip("Power Meter")
-                power_btn.clicked.connect(self.open_power_meter_plot)
-
-                button_stack = QVBoxLayout()
-                button_stack.addWidget(spectrometer_btn)
-                button_stack.addSpacing(12)
-                button_stack.addWidget(power_btn)
-
-                characterization_panel.addStretch(1)
-                characterization_panel.addLayout(button_stack)
-                control_stack.addWidget(characterization_box)
-                self.spectrometer_btn = spectrometer_btn
-                self.power_meter_btn = power_btn
+                add_characterization_controls(control_stack)
 
             self.grid.addLayout(control_stack, i // cols * 2 + 1, i % cols)
             self.control_panels.append(panel)
 
         # Top area: camera grid + C# stage status/log
         top_layout = QHBoxLayout()
-        top_layout.setAlignment(Qt.AlignTop)
-        self.grid.setAlignment(Qt.AlignTop)
-        top_layout.addLayout(self.grid)
+        top_layout.addLayout(self.grid, 3)
         stage_panel = QVBoxLayout()
         stage_panel.addWidget(self.preview_status)
         stage_panel.addWidget(self.stage_status)
         stage_panel.addWidget(self.stage_log)
-        top_layout.addLayout(stage_panel)
+        stage_panel.setStretch(0, 0)
+        stage_panel.setStretch(1, 0)
+        stage_panel.setStretch(2, 1)
+        top_layout.addLayout(stage_panel, 2)
 
         self.layout.addLayout(top_layout)
         self.setLayout(self.layout)
 
-        # Fix window size so it doesn't grow while streaming.
-        # Adjust here if you change preview/log widths.
+        # Set a comfortable initial size; child widgets remain resizable.
         win_w = cols * preview_w + self.stage_log.width() + 80
         win_h = rows * (preview_h + caption_h + control_h) + bottom_panel_h
         self.resize(win_w, win_h)
@@ -1046,8 +1088,12 @@ class CameraApp(QWidget):
 
         # ---- Focus scoring tool (noise check) ----
         score_cam_select = QComboBox()
-        score_cam_select.addItems([f"Cam {i+1}" for i in range(self.cam_mgr.num_cameras)])
-        score_cam_select.setCurrentIndex(0)
+        if self.cam_mgr.num_cameras:
+            score_cam_select.addItems([f"Cam {i+1}" for i in range(self.cam_mgr.num_cameras)])
+            score_cam_select.setCurrentIndex(0)
+        else:
+            score_cam_select.addItem("No camera detected")
+            score_cam_select.setEnabled(False)
         self.score_cam_select = score_cam_select
 
         score_n = QSpinBox()
@@ -1057,6 +1103,7 @@ class CameraApp(QWidget):
 
         score_btn = QPushButton("Score frame(s)")
         score_btn.clicked.connect(self.score_current_frame)
+        score_btn.setEnabled(self.cam_mgr.num_cameras > 0)
         self.score_btn = score_btn
 
         #013026 add these buttons for the stageRoutine
@@ -1065,6 +1112,7 @@ class CameraApp(QWidget):
         resumeRoutine_btn = QPushButton("Resume Step")
         autofocus_btn = QPushButton("Autofocus Cam 1")
         cancel_af_btn = QPushButton("Cancel AF")
+        autofocus_btn.setEnabled(self.cam_mgr.num_cameras > 0)
         cancel_af_btn.setEnabled(False)
 
         startRoutine_btn.clicked.connect(self.start_stage_routine)
@@ -1113,6 +1161,10 @@ class CameraApp(QWidget):
         self.layout.addLayout(stage_routine_panel)
         self.layout.addLayout(autofocus_panel)
         self.layout.addLayout(zmq_panel)
+        self.layout.setStretch(0, 1)
+        self.layout.setStretch(1, 0)
+        self.layout.setStretch(2, 0)
+        self.layout.setStretch(3, 0)
 
         # Timer to update frames
         self.timer = QTimer()
