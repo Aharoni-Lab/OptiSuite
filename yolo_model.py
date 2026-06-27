@@ -7,15 +7,18 @@ import matplotlib.pyplot as plt
 _MODEL_CACHE = {}
 MODEL_PATH = Path("./models/best23.pt")
 NUM_MODEL_PATH = Path("./models/best_num_classify.pt")
+RES_MODEL_PATH = Path("./models/resolution_cls_model2.pt")
 PT4_MODEL_PATH = Path("./models/best_4p_4_focused.pt")
 
 
-def classify_number(img):
-    img = cv2.resize(img, (100, 100))
-    model = YOLO(NUM_MODEL_PATH)
-    results = model(img)
+def classify_resolution(img):
+    img = cv2.resize(img, (256, 256))
+    model = get_yolo_model(RES_MODEL_PATH)
+    results = model(img, verbose=False)
     result = results[0]
-    return result
+    if result.probs is None:
+        return "unresolved"
+    return result.names[result.probs.top1]
 
 
 def count_4pts_pattern(img):

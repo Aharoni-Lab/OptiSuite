@@ -3,9 +3,16 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 from pathlib import Path
-from yolo_model import extract_yolo_detections, visualize_detections, classify_number, count_4pts_pattern
+from yolo_model import extract_yolo_detections, visualize_detections, classify_resolution, count_4pts_pattern
 from scipy.signal import savgol_filter
 import random
+import importlib
+import tempfile
+
+try:
+    itk = importlib.import_module("itk")
+except ImportError:
+    itk = None
 
 
 
@@ -19,27 +26,43 @@ import random
 
 
 
-#debug const
+# main settings
 DEBUG_MODE = False              # debug log + photo
-PREVIEW_MODE = True             # overview photo
-YOLO_DETECT = False              # yolo detection
+PREVIEW_MODE = False             # overview photo
+FLIPED_TARGET = True           # true if target is fliped
+G1 = 2                          # first group number
+
+
+# gradient settings
 GRADIENT_MIN = False
 GRADIENT_PLOT_ENABLE = False       # visualize selected scanline intensity + gradient
 GRADIENT_PLOT_GROUP = 6            # group to inspect when GRADIENT_PLOT_ENABLE is True
 GRADIENT_PLOT_ELEMENT = 5          # element to inspect when GRADIENT_PLOT_ENABLE is True
 GRADIENT_PLOT_ORIENTATION = "both" # "vertical", "horizontal", "both"
-FLIPED_TARGET = False           # true if target is fliped
-G1 = 2                          # first group number
 
 
+# YOLO settings
+YOLO_DETECT = False              # yolo detect scanline
+YOLO_CLASSIFICATION = True      # yolo classify pattern
+PATTERN_CLASSIFICATION_SHOW_PLOT = PREVIEW_MODE
+PATTERN_CLASSIFICATION_ROWS_PER_PAGE = 6
 
+
+# legacy algorithm settings
 SUBPIXEL = True                 # subpixel refinement for corner detection best for large target
 RETRY_OUTER = False              # if only inner corner detected, expand the scanline to outer target
 RETRY_OFF_IMAGE = False         # if any scanline goes out of image, retry with next best square
 AUTO_ADJUST = False             # shorten the scanline until the color on the two point are white (above ADJUST_THRESH)
 ADJUST_THRESH = 0.8             # white threshold, between 0 and 1 of the normalzed grayscale value
 FOUR_KP = False                  # use four reference corners to calibrate the target
+CORNER_METHOD = "threshold"     # "threshold", "default", method to detect the corner
+SCORE_METHOD = "max"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
+CROPED_WINDOW_RETRY = False     # if the corner detection window is off image, retry with next best square
+INITIAL_ANGLE = 0
+FOCUS_GROUP_LAST_ABOVE_THRESHOLD = False  # True: last score above threshold in loop; False: inflection
 
+
+# SIFT calibration settings
 USE_SIFT_REF_CALIBRATION = True # if True, use SIFT+homography for secondary ref corners
 SIFT_REF_IMAGE_PATH = "test_img/SIFT_ref_image.png"
 SIFT_REF_ORIGIN = (195.0, 66.5)  # origin on reference image in pixel coordinates
@@ -50,12 +73,64 @@ SIFT_REF_RANSAC_REPROJ = 3.0
 SIFT_REF_MIN_MATCH_COUNT = 8
 SIFT_REF_SHOW_PLOT = DEBUG_MODE
 
-CORNER_METHOD = "threshold"     # "threshold", "default", method to detect the corner
-SCORE_METHOD = "max"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
-CROPED_WINDOW_RETRY = False     # if the corner detection window is off image, retry with next best square
 
-INITIAL_ANGLE = 0
-FOCUS_GROUP_LAST_ABOVE_THRESHOLD = False  # True: last score above threshold in loop; False: inflection
+# ITK calibration settings
+USE_ITKELASTIX_REF_CALIBRATION = False  # set False to use the original SIFT-only mapping
+ITKELASTIX_PARAMETER_MAP = "bspline"  # deformable; use "rigid" to switch back
+ITKELASTIX_ROI_MARGIN = 80
+ITKELASTIX_FINAL_GRID_SPACING = 50.0  # lower = more local deformation, higher = smoother
+ITKELASTIX_NUMBER_OF_RESOLUTIONS = 3
+ITKELASTIX_MAX_ITERATIONS = 256
+ITKELASTIX_SHOW_PLOT = DEBUG_MODE
+ITKELASTIX_LOG_TO_CONSOLE = False
+
+
+
+
+
+
+def get_image_paths(folder_path, recursive=False):
+    image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
+    folder = Path(folder_path)
+    paths = folder.rglob("*") if recursive else folder.iterdir()
+    return sorted(str(path) for path in paths if path.is_file() and path.suffix.lower() in image_extensions)
+
+images = [
+    'test_img/test_image_new.png',
+    'test_img/test_image_g4e4.png',
+    'test_img/test_image_g5e4.png',
+    'test_img/af_Z59_370_183653_20260227_183653.png',
+    'test_img/test_image_g3e6.png',
+    'test_img/test_image_g6e6.png',
+    'test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png',
+    # 'test_img/image_g67only.png',
+    # 'test_img/image.png',
+    # 'test_img/Image0001.bmp',
+    # 'test_img/Screenshot_2026-05-06_085659.png',
+]
+# Process images
+# images = get_image_paths("screenshots/autofocus/run_a2191794e9_20260227/cam1")
+
+
+
+
+
+
+
+# Global variables
+valid_squares = []
+retry_count = 0
+pattern_count = 0
+current_image_label = "image"
+_SIFT_REF_IMAGE_CACHE = None
+_sift_h_matrix = None  # ref->test homography from last coordinate_calibration (SIFT path)
+_itk_transform_params = None  # optional refinement from SIFT-warped reference target-space -> target
+_itk_moving_image = None
+_itk_output_dir = None
+_itk_roi_offset = (0, 0)
+_itk_point_cache = {}
+
+
 
 #anchor coordinate for performing secondary coordinate calibration
 top_left_ref_coord = (2.64, 0.5)
@@ -63,39 +138,6 @@ top_right_ref_coord = (-3.64, 0.5)
 low_left_ref_coord = (2.39,-5.89)
 low_right_ref_coord = (-3.57,-5.88)
 
-zoom_box_coord = (0.27,-2.668)
-squ_scan_coord1 = (0.3, 0.6)
-squ_scan_coord2 = (0.3,-2.6)
-
-left_num_coord1 = (-2.43, 1.03)
-right_num_coord1 = (1.92, 1.05)
-left_num_coord2 = (-0.35, -1.72)
-right_num_coord2 = (0.72, -1.73)
-left_num_coord3 = (0.148, -2.416)
-right_num_coord3 = (0.426, -2.411)
-
-
-# Global list to store all valid square polygons found during corner detection
-valid_squares = []
-retry_count = 0
-pattern_count = 0
-_SIFT_REF_IMAGE_CACHE = None
-_sift_h_matrix = None  # ref->test homography from last coordinate_calibration (SIFT path)
-
-# Process images
-images = [
-    # 'test_img/test_image_new.png',
-    # 'test_img/test_image_g4e4.png',
-    # 'test_img/test_image_g5e4.png',
-    # 'test_img/af_Z59_370_183653_20260227_183653.png',
-    # 'test_img/test_image_g3e6.png',
-    # 'test_img/test_image_g6e6.png',
-    # 'test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png',
-    'test_img/image.png',
-    # 'test_img/image_g67only.png',
-    # 'test_img/Image0001.bmp',
-    # 'test_img/Screenshot_2026-05-06_085659.png',
-]
 
 # scanline definition in usaf coordinate
 # Define points as (local_x, local_y) relative to the center of the square, in units of side_length
@@ -211,7 +253,6 @@ group_positions = {
 }
 
 
-
 #score table to covert score to group and element number
 score_table = {}
 def initialize_score_table():
@@ -262,10 +303,11 @@ prefer_dir_table =  [
                     ]
 
 
+
+
+
 def usaf_lp_per_mm(group: int, element: int) -> float:
     return float(2 ** (group + (element - 1) / 6.0))
-
-
 
 def usaf_resolution_mm(group: int, element: int) -> float:
     return float(1.0 / (2.0 * usaf_lp_per_mm(group, element)))
@@ -931,6 +973,7 @@ def get_adjusted_top_corners_from_enclosing_rectangle(top_right_corner, top_left
     # Search orientation in [0, pi): Rectangles have 180-degree symmetry
     thetas = np.linspace(0.0, np.pi, 1440, endpoint=False)
     for theta in thetas:
+
         cos_t = np.cos(theta)
         sin_t = np.sin(theta)
         
@@ -998,14 +1041,21 @@ def coordinate_calibration(gray, corners):
     Calibrates the coordinate system using the corners of the square
     '''
     global _sift_h_matrix
+    global _itk_transform_params, _itk_moving_image, _itk_output_dir, _itk_roi_offset, _itk_point_cache
     _sift_h_matrix = None
+    _itk_transform_params = None
+    _itk_moving_image = None
+    _itk_output_dir = None
+    _itk_roi_offset = (0, 0)
+    _itk_point_cache = {}
 
     # if any corner is on the edge of the image, return None to trigger retry with next best square
-    for corner in corners:
-        if corner[0] <= 0 or corner[0] >= gray.shape[1] - 1 or corner[1] <= 0 or corner[1] >= gray.shape[0] - 1:
-            if DEBUG_MODE:
-                print("Corner on edge detected, retrying with next best square...")
-            return None
+    if not USE_SIFT_REF_CALIBRATION:
+        for corner in corners:
+            if corner[0] <= 0 or corner[0] >= gray.shape[1] - 1 or corner[1] <= 0 or corner[1] >= gray.shape[0] - 1:
+                if DEBUG_MODE:
+                    print("Corner on edge detected, retrying with next best square...")
+                return None
 
 
     # Initial coordinate calibration using the corners of the square
@@ -1036,8 +1086,9 @@ def coordinate_calibration(gray, corners):
     #find angle of unit vector with y axis, negate because the screen coordinate system is flipped
     angle = -np.arctan2(unit_vector[1], unit_vector[0])
 
-    if 0.9 * np.pi / 2 < np.abs(angle) or 0.1 * np.pi / 2 > np.abs(angle):
-        raise ValueError("Angle too small or large, retrying with rotation...")
+    # if 0.9 * np.pi / 2 < np.abs(angle) or 0.1 * np.pi / 2 > np.abs(angle):
+        # raise ValueError("Angle too small or large, retrying with rotation...")
+
 
     # find orientation of the target
     orientation = find_target_orientation(gray, center_x, center_y, unit_vector, side_length)
@@ -1081,26 +1132,48 @@ def coordinate_calibration(gray, corners):
                 show_plot=SIFT_REF_SHOW_PLOT,
             )
             _sift_h_matrix = h_matrix
+            if USE_ITKELASTIX_REF_CALIBRATION:
+                try:
+                    setup_itkelastix_ref_mapping(ref_image_sift, gray, h_matrix)
+                except Exception as exc:
+                    _itk_transform_params = None
+                    _itk_moving_image = None
+                    _itk_output_dir = None
+                    _itk_roi_offset = (0, 0)
+                    _itk_point_cache = {}
+                    if DEBUG_MODE:
+                        print(f"ITKElastix mapping failed; using SIFT only: {exc}")
             # Use same axis/sign convention as usaf2screen:
             # x may flip by FLIPED_TARGET, and y is inverted for screen coordinates.
             flip = -1 if FLIPED_TARGET else 1
-            ref_pts_local = np.array(
-                [
-                    [[flip * top_right_ref_coord[0], -top_right_ref_coord[1]]],
-                    [[flip * top_left_ref_coord[0], -top_left_ref_coord[1]]],
-                    [[flip * low_right_ref_coord[0], -low_right_ref_coord[1]]],
-                    [[flip * low_left_ref_coord[0], -low_left_ref_coord[1]]],
-                ],
-                dtype=np.float32,
-            )
-            mapped = cv2.perspectiveTransform(ref_pts_local, h_matrix).reshape(-1, 2)
+            if _itk_transform_params is not None:
+                mapped = np.array(
+                    [
+                        ref_usaf_point_to_target(top_right_ref_coord),
+                        ref_usaf_point_to_target(top_left_ref_coord),
+                        ref_usaf_point_to_target(low_right_ref_coord),
+                        ref_usaf_point_to_target(low_left_ref_coord),
+                    ],
+                    dtype=np.float64,
+                )
+            else:
+                ref_pts_local = np.array(
+                    [
+                        [[flip * top_right_ref_coord[0], -top_right_ref_coord[1]]],
+                        [[flip * top_left_ref_coord[0], -top_left_ref_coord[1]]],
+                        [[flip * low_right_ref_coord[0], -low_right_ref_coord[1]]],
+                        [[flip * low_left_ref_coord[0], -low_left_ref_coord[1]]],
+                    ],
+                    dtype=np.float32,
+                )
+                mapped = cv2.perspectiveTransform(ref_pts_local, h_matrix).reshape(-1, 2)
             # mapped points are in screen coordinates; convert to standard coordinates
             # to match the legacy find_white_corner_in_region() output convention.
             top_right_ref_corner = (float(mapped[0, 0]), float(gray.shape[0] - 1 - mapped[0, 1]))
             top_left_ref_corner = (float(mapped[1, 0]), float(gray.shape[0] - 1 - mapped[1, 1]))
             low_right_ref_corner = (float(mapped[2, 0]), float(gray.shape[0] - 1 - mapped[2, 1]))
             low_left_ref_corner = (float(mapped[3, 0]), float(gray.shape[0] - 1 - mapped[3, 1]))
-
+ 
             if SIFT_REF_SHOW_PLOT:
                 sift_vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
                 labels = ["TR", "TL", "LR", "LL"]
@@ -1556,44 +1629,301 @@ def usaf2screen_homography(pt, h_matrix):
     return (float(mapped[0]), float(mapped[1]))
 
 
+def ref_pixel_to_target_homography_matrix(h_matrix):
+    origin = _sift_ref_origin_for_target()
+    ref_pixel_to_local = np.array(
+        [
+            [1.0 / SIFT_REF_PIXELS_PER_UNIT_X, 0.0, -origin[0] / SIFT_REF_PIXELS_PER_UNIT_X],
+            [0.0, 1.0 / SIFT_REF_PIXELS_PER_UNIT_Y, -origin[1] / SIFT_REF_PIXELS_PER_UNIT_Y],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    return np.asarray(h_matrix, dtype=np.float64) @ ref_pixel_to_local
+
+
+def normalize_for_registration(image):
+    image = image.astype(np.float32)
+    min_val = float(np.min(image))
+    max_val = float(np.max(image))
+    if max_val <= min_val:
+        return np.zeros_like(image, dtype=np.float32)
+    return (image - min_val) / (max_val - min_val)
+
+
+def transformix_point(point):
+    if _itk_transform_params is None:
+        return (float(point[0]), float(point[1]))
+
+    key = (round(float(point[0]), 4), round(float(point[1]), 4))
+    if key in _itk_point_cache:
+        return _itk_point_cache[key]
+
+    ox, oy = _itk_roi_offset
+    local_x = float(point[0]) - ox
+    local_y = float(point[1]) - oy
+    input_path = Path(_itk_output_dir) / "inputpoints.txt"
+    output_path = Path(_itk_output_dir) / "outputpoints.txt"
+    input_path.write_text(f"point\n1\n{local_x} {local_y}\n", encoding="utf-8")
+    if output_path.exists():
+        output_path.unlink()
+
+    transformix = itk.TransformixFilter.New(_itk_moving_image)
+    transformix.SetFixedPointSetFileName(str(input_path))
+    transformix.SetTransformParameterObject(_itk_transform_params)
+    transformix.SetOutputDirectory(str(_itk_output_dir))
+    if hasattr(transformix, "SetLogToConsole"):
+        transformix.SetLogToConsole(ITKELASTIX_LOG_TO_CONSOLE)
+    transformix.UpdateLargestPossibleRegion()
+
+    with open(output_path, "r", encoding="utf-8") as f:
+        line = f.readline()
+    output_part = line.split("OutputPoint = [", 1)[1].split("]", 1)[0]
+    x, y = [float(value) for value in output_part.split()[:2]]
+    result = (x + ox, y + oy)
+    _itk_point_cache[key] = result
+    return result
+
+
+def ref_usaf_point_to_target(pt):
+    rough_x, rough_y = usaf2screen_homography(pt, _sift_h_matrix)
+    return transformix_point((rough_x, rough_y))
+
+
+def show_itkelastix_preview(target_gray, sift_warped_ref, fixed_roi, registered_target_roi, roi_rect):
+    def overlay(a, b):
+        return np.dstack((normalize_for_registration(a), normalize_for_registration(b), normalize_for_registration(b)))
+
+    x0, y0, w, h = roi_rect
+    plt.figure("ITKElastix Mapping Preview", figsize=(13, 8))
+    plt.clf()
+
+    ax1 = plt.subplot(2, 2, 1)
+    ax1.imshow(target_gray, cmap="gray")
+    ax1.set_title("Target image")
+    ax1.axis("off")
+
+    ax2 = plt.subplot(2, 2, 2)
+    ax2.imshow(overlay(target_gray, sift_warped_ref))
+    ax2.set_title("SIFT warped ref overlay")
+    ax2.axis("off")
+
+    ax3 = plt.subplot(2, 2, 3)
+    ax3.imshow(overlay(fixed_roi, registered_target_roi))
+    ax3.set_title("ITKElastix ROI overlay")
+    ax3.axis("off")
+
+    ax4 = plt.subplot(2, 2, 4)
+    ax4.imshow(target_gray, cmap="gray")
+    ax4.add_patch(plt.Rectangle((x0, y0), w, h, fill=False, edgecolor="cyan", linewidth=1.5))
+    ax4.set_title("SIFT circles, ITKElastix x")
+    ax4.axis("off")
+
+    for label, coord in zip(["TR", "TL", "LR", "LL"], [top_right_ref_coord, top_left_ref_coord, low_right_ref_coord, low_left_ref_coord]):
+        sx, sy = usaf2screen_homography(coord, _sift_h_matrix)
+        ix, iy = ref_usaf_point_to_target(coord)
+        ax4.scatter([sx], [sy], s=45, c="yellow", marker="o")
+        ax4.scatter([ix], [iy], s=55, c="lime", marker="x")
+        ax4.text(ix + 5, iy - 5, label, color="lime", fontsize=9)
+
+    plt.tight_layout()
+    plt.show(block=True)
+
+
+def setup_itkelastix_ref_mapping(ref_image, target_gray, h_matrix):
+    global _itk_transform_params, _itk_moving_image, _itk_output_dir, _itk_roi_offset, _itk_point_cache
+    if itk is None:
+        raise RuntimeError("Install ITKElastix with: pip install itk-elastix")
+
+    ref_gray = cv2.cvtColor(ref_image, cv2.COLOR_BGR2GRAY) if ref_image.ndim == 3 else ref_image.copy()
+    h_ref_to_target = ref_pixel_to_target_homography_matrix(h_matrix)
+    sift_warped_ref = cv2.warpPerspective(ref_gray, h_ref_to_target, (target_gray.shape[1], target_gray.shape[0]))
+
+    ys, xs = np.nonzero(sift_warped_ref)
+    if len(xs) == 0:
+        raise RuntimeError("SIFT-warped reference is empty")
+    x0 = max(0, int(xs.min()) - ITKELASTIX_ROI_MARGIN)
+    y0 = max(0, int(ys.min()) - ITKELASTIX_ROI_MARGIN)
+    x1 = min(target_gray.shape[1], int(xs.max()) + ITKELASTIX_ROI_MARGIN + 1)
+    y1 = min(target_gray.shape[0], int(ys.max()) + ITKELASTIX_ROI_MARGIN + 1)
+
+    fixed_roi = sift_warped_ref[y0:y1, x0:x1]  # fixed points are rough SIFT target-space points
+    moving_roi = target_gray[y0:y1, x0:x1]     # transformix maps fixed points into this target image
+    fixed_image = itk.image_from_array(normalize_for_registration(fixed_roi))
+    moving_image = itk.image_from_array(normalize_for_registration(moving_roi))
+
+    params = itk.ParameterObject.New()
+    parameter_map = params.GetDefaultParameterMap(ITKELASTIX_PARAMETER_MAP)
+    parameter_map["NumberOfResolutions"] = [str(ITKELASTIX_NUMBER_OF_RESOLUTIONS)]
+    parameter_map["MaximumNumberOfIterations"] = [str(ITKELASTIX_MAX_ITERATIONS)]
+    if ITKELASTIX_PARAMETER_MAP == "bspline":
+        parameter_map["FinalGridSpacingInPhysicalUnits"] = [str(ITKELASTIX_FINAL_GRID_SPACING)]
+        parameter_map["GridSpacingSchedule"] = [
+            str(float(2 ** (ITKELASTIX_NUMBER_OF_RESOLUTIONS - idx - 1)))
+            for idx in range(ITKELASTIX_NUMBER_OF_RESOLUTIONS)
+        ]
+    params.AddParameterMap(parameter_map)
+    registered, transform_params = itk.elastix_registration_method(
+        fixed_image,
+        moving_image,
+        parameter_object=params,
+        log_to_console=ITKELASTIX_LOG_TO_CONSOLE,
+    )
+
+    _itk_transform_params = transform_params
+    _itk_moving_image = moving_image
+    _itk_output_dir = tempfile.mkdtemp(prefix="itkelastix_usaf_")
+    _itk_roi_offset = (x0, y0)
+    _itk_point_cache = {}
+
+    if ITKELASTIX_SHOW_PLOT:
+        show_itkelastix_preview(
+            target_gray,
+            sift_warped_ref,
+            fixed_roi,
+            itk.array_from_image(registered),
+            (x0, y0, x1 - x0, y1 - y0),
+        )
+
+
 def usaf_point_to_screen(pt, center_x, center_y, angle, side_length):
     """Map USAF coords to test-image screen pixels for scanlines."""
+    if _itk_transform_params is not None:
+        x, y = ref_usaf_point_to_target(pt)
+        return (int(round(x)), int(round(y)))
     if _sift_h_matrix is not None:
         x, y = usaf2screen_homography(pt, _sift_h_matrix)
         return (int(round(x)), int(round(y)))
     return usaf2screen(pt, center_x, center_y, angle, side_length)
 
 
-def classify_left_right_numbers(img, left_number_pt, right_number_pt, num_box_offset):
-    def crop_number(number_pt):
-        y1, y2 = int(number_pt[1] - num_box_offset), int(number_pt[1] + num_box_offset)
-        x1, x2 = int(number_pt[0] - num_box_offset), int(number_pt[0] + num_box_offset)
-
-        if x1 < 0 or y1 < 0 or x2 > img.shape[1] or y2 > img.shape[0]:
-            return None
-
-        #mirror the image horizontally if FLIPED_TARGET is True
-        if FLIPED_TARGET:
-            img_final = cv2.flip(img, 1)
-
-        return img_final[y1:y2, x1:x2]
-
-    def classify_crop(crop):
-        if crop is None:
-            return -1
-
-        result = classify_number(crop)
-        predict_index = result.probs.top1
-        return result.names[predict_index]
-
-    left_crop = crop_number(left_number_pt)
-    right_crop = crop_number(right_number_pt)
-
-    return classify_crop(left_crop), classify_crop(right_crop)
+def classify_pattern_resolution(img):
+    return classify_resolution(img)
 
 
+def find_pattern_crop(crop_dir, image_label, orientation, scan_index):
+    candidates = [
+        crop_dir / f"{image_label}_{orientation}_scan{scan_index:03d}.png",
+        crop_dir / f"{image_label}_{orientation}_scan_{scan_index:03d}.png",
+        crop_dir / f"{image_label}_{orientation}_scan_{scan_index}.png",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
 
 
+def show_pattern_classification_results(evaluated_crops):
+    if not evaluated_crops:
+        return
+
+    rows_per_page = max(1, int(PATTERN_CLASSIFICATION_ROWS_PER_PAGE))
+    total_pages = math.ceil(len(evaluated_crops) / rows_per_page)
+
+    for page_idx in range(total_pages):
+        page_items = evaluated_crops[page_idx * rows_per_page:(page_idx + 1) * rows_per_page]
+        rows = len(page_items)
+        fig, axes = plt.subplots(
+            rows,
+            2,
+            num=f"Pattern Classification Results {page_idx + 1}/{total_pages}",
+            figsize=(9, max(3, rows * 2.4)),
+            clear=True,
+        )
+        if rows == 1:
+            axes = np.array([axes])
+
+        fig.suptitle(f"Pattern Classification Results - Page {page_idx + 1}/{total_pages}", fontsize=12)
+
+        for row_idx, item in enumerate(page_items):
+            for col_idx, orientation in enumerate(("vertical", "horizontal")):
+                ax = axes[row_idx, col_idx]
+                img = item[f"{orientation}_img"]
+                result = item[f"{orientation}_result"]
+                if img is None:
+                    ax.text(0.5, 0.5, "missing", ha="center", va="center", color="white")
+                    ax.set_facecolor("black")
+                else:
+                    ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+                ax.set_title(f"G{item['group']} E{item['element']} {orientation}: {result}", fontsize=9)
+                ax.axis("off")
+
+        fig.tight_layout(rect=[0, 0, 1, 0.96])
+
+    plt.show(block=True)
+
+
+def score_pattern_crops(image_label="image", crop_dir=Path("pattern_crop")):
+    """
+    Score saved pattern crops from low to high resolution. Return the last element
+    before either vertical or horizontal crop becomes unresolved.
+    """
+    crop_dir = Path(crop_dir)
+    evaluated_crops = []
+    last_resolved_result = None
+    for scan_index in [idx for idx in sorted(score_table.keys()) if idx >= 0]:
+        group, element = score_table[scan_index]
+        vertical_path = find_pattern_crop(crop_dir, image_label, "vertical", scan_index)
+        horizontal_path = find_pattern_crop(crop_dir, image_label, "horizontal", scan_index)
+
+        vertical_result = None
+        horizontal_result = None
+        vertical_img = None
+        horizontal_img = None
+        if vertical_path is not None:
+            vertical_img = cv2.imread(str(vertical_path))
+            if vertical_img is not None:
+                vertical_result = classify_pattern_resolution(vertical_img)
+        if horizontal_path is not None:
+            horizontal_img = cv2.imread(str(horizontal_path))
+            if horizontal_img is not None:
+                horizontal_result = classify_pattern_resolution(horizontal_img)
+
+        evaluated_crops.append(
+            {
+                "group": group,
+                "element": element,
+                "vertical_img": vertical_img,
+                "horizontal_img": horizontal_img,
+                "vertical_result": vertical_result,
+                "horizontal_result": horizontal_result,
+            }
+        )
+
+        if str(vertical_result).lower() == "unresolved" or str(horizontal_result).lower() == "unresolved":
+            if PATTERN_CLASSIFICATION_SHOW_PLOT:
+                show_pattern_classification_results(evaluated_crops)
+            if last_resolved_result is not None:
+                print(
+                    f"Pattern crop classifier best focus: "
+                    f"group {['group']}, element {last_resolved_result['element']}"
+                )
+            else:
+                print("Pattern crop classifier found unresolved at first scanned element")
+            return last_resolved_result
+
+        if str(vertical_result).lower() == "resolved" and str(horizontal_result).lower() == "resolved":
+            last_resolved_result = {
+                "group": group,
+                "element": element,
+                "scan_index": scan_index,
+                "vertical_result": vertical_result,
+                "horizontal_result": horizontal_result,
+                "vertical_path": str(vertical_path) if vertical_path is not None else None,
+                "horizontal_path": str(horizontal_path) if horizontal_path is not None else None,
+            }
+
+    if last_resolved_result is not None:
+        print(
+            f"Pattern crop classifier best focus: "
+            f"group {last_resolved_result['group']}, element {last_resolved_result['element']}"
+        )
+    else:
+        print("Pattern crop classifier found no resolved pattern")
+    if PATTERN_CLASSIFICATION_SHOW_PLOT:
+        show_pattern_classification_results(evaluated_crops)
+    return last_resolved_result
 
 
 def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0):
@@ -1611,6 +1941,7 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     global INITIAL_ANGLE
     global retry_count
     global pattern_count
+    global current_image_label
     initial_retry_instance = retry_instance
     if curr_image is None:
         return None
@@ -1706,6 +2037,38 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
                 if repl_a is not None:
                     pt_a, pt_b = apply_point_adjustment_algorithm(repl_a, repl_b, normalized_gray)
                     yolo_repl = True
+
+            scanline_center = (
+                (float(pt_a[0]) + float(pt_b[0])) / 2.0,
+                (float(pt_a[1]) + float(pt_b[1])) / 2.0,
+            )
+            scanline_length = np.linalg.norm(np.array(pt_a, dtype=np.float64) - np.array(pt_b, dtype=np.float64))
+            scanline_box_half_size = 0.9 * scanline_length
+            box_top_left = (
+                int(round(scanline_center[0] - scanline_box_half_size)),
+                int(round(scanline_center[1] - scanline_box_half_size)),
+            )
+            box_bottom_right = (
+                int(round(scanline_center[0] + scanline_box_half_size)),
+                int(round(scanline_center[1] + scanline_box_half_size)),
+            )
+            cv2.rectangle(img, box_top_left, box_bottom_right, (0, 255, 255), 1)
+
+            crop_x1 = max(0, box_top_left[0])
+            crop_y1 = max(0, box_top_left[1])
+            crop_x2 = min(clean_img.shape[1], box_bottom_right[0])
+            crop_y2 = min(clean_img.shape[0], box_bottom_right[1])
+            if crop_x2 > crop_x1 and crop_y2 > crop_y1:
+                pattern_crop_dir = Path("pattern_crop")
+                pattern_crop_dir.mkdir(exist_ok=True)
+                crop_img = clean_img[crop_y1:crop_y2, crop_x1:crop_x2]
+                interpolation = cv2.INTER_AREA if crop_img.shape[0] > 256 or crop_img.shape[1] > 256 else cv2.INTER_CUBIC
+                crop_img = cv2.resize(crop_img, (256, 256), interpolation=interpolation)
+                if i // 2 <= 32:
+                    crop_name = f"{current_image_label}_horizontal_scan_{i // 2:03d}.png"
+                else:
+                    crop_name = f"{current_image_label}_vertical_scan_{(i // 2) - 33:03d}.png"
+                cv2.imwrite(str(pattern_crop_dir / crop_name), crop_img)
 
             # Create a mask for the line
             mask = np.zeros_like(gray, dtype=np.uint8)
@@ -1877,14 +2240,14 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     G1 = 8 - pattern_count * 2 + retry_count * 2
     if DEBUG_MODE:
         print("G1 is: ", G1)
-    if G1 > 6:
-        return None, None
+        print("pattern_count is: ", pattern_count)
+        print("retry_count is: ", retry_count)
     initialize_score_table()
 
-    zoom_box_pt = usaf2screen(zoom_box_coord, center_x, center_y, angle, side_length)
-    zoom_box_offset = 80
-    # Crop the image around the zoom box
-    zoom_box_img = clean_img[int(zoom_box_pt[1] - zoom_box_offset):int(zoom_box_pt[1] + zoom_box_offset), int(zoom_box_pt[0] - zoom_box_offset):int(zoom_box_pt[0] + zoom_box_offset)]
+
+
+
+
 
 
     if PREVIEW_MODE:
@@ -2044,6 +2407,8 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
         Tuple of (group_number, element_number) indicating best focus group
     '''
     global G1
+    global current_image_label
+    current_image_label = Path(image_path).stem
     curr_image = cv2.imread(image_path)
     if curr_image is None:
         return None
@@ -2067,7 +2432,14 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
         try:
             for idx in run_indices:
                 scores[idx], scanline_map[idx] = calculate_focus_scores(curr_image, yolo_detections, idx)
-                best_focus_group[idx], chosen_index[idx] = find_best_focus_group(scores[idx], threshold=threshold)
+                
+                if YOLO_CLASSIFICATION:
+                    pattern_crop_result = score_pattern_crops(current_image_label)
+                    best_focus_group[idx] = [pattern_crop_result["group"], pattern_crop_result["element"]]
+                    chosen_index[idx] = pattern_crop_result["scan_index"]
+                else:
+                    best_focus_group[idx], chosen_index[idx] = find_best_focus_group(scores[idx], threshold=threshold)
+                
                 if DEBUG_MODE:
                     print(f"scores[{idx}]", scores[idx])
                     print(f"best_focus_group[{idx}]", best_focus_group[idx])
