@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-import yolo_model
+import usaf_registration.yolo_model as yolo_model
 from analyzers.contrast_chart import ContrastChartAnalyzer, ContrastChartAnalyzerConfig
 from analyzers.grid import GridAnalyzer, GridAnalyzerConfig
 from analyzers.siemens import SiemensAnalyzer, SiemensAnalyzerConfig

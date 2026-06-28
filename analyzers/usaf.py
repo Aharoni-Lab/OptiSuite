@@ -8,8 +8,8 @@ from typing import Iterator
 import cv2
 import numpy as np
 
-import usaf_algo
-import yolo_model
+import usaf_registration.usaf_algo as usaf_algo
+import usaf_registration.yolo_model as yolo_model
 from analyzers.base import ResolutionAnalyzer
 from core.visualization import register_runtime_image
 from core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
