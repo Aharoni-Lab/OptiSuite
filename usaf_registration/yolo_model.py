@@ -24,8 +24,7 @@ def classify_resolution(img):
 def count_4pts_pattern(img):
     # Safety Check 1: Make sure the image actually exists
     if img is None:
-        print("Error: Input image is None!")
-        return 0
+        raise ValueError("yolo_model.count_4pts_pattern: Input image is None")
         
     img = cv2.resize(img, (1280, 1280))
     
@@ -33,23 +32,20 @@ def count_4pts_pattern(img):
     try:
         model = YOLO(PT4_MODEL_PATH)
     except Exception as e:
-        print(f"Error loading model from {PT4_MODEL_PATH}: {e}")
-        return 0
+        raise RuntimeError(f"yolo_model.count_4pts_pattern: Error loading model from {PT4_MODEL_PATH}: {e}")
         
     results = model(img, imgsz=640, iou=0.3, conf=0.25)
     
     # Safety Check 3: Check what YOLO actually returned
     if not results or len(results) == 0:
-        print("Warning: YOLO returned an empty results list.")
-        return 0
+        raise RuntimeError("yolo_model.count_4pts_pattern: YOLO returned no results")
         
     # YOLO returns a list of Results objects (one per image). 
     # We grab the first image's results.
     first_result = results[0]
     
     if first_result.boxes is None:
-        print("Warning: .boxes attribute is None.")
-        return 0
+        raise RuntimeError("yolo_model.count_4pts_pattern: YOLO returned no bounding boxes")
 
     return first_result
     
@@ -81,12 +77,12 @@ def extract_yolo_detections(curr_image, model_path = MODEL_PATH, imgsz=2048):
     if isinstance(curr_image, (str, Path)):
         img = cv2.imread(str(curr_image))
         if img is None:
-            raise FileNotFoundError(f"Could not read image: {curr_image}")
+            raise FileNotFoundError(f"yolo_model.extract_yolo_detections: Could not read image: {curr_image}")
         source = str(curr_image)
     else:
         img = curr_image
         if img is None or img.size == 0:
-            raise ValueError("Invalid image array")
+            raise ValueError("yolo_model.extract_yolo_detections: Invalid image array")
         source = img
 
     results = model(source, imgsz=imgsz, iou=0.5, conf=0.25)
@@ -166,7 +162,7 @@ def visualize_detections(img, result = None, detections = None):
     img_vis = img.copy()
 
     if detections is None or len(detections) == 0:
-        return img_vis
+        raise ValueError("yolo_model.visualize_detections: No detections to visualize")
     
     # Draw bounding boxes and keypoints
     for detection in detections:

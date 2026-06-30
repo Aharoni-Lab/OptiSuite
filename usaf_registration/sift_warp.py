@@ -7,9 +7,7 @@ import constants as C
 
 
 def get_sift_reference_image():
-    if C._SIFT_REF_IMAGE_CACHE is None:
-        C._SIFT_REF_IMAGE_CACHE = cv2.imread(C.SIFT_REF_IMAGE_PATH)
-    return C._SIFT_REF_IMAGE_CACHE
+    return cv2.imread(C.SIFT_REF_IMAGE_PATH)
 
 
 
@@ -45,9 +43,9 @@ def sift_homography_with_origin(
     then scaled independently on x/y by `pixels_per_unit_x` and `pixels_per_unit_y`.
     """
     if image1 is None or image2 is None:
-        raise ValueError("image1 and image2 must not be None")
+        raise ValueError("sift_warp.sift_homography_with_origin: image1 and image2 must not be None")
     if pixels_per_unit_x <= 0 or pixels_per_unit_y <= 0:
-        raise ValueError("pixels_per_unit_x and pixels_per_unit_y must be > 0")
+        raise ValueError("sift_warp.sift_homography_with_origin: pixels_per_unit_x and pixels_per_unit_y must be > 0")
 
     if image1.ndim == 3:
         gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
@@ -64,13 +62,13 @@ def sift_homography_with_origin(
         vis2 = cv2.cvtColor(image2, cv2.COLOR_GRAY2RGB)
 
     if not hasattr(cv2, "SIFT_create"):
-        raise RuntimeError("OpenCV SIFT is unavailable in this build (missing cv2.SIFT_create)")
+        raise RuntimeError("sift_warp.sift_homography_with_origin: OpenCV SIFT is unavailable in this build (missing cv2.SIFT_create)")
 
     sift = cv2.SIFT_create()
     kp1, des1 = sift.detectAndCompute(gray1, None)
     kp2, des2 = sift.detectAndCompute(gray2, None)
     if des1 is None or des2 is None or len(kp1) == 0 or len(kp2) == 0:
-        raise RuntimeError("Failed to extract SIFT descriptors from one or both C.images")
+        raise RuntimeError("sift_warp.sift_homography_with_origin: Failed to extract SIFT descriptors from one or both images")
 
     matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
     knn_matches = matcher.knnMatch(des1, des2, k=2)
@@ -83,7 +81,7 @@ def sift_homography_with_origin(
             good_matches.append(m)
 
     if len(good_matches) < min_match_count:
-        raise RuntimeError(f"Not enough good SIFT matches ({len(good_matches)}), need at least {min_match_count}")
+        raise RuntimeError(f"sift_warp.sift_homography_with_origin: Not enough good SIFT matches ({len(good_matches)}), need at least {min_match_count}")
 
     src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches])
     dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches])
@@ -96,7 +94,22 @@ def sift_homography_with_origin(
 
     H, inlier_mask = cv2.findHomography(src_pts_local, dst_pts, cv2.RANSAC, ransac_reproj_threshold)
     if H is None or inlier_mask is None:
-        raise RuntimeError("Failed to estimate homography from SIFT correspondences")
+        raise RuntimeError("sift_warp.sift_homography_with_origin: Failed to estimate homography from SIFT correspondences")
+
+    angle_deg = C.SIFT_ANGLE if C.SIFT_ANGLE is not None else 0.0
+    if angle_deg != 0.0:
+        theta = np.deg2rad(angle_deg)
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        R = np.array(
+            [
+                [cos_t, -sin_t, 0.0],
+                [sin_t, cos_t, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
+        H = np.asarray(H, dtype=np.float64) @ R
 
     inlier_mask = inlier_mask.ravel().astype(bool)
     src_inlier = src_pts[inlier_mask]

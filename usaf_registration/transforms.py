@@ -44,14 +44,16 @@ def usaf2screen_classic(pt, center_x, center_y, angle, side_length):
 def usaf2ref(pt):
     """
     Map a USAF-coordinate point to reference-image pixel coordinates using
-    C.SIFT_REF_ORIGIN and SIFT_REF_PIXELS_PER_UNIT_* with no rotation (angle=0).
-    Uses the same axis/sign convention as usaf2screen and sift_homography_with_origin.
-    assume zero degree angle, no rotation
+    C.SIFT_REF_ORIGIN and SIFT_REF_PIXELS_PER_UNIT_*.
+
+    Uses the same axis/sign convention as usaf2screen and
+    sift_homography_with_origin.
     """
     origin = _sift_ref_origin_for_target()
     flip = -1 if C.FLIPED_TARGET else 1
     local_x = flip * pt[0]
     local_y = -pt[1]
+
     ref_x = origin[0] + local_x * C.SIFT_REF_PIXELS_PER_UNIT_X
     ref_y = origin[1] + local_y * C.SIFT_REF_PIXELS_PER_UNIT_Y
     return (ref_x, ref_y)
@@ -75,6 +77,36 @@ def usaf2screen_homography(pt, h_matrix):
     pt_local = np.array([[[local_x, local_y]]], dtype=np.float32)
     mapped = cv2.perspectiveTransform(pt_local, h_matrix)[0, 0]
     return (float(mapped[0]), float(mapped[1]))
+
+
+
+
+
+def fast_usaf2screen_homography(pts, h_matrix):
+    """Batched version of usaf2screen_homography.
+
+    Takes a sequence of USAF-coordinate points and maps all of them to
+    test-image screen coordinates in a single cv2.perspectiveTransform call.
+
+    Args:
+        pts:      Iterable of (x, y) USAF-coordinate points.
+        h_matrix: Homography matrix (ref -> test) as returned by
+                  sift_homography_with_origin / coordinate_calibration.
+
+    Returns:
+        List of (screen_x, screen_y) float tuples in the same order as ``pts``.
+    """
+    flip = -1 if C.FLIPED_TARGET else 1
+    arr = np.array(pts, dtype=np.float32)           # (N, 2)
+    local = np.empty_like(arr)
+    local[:, 0] = flip * arr[:, 0]
+    local[:, 1] = -arr[:, 1]
+    pts_in = local.reshape(-1, 1, 2)                # (N, 1, 2) required by perspectiveTransform
+    mapped = cv2.perspectiveTransform(pts_in, h_matrix).reshape(-1, 2)  # (N, 2)
+    return [(float(mapped[i, 0]), float(mapped[i, 1])) for i in range(len(mapped))]
+
+
+
 
 
 def ref_to_screen_homography_matrix(h_matrix):

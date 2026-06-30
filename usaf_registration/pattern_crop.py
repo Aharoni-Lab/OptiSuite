@@ -24,12 +24,12 @@ def find_pattern_crop(crop_dir, image_label, orientation, scan_index):
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    return None
+    raise FileNotFoundError(f"pattern_crop.find_pattern_crop: Pattern crop not found for {image_label} {orientation} scan {scan_index}. Checked candidates: {candidates}")
 
 
 def show_pattern_classification_results(evaluated_crops):
     if not evaluated_crops:
-        return
+        raise ValueError("pattern_crop.show_pattern_classification_results: No evaluated crops to display.")
 
     rows_per_page = max(1, int(C.PATTERN_CLASSIFICATION_ROWS_PER_PAGE))
     total_pages = math.ceil(len(evaluated_crops) / rows_per_page)

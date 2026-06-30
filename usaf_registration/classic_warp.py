@@ -278,7 +278,7 @@ def find_square_corners(gray):
             plt.imshow(thresh, cmap='gray')
             plt.title("Debug Thresh")
             plt.show()
-        return None
+        raise ValueError("classic_warp.find_square_corners: No valid square detected in the image.")
 
 
 

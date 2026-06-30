@@ -3,19 +3,20 @@ from pathlib import Path
 
 # main settings
 DEBUG_MODE = False              # debug log + photo
-PREVIEW_MODE = False            # overview photo
+PREVIEW_MODE = True            # overview photo
 FLIPED_TARGET = True            # true if target is fliped
 G1 = 2                          # first group number
-PT_TRANSFORM = "classic"        # "classic", "sift", "elastix", method to transform the reference 
-                                # target-space point to test image for scoring and adjustment
+PT_TRANSFORM = "classic with sift"        
+# "classic with sift", "classic", "sift", "elastix", method to transform the reference 
+# target-space point to test image for scoring and adjustment
 
 
 # gradient settings
 GRADIENT_MIN = False
 GRADIENT_PLOT_ENABLE = False       # visualize selected scanline intensity + gradient
-GRADIENT_PLOT_GROUP = 6            # group to inspect when GRADIENT_PLOT_ENABLE is True
-GRADIENT_PLOT_ELEMENT = 5          # element to inspect when GRADIENT_PLOT_ENABLE is True
-GRADIENT_PLOT_ORIENTATION = "both" # "vertical", "horizontal", "both"
+GRADIENT_PLOT_GROUP = 3            # group to inspect when GRADIENT_PLOT_ENABLE is True
+GRADIENT_PLOT_ELEMENT = 4          # element to inspect when GRADIENT_PLOT_ENABLE is True
+GRADIENT_PLOT_ORIENTATION = "both" # "vertical"->scanline, "horizontal"->scanline, "both"->scanline
 
 
 # YOLO settings
@@ -23,6 +24,8 @@ YOLO_DETECT = False              # yolo detect scanline
 YOLO_CLASSIFICATION = True      # yolo classify pattern
 PATTERN_CLASSIFICATION_SHOW_PLOT = PREVIEW_MODE
 PATTERN_CLASSIFICATION_ROWS_PER_PAGE = 6
+CROP_DIR = Path("pattern_crop")          # directory to save pattern crops for yolo classification
+CONST_LABEL = True                       # use constant label for yolo classification crop img
 
 
 # legacy algorithm settings
@@ -35,16 +38,41 @@ FOUR_KP = False                  # use four reference corners to calibrate the t
 CORNER_METHOD = "threshold"     # "threshold", "default", method to detect the corner
 SCORE_METHOD = "max"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
 CROPED_WINDOW_RETRY = False     # if the corner detection window is off image, retry with next best square
-INITIAL_ANGLE = 0
 FOCUS_GROUP_LAST_ABOVE_THRESHOLD = False  # True: last score above threshold in loop; False: inflection
 
 
 # SIFT calibration settings
-USE_SIFT_REF_CALIBRATION = True # if True, use SIFT+homography for secondary ref corners
-SIFT_REF_IMAGE_PATH = "test_img/SIFT_ref_image.png"
-SIFT_REF_ORIGIN = (195.0, 66.5)  # origin on reference image in pixel coordinates
-SIFT_REF_PIXELS_PER_UNIT_X = 44.3  # x-axis pixels per unit on reference image
-SIFT_REF_PIXELS_PER_UNIT_Y = 43.0  # y-axis pixels per unit on reference image
+# if True, use SIFT+homography for secondary ref corners
+SIFT_CONFIG_LIST = [
+    {
+        "REF_IMAGE_PATH" : "test_img/image_g67only.png",
+        "REF_ORIGIN" : (425.0, 170.0),
+        "REF_PIXELS_PER_UNIT_X" : 91.0,
+        "REF_PIXELS_PER_UNIT_Y" : 91.0,
+        "ANGLE" : -0.60,
+    },
+    {
+        "REF_IMAGE_PATH" : "test_img/SIFT_ref_image.png",
+        "REF_ORIGIN" : (195.0, 66.5),
+        "REF_PIXELS_PER_UNIT_X" : 44.3,
+        "REF_PIXELS_PER_UNIT_Y" : 43.0,
+        "ANGLE" : 0.0,
+    },
+    {
+        "REF_IMAGE_PATH" : "test_img/new_SIFT_ref_image_bordered.png",
+        "REF_ORIGIN" : (1013.0, 343.5),
+        "REF_PIXELS_PER_UNIT_X" : 226.1,
+        "REF_PIXELS_PER_UNIT_Y" : 223.0,
+        "ANGLE" : -0.235,
+    },
+]
+USE_SIFT_REF_CALIBRATION = True if PT_TRANSFORM == "classic with sift" or PT_TRANSFORM == "sift" or PT_TRANSFORM == "elastix" else False 
+SIFT_REF_IMAGE_PATH = SIFT_CONFIG_LIST[2]["REF_IMAGE_PATH"]
+SIFT_REF_ORIGIN = SIFT_CONFIG_LIST[2]["REF_ORIGIN"]  # origin on reference image in pixel coordinates(1010.0, 343.5)
+SIFT_REF_PIXELS_PER_UNIT_X = SIFT_CONFIG_LIST[2]["REF_PIXELS_PER_UNIT_X"]  # x-axis pixels per unit on reference image
+SIFT_REF_PIXELS_PER_UNIT_Y = SIFT_CONFIG_LIST[2]["REF_PIXELS_PER_UNIT_Y"]  # y-axis pixels per unit on reference image
+SIFT_ANGLE = SIFT_CONFIG_LIST[2]["ANGLE"]
+
 SIFT_REF_RATIO_TEST = 0.75
 SIFT_REF_RANSAC_REPROJ = 3.0
 SIFT_REF_MIN_MATCH_COUNT = 8
@@ -52,14 +80,15 @@ SIFT_REF_SHOW_PLOT = DEBUG_MODE
 
 
 # ITK calibration settings
-USE_ITKELASTIX_REF_CALIBRATION = False  # set False to use the original SIFT-only mapping
+ # set False to use the original SIFT-only mapping
+USE_ITKELASTIX_REF_CALIBRATION = True if PT_TRANSFORM == "elastix" else False 
 ITKELASTIX_PARAMETER_MAP = "bspline"  # deformable; use "rigid" to switch back
 ITKELASTIX_ROI_MARGIN = 80
-ITKELASTIX_FINAL_GRID_SPACING = 50.0  # lower = more local deformation, higher = smoother
-ITKELASTIX_NUMBER_OF_RESOLUTIONS = 3
-ITKELASTIX_MAX_ITERATIONS = 256
+ITKELASTIX_FINAL_GRID_SPACING = 10.0  # lower = more local deformation, higher = smoother
+ITKELASTIX_NUMBER_OF_RESOLUTIONS = 5
+ITKELASTIX_MAX_ITERATIONS = 512
 ITKELASTIX_SHOW_PLOT = DEBUG_MODE
-ITKELASTIX_LOG_TO_CONSOLE = False
+ITKELASTIX_LOG_TO_CONSOLE = True
 
 
 
@@ -74,12 +103,12 @@ def get_image_paths(folder_path, recursive=False):
 
 images = [
     'test_img/test_image_new.png',
-    'test_img/test_image_g4e4.png',
-    'test_img/test_image_g5e4.png',
-    'test_img/af_Z59_370_183653_20260227_183653.png',
-    'test_img/test_image_g3e6.png',
-    'test_img/test_image_g6e6.png',
-    'test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png',
+    # 'test_img/test_image_g4e4.png',
+    # 'test_img/test_image_g5e4.png',
+    # 'test_img/af_Z59_370_183653_20260227_183653.png',
+    # 'test_img/test_image_g3e6.png',
+    # 'test_img/test_image_g6e6.png',
+    # 'test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png',
     # 'test_img/image_g67only.png',
     # 'test_img/image.png',
     # 'test_img/Image0001.bmp',
@@ -99,13 +128,14 @@ valid_squares = []
 retry_count = 0
 pattern_count = 0
 current_image_label = "image"
-_SIFT_REF_IMAGE_CACHE = None
+_sift_ref_image_cache = None
 _sift_h_matrix = None  # ref->test homography from last coordinate_calibration (SIFT path)
 _itk_transform_params = None  # optional refinement from SIFT-warped reference target-space -> target
 _itk_moving_image = None
 _itk_output_dir = None
 _itk_roi_offset = (0, 0)
 _itk_point_cache = {}
+initial_angle = 0
 
 
 
