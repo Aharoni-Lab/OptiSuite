@@ -3,8 +3,8 @@ from pathlib import Path
 
 # main settings
 DEBUG_MODE = False              # debug log + photo
-PREVIEW_MODE = True            # overview photo
-FLIPED_TARGET = True            # true if target is fliped
+PREVIEW_MODE = False            # overview photo
+FLIPED_TARGET = False            # true if target is fliped
 G1 = 2                          # first group number
 PT_TRANSFORM = "classic with sift"        
 # "classic with sift", "classic", "sift", "elastix", method to transform the reference 
@@ -59,11 +59,16 @@ SIFT_CONFIG_LIST = [
         "ANGLE" : 0.0,
     },
     {
-        "REF_IMAGE_PATH" : "test_img/new_SIFT_ref_image_bordered.png",
-        "REF_ORIGIN" : (1013.0, 343.5),
-        "REF_PIXELS_PER_UNIT_X" : 226.1,
-        "REF_PIXELS_PER_UNIT_Y" : 223.0,
-        "ANGLE" : -0.235,
+        # "REF_IMAGE_PATH" : "test_img/new_SIFT_ref_image_bordered.png",
+        # "REF_ORIGIN" : (1013.0, 343.5),
+        # "REF_PIXELS_PER_UNIT_X" : 226.1,
+        # "REF_PIXELS_PER_UNIT_Y" : 223.0,
+        # "ANGLE" : -0.235,
+        "REF_IMAGE_PATH" : "test_img/SIFT_ref_image.png",
+        "REF_ORIGIN" : (195.0, 66.5),
+        "REF_PIXELS_PER_UNIT_X" : 44.3,
+        "REF_PIXELS_PER_UNIT_Y" : 43.0,
+        "ANGLE" : 0.0,
     },
 ]
 USE_SIFT_REF_CALIBRATION = True if PT_TRANSFORM == "classic with sift" or PT_TRANSFORM == "sift" or PT_TRANSFORM == "elastix" else False 
@@ -103,19 +108,25 @@ def get_image_paths(folder_path, recursive=False):
 
 images = [
     'test_img/test_image_new.png',
-    # 'test_img/test_image_g4e4.png',
-    # 'test_img/test_image_g5e4.png',
-    # 'test_img/af_Z59_370_183653_20260227_183653.png',
-    # 'test_img/test_image_g3e6.png',
-    # 'test_img/test_image_g6e6.png',
-    # 'test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png',
-    # 'test_img/image_g67only.png',
-    # 'test_img/image.png',
-    # 'test_img/Image0001.bmp',
-    # 'test_img/Screenshot_2026-05-06_085659.png',
+    'test_img/test_image_g4e4.png',
+    'test_img/test_image_g5e4.png',
+    'test_img/af_Z59_370_183653_20260227_183653.png',
+    'test_img/test_image_g3e6.png',
+    'test_img/test_image_g6e6.png',
+    'test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png',
+    'test_img/image_g67only.png',
+    'test_img/image.png',
+    'test_img/Image0001.bmp',
+    'test_img/Screenshot_2026-05-06_085659.png',
 ]
+
+
 # Process images
-# images = get_image_paths("screenshots/autofocus/run_a2191794e9_20260227/cam1")
+# images = get_image_paths("training_img\\not_fliped")
+# print(f"Found {len(list(images))} files in folder:")
+# for path in images:
+#     print(str(path))
+# print("---------------------------------")
 
 
 

@@ -416,6 +416,8 @@ def score_pattern_crops(image_label="image"):
                     )
                 else:
                     print("Pattern crop classifier found unresolved at first scanned element")
+            if last_resolved_result is None:
+                raise RuntimeError("usaf_algo.score_pattern_crops: Pattern crop classifier found unresolved at first scanned element, no valid focus score can be determined.")
             return last_resolved_result
 
         if str(vertical_result).lower() == "resolved" and str(horizontal_result).lower() == "resolved":
@@ -1011,7 +1013,7 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
     if curr_image is None:
         raise ValueError(f"usaf_algo.find_usaf_score: Failed to read image from {image_path}")
 
-    if not is_image_clear(curr_image, 2):
+    if not is_image_clear(curr_image, 2.0):
         raise ValueError("usaf_algo.find_usaf_score: The image is too blurry for detection")
     
     while True:
@@ -1106,17 +1108,21 @@ for image_path in C.images:
     try:
         find_usaf_score(image_path)
     except Exception as e:
-        if "No valid square detected in the image" in str(e):
+        if "classic_warp.find_square_corners: No valid square detected in the image" in str(e):
             print(f"No valid square detected in {image_path}. Skipping this image.")
             continue
-        elif "The image is too blurry for detection" in str(e):
+        elif "usaf_algo.find_usaf_score: The image is too blurry for detection" in str(e):
             print(f"The image {image_path} is too blurry for detection. Skipping this image.")
             continue 
-        elif "No best focus group found after all attempts" in str(e):
+        elif "usaf_algo.find_usaf_score: No best focus group found after all attempts" in str(e):
             print(f"No best focus group found for {image_path}. Skipping this image.")
             continue
         elif "sift_warp.sift_homography_with_origin:" in str(e):
             print(f"Failed to estimate homography from SIFT correspondences for {image_path}. Skipping this image.")
+            continue
+        elif "usaf_algo.score_pattern_crops: Pattern crop classifier found unresolved at first scanned element, no valid focus score can be determined." in str(e):
+            C.FLIPED_TARGET = not C.FLIPED_TARGET
+            find_usaf_score(image_path)
             continue
         else:
             raise e

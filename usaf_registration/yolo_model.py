@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 _MODEL_CACHE = {}
 MODEL_PATH = Path("./models/best23.pt")
 NUM_MODEL_PATH = Path("./models/best_num_classify.pt")
-RES_MODEL_PATH = Path("./models/resolution_cls_model2.pt")
+# RES_MODEL_PATH = Path("./models/resolution_cls_model2.pt")
+RES_MODEL_PATH = Path("./models/0.2_threshold_classification.pt")
 PT4_MODEL_PATH = Path("./models/best_4p_4_focused.pt")
 
 
