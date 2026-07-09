@@ -10,7 +10,7 @@ from classic_warp import find_white_corner_in_region, find_target_orientation, g
 from elastix_warp import setup_itkelastix_ref_mapping, ref_usaf_point_to_target, fast_ref_usaf_point_to_target
 from pt_adjust import apply_point_adjustment_algorithm, find_replacement_keypoints, extend_line
 from transforms import usaf2screen_homography, usaf2screen_classic, get_rotated_pt
-from pattern_crop import find_pattern_crop, classify_pattern_resolution, show_pattern_classification_results
+from pattern_crop import find_pattern_crop, classify_pattern_resolution, show_pattern_classification_results, verify_pattern_crops
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -352,6 +352,22 @@ def is_image_clear(curr_image, threshold=3.0):
     return score >= threshold
 
 
+def normalize_image_contrast(image, normalize_range=(0, 255)):
+    """Normalize all pixels globally to the specified range.
+
+    Args:
+        image: Input image.
+        normalize_range: Output range, inclusive. Default (0, 255)."""
+    if image is None or image.size == 0:
+        return image
+    min_val = image.min()
+    max_val = image.max()
+    if max_val == min_val:
+        return image.copy()
+    out = (image.astype(np.float32) - float(min_val)) * ((normalize_range[1] - normalize_range[0]) / float(max_val - min_val)) + normalize_range[0]
+    return out
+
+
 
 
 
@@ -425,10 +441,6 @@ def score_pattern_crops(image_label="image"):
                 "group": group,
                 "element": element,
                 "scan_index": scan_index,
-                "vertical_result": vertical_result,
-                "horizontal_result": horizontal_result,
-                "vertical_path": str(vertical_path) if vertical_path is not None else None,
-                "horizontal_path": str(horizontal_path) if horizontal_path is not None else None,
             }
 
     if C.DEBUG_MODE:
@@ -1013,6 +1025,9 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
     if curr_image is None:
         raise ValueError(f"usaf_algo.find_usaf_score: Failed to read image from {image_path}")
 
+    curr_image = normalize_image_contrast(curr_image)
+    curr_image = np.clip(curr_image, 0, 255).astype(np.uint8)
+
     if not is_image_clear(curr_image, 2.0):
         raise ValueError("usaf_algo.find_usaf_score: The image is too blurry for detection")
     
@@ -1034,6 +1049,8 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
                 
                 if C.YOLO_CLASSIFICATION:
                     pattern_crop_result = score_pattern_crops(C.current_image_label)
+                    if C.ENABLE_VERIFY_PATTERN_CROP:
+                        pattern_crop_result = verify_pattern_crops(pattern_crop_result)
                     best_focus_group[idx] = [pattern_crop_result["group"], pattern_crop_result["element"]]
                     chosen_index[idx] = pattern_crop_result["scan_index"]
                 else:
@@ -1106,7 +1123,12 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
 
 for image_path in C.images:
     try:
-        find_usaf_score(image_path)
+        find_usaf_score(image_path, C.SCORE_THRESHOLD)
+    except FileNotFoundError as e:
+        print(f"File not found error: {image_path}. {e}, Retry fliped.")
+        C.FLIPED_TARGET = not C.FLIPED_TARGET
+        find_usaf_score(image_path, C.SCORE_THRESHOLD)
+        continue
     except Exception as e:
         if "classic_warp.find_square_corners: No valid square detected in the image" in str(e):
             print(f"No valid square detected in {image_path}. Skipping this image.")
@@ -1122,7 +1144,7 @@ for image_path in C.images:
             continue
         elif "usaf_algo.score_pattern_crops: Pattern crop classifier found unresolved at first scanned element, no valid focus score can be determined." in str(e):
             C.FLIPED_TARGET = not C.FLIPED_TARGET
-            find_usaf_score(image_path)
+            find_usaf_score(image_path, C.SCORE_THRESHOLD)
             continue
         else:
             raise e

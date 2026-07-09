@@ -4,8 +4,12 @@ from pathlib import Path
 # main settings
 DEBUG_MODE = False              # debug log + photo
 PREVIEW_MODE = False            # overview photo
-FLIPED_TARGET = False            # true if target is fliped
+FLIPED_TARGET = True            # true if target is fliped
 G1 = 2                          # first group number
+SCORE_THRESHOLD = 0.2          # threshold to determine if a scanline is valid, between 0 and 1 of the normalized score
+SCORE_METHOD = "min"           
+# "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
+# Note if using yolo classification and verification, "raw" is not available
 PT_TRANSFORM = "classic with sift"        
 # "classic with sift", "classic", "sift", "elastix", method to transform the reference 
 # target-space point to test image for scoring and adjustment
@@ -21,9 +25,12 @@ GRADIENT_PLOT_ORIENTATION = "both" # "vertical"->scanline, "horizontal"->scanlin
 
 # YOLO settings
 YOLO_DETECT = False              # yolo detect scanline
-YOLO_CLASSIFICATION = True      # yolo classify pattern
+YOLO_CLASSIFICATION = True       # yolo classify pattern
 PATTERN_CLASSIFICATION_SHOW_PLOT = PREVIEW_MODE
 PATTERN_CLASSIFICATION_ROWS_PER_PAGE = 6
+VERIFICATION_STRATEGY = "best"           # "best", pick the higher possible score, but can be risky
+                                         # "reserved", pick the safest verified score
+ENABLE_VERIFY_PATTERN_CROP = True        # if True, use the pattern crop verification step to double check the yolo classification result, can improve accuracy
 CROP_DIR = Path("pattern_crop")          # directory to save pattern crops for yolo classification
 CONST_LABEL = True                       # use constant label for yolo classification crop img
 
@@ -36,7 +43,6 @@ AUTO_ADJUST = False             # shorten the scanline until the color on the tw
 ADJUST_THRESH = 0.8             # white threshold, between 0 and 1 of the normalzed grayscale value
 FOUR_KP = False                  # use four reference corners to calibrate the target
 CORNER_METHOD = "threshold"     # "threshold", "default", method to detect the corner
-SCORE_METHOD = "max"           # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
 CROPED_WINDOW_RETRY = False     # if the corner detection window is off image, retry with next best square
 FOCUS_GROUP_LAST_ABOVE_THRESHOLD = False  # True: last score above threshold in loop; False: inflection
 
@@ -122,7 +128,7 @@ images = [
 
 
 # Process images
-# images = get_image_paths("training_img\\not_fliped")
+# images = get_image_paths("ideal_test")
 # print(f"Found {len(list(images))} files in folder:")
 # for path in images:
 #     print(str(path))
@@ -319,3 +325,37 @@ prefer_dir_table =  [
                     [2, 4, 3, 1],
                     [4, 1, 2, 3] 
                     ]
+
+# state table for examining the previous pattern crop
+# 1=keep score
+# 2=examine previous pattern crop
+# 3=examine previous pattern crop, but can return
+# 4=dep on mean calculation, if mean above threshold, same as 1, else same as 2
+
+# table format:   |   above thresh   |  below thresh  |   None
+# ________________|__________________|________________|____________
+# above thresh    |                  |                |
+# ________________|__________________|________________|____________
+# below thresh    |                  |                |
+# ________________|__________________|________________|____________
+# None            |                  |                |
+# ________________|__________________|________________|____________
+
+max_state_table = [
+                    [1, 1, 1],
+                    [1, 2, 2],
+                    [1, 2, 2],
+                  ]
+
+min_state_table = [
+                    [1, 2, 3],
+                    [2, 2, 2],
+                    [3, 2, 3],
+                  ]
+
+mean_state_table = [
+                    [1, 4, 1],
+                    [4, 2, 2],
+                    [1, 2, 3],
+                  ]
+

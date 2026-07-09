@@ -3,13 +3,22 @@ import cv2
 from ultralytics import YOLO
 import numpy as np
 import matplotlib.pyplot as plt
+import constants as C
 
 _MODEL_CACHE = {}
 MODEL_PATH = Path("./models/best23.pt")
 NUM_MODEL_PATH = Path("./models/best_num_classify.pt")
 # RES_MODEL_PATH = Path("./models/resolution_cls_model2.pt")
+# RES_MODEL_PATH = Path("./models/pattern_classify_v2_thresh_0.2.pt")
 RES_MODEL_PATH = Path("./models/0.2_threshold_classification.pt")
 PT4_MODEL_PATH = Path("./models/best_4p_4_focused.pt")
+SINGLE_SCANLINE_MODEL_PATH = Path("./models/single_pattern_scanline_v2.pt")
+
+
+
+
+
+
 
 
 def classify_resolution(img):
@@ -188,3 +197,63 @@ def visualize_detections(img, result = None, detections = None):
     plt.show()
     
     return img_vis
+
+
+def detect_single_scanline_keypoints(image, imgsz=256, conf=0.10, iou=0.5):
+    """
+    Run SINGLE_SCANLINE_MODEL_PATH (keypoint model) on an image and return detected keypoints.
+
+    Args:
+        image: BGR numpy array, or a path string/Path.
+        imgsz: YOLO inference image size.
+        conf: Confidence threshold.
+        iou: IOU threshold.
+
+    Returns:
+        List of (x, y) integer keypoint coordinates.
+    """
+    model = get_yolo_model(SINGLE_SCANLINE_MODEL_PATH)
+
+    if isinstance(image, (str, Path)):
+        img = cv2.imread(str(image))
+        if img is None:
+            raise FileNotFoundError(f"yolo_model.detect_single_scanline_keypoints: Could not read image: {image}")
+        source = str(image)
+    else:
+        img = image
+        if img is None or img.size == 0:
+            raise ValueError("yolo_model.detect_single_scanline_keypoints: Invalid image array")
+        source = img
+
+    results = model(source, imgsz=imgsz, conf=conf, iou=iou, verbose=False)
+    if not results:
+        return []
+
+    result = results[0]
+    keypoints = []
+
+    if result.keypoints is not None and result.keypoints.xy is not None:
+        keypoints_xy = result.keypoints.xy.cpu().numpy()
+        for det_points in keypoints_xy:
+            kp1, kp2 = det_points[:2]  # Take first 2 keypoints
+            if np.isnan(kp1[0]) or np.isnan(kp1[1]) or np.isnan(kp2[0]) or np.isnan(kp2[1]):
+                continue
+            kp1, kp2 = (int(round(float(kp1[0]))), int(round(float(kp1[1])))), (int(round(float(kp2[0]))), int(round(float(kp2[1]))))
+            keypoints.append((kp1, kp2))
+
+    if C.DEBUG_MODE and False:
+        img_vis = img.copy()
+        for p1, p2 in keypoints:
+            cv2.circle(img_vis, p1, 4, (0, 0, 255), -1)
+            cv2.circle(img_vis, p2, 4, (0, 255, 255), -1)
+            cv2.line(img_vis, p1, p2, (0, 255, 0), 1)
+
+        plt.figure("Single Scanline KP Debug", figsize=(8, 8))
+        plt.clf()
+        plt.imshow(cv2.cvtColor(img_vis, cv2.COLOR_BGR2RGB))
+        plt.title(f"Detected keypoints: {len(keypoints)}")
+        plt.axis("off")
+        plt.tight_layout()
+        plt.show()
+
+    return keypoints
