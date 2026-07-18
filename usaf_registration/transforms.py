@@ -123,3 +123,42 @@ def ref_to_screen_homography_matrix(h_matrix):
 
 
 
+
+
+
+
+
+
+
+
+def yolo2screen(pts, original_img, mode=1):
+    # find the longest side of the img
+    h, w = original_img.shape[:2]
+    screen_pts = []
+
+    if mode == 1:
+        if h < w:
+            scale = 1280 / w
+            long_side = w * scale
+            short_side = h * scale
+        else:
+            scale = 1280 / h
+            long_side = h * scale
+            short_side = w * scale
+
+        for pt in pts:
+            if h < w:
+                screen_pt = [int(pt[0]), int(pt[1] - (long_side - short_side) // 2)]
+            else:
+                screen_pt = [int(pt[0] - (long_side - short_side) // 2), int(pt[1])]
+            screen_pt = [int(coord / scale) for coord in screen_pt]
+            screen_pts.append(screen_pt)
+    elif mode == 2:
+        # not implemented yet
+        # for 640x640 yolo input
+        return pts
+
+    return screen_pts
+    
+
+

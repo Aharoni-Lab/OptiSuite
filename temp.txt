@@ -1,0 +1,145 @@
+0: 1280x1280 3 usaf_full_patterns, 737.2ms
+Speed: 18.1ms preprocess, 737.2ms inference, 4.0ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_new.png: 6, element 4
+
+0: 1280x1280 3 usaf_full_patterns, 712.7ms
+Speed: 22.6ms preprocess, 712.7ms inference, 4.3ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_g4e4.png: 4, element 3
+
+0: 1280x1280 3 usaf_full_patterns, 609.2ms
+Speed: 24.3ms preprocess, 609.2ms inference, 3.4ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_g5e4.png: 5, element 2
+The image test_img/af_Z59_370_183653_20260227_183653.png is too blurry for detection. Skipping this image.
+
+0: 1280x1280 3 usaf_full_patterns, 492.3ms
+Speed: 23.6ms preprocess, 492.3ms inference, 2.9ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_g3e6.png: 3, element 6
+
+0: 1280x1280 3 usaf_full_patterns, 840.8ms
+Speed: 21.7ms preprocess, 840.8ms inference, 5.9ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_g6e6.png: 6, element 5
+
+0: 1280x1280 3 usaf_full_patterns, 637.7ms
+Speed: 23.8ms preprocess, 637.7ms inference, 3.7ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png: 3, element 6
+
+0: 1280x1280 1 usaf_full_pattern, 689.3ms
+Speed: 28.3ms preprocess, 689.3ms inference, 3.0ms postprocess per image at shape (1, 3, 1280, 1280)
+
+0: 1280x1280 1 usaf_full_pattern, 564.8ms
+Speed: 24.7ms preprocess, 564.8ms inference, 3.3ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/image_g67only.png: 7, element 6
+
+0: 1280x1280 2 usaf_full_patterns, 556.8ms
+Speed: 20.9ms preprocess, 556.8ms inference, 3.4ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/image.png: 7, element 3
+
+0: 1280x1280 3 usaf_full_patterns, 622.8ms
+Speed: 24.6ms preprocess, 622.8ms inference, 3.2ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/Image0001.bmp: 6, element 2
+
+0: 1280x1280 2 usaf_full_patterns, 562.9ms
+Speed: 20.6ms preprocess, 562.9ms inference, 3.7ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/Screenshot_2026-05-06_085659.png: 5, element 3
+
+0: 1280x1280 3 usaf_full_patterns, 933.8ms
+Speed: 23.4ms preprocess, 933.8ms inference, 5.9ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/image_new_test.png: 6, element 5
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+0: 1280x1280 3 usaf_full_patterns, 604.3ms
+Speed: 17.0ms preprocess, 604.3ms inference, 13.9ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_new.png: 6, element 4
+
+0: 1280x1280 3 usaf_full_patterns, 694.2ms
+Speed: 20.9ms preprocess, 694.2ms inference, 4.7ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_g4e4.png: 4, element 3
+
+0: 1280x1280 3 usaf_full_patterns, 623.2ms
+Speed: 27.4ms preprocess, 623.2ms inference, 3.5ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_g5e4.png: 5, element 2
+The image test_img/af_Z59_370_183653_20260227_183653.png is too blurry for detection. Skipping this image.
+
+0: 1280x1280 3 usaf_full_patterns, 614.1ms
+Speed: 26.0ms preprocess, 614.1ms inference, 3.2ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_g3e6.png: 3, element 6
+
+0: 1280x1280 3 usaf_full_patterns, 531.0ms
+Speed: 20.7ms preprocess, 531.0ms inference, 3.5ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/test_image_g6e6.png: 6, element 5
+
+0: 1280x1280 3 usaf_full_patterns, 479.0ms
+Speed: 21.5ms preprocess, 479.0ms inference, 3.1ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png: 3, element 6
+
+0: 1280x1280 1 usaf_full_pattern, 652.7ms
+Speed: 27.1ms preprocess, 652.7ms inference, 4.0ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/image_g67only.png: 7, element 6
+
+0: 1280x1280 2 usaf_full_patterns, 489.8ms
+Speed: 24.0ms preprocess, 489.8ms inference, 2.9ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/image.png: 7, element 2
+
+0: 1280x1280 3 usaf_full_patterns, 449.1ms
+Speed: 21.7ms preprocess, 449.1ms inference, 2.5ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/Image0001.bmp: 6, element 4
+
+0: 1280x1280 3 usaf_full_patterns, 482.6ms
+Speed: 21.9ms preprocess, 482.6ms inference, 3.2ms postprocess per image at shape (1, 3, 1280, 1280)
+File not found error: test_img/Screenshot_2026-05-06_085659.png. pattern_crop.find_pattern_crop: Pattern crop not found for image horizontal scan 0. Checked candidates: [WindowsPath('pattern_crop/image_horizontal_scan_000.png'), WindowsPath('pattern_crop/image_horizontal_scan_0.png')], Retry fliped.
+Retrying image: test_img/Screenshot_2026-05-06_085659.png
+
+0: 1280x1280 3 usaf_full_patterns, 775.9ms
+Speed: 22.5ms preprocess, 775.9ms inference, 3.3ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/Screenshot_2026-05-06_085659.png: 5, element 2
+
+0: 1280x1280 3 usaf_full_patterns, 554.6ms
+Speed: 24.2ms preprocess, 554.6ms inference, 4.0ms postprocess per image at shape (1, 3, 1280, 1280)
+Best focus group for test_img/image_new_test.png: 2, element 3
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+in #sym:score_pattern_crops each index represent an element, where each element contain 
+horizontal and vertical patterns. modify the function such it does not terminate immediately 
+when encounter the breaking condition. rather it verify if the next two index has unresolved
+pattern or not. if there's a unresolved pattern out of the next four patterns then immediately
+return the function with the initial breaking condition index. if there's no unresolved pattern
+then ignore the initial breaking condition as a fluke and continue on the function. This apply
+to all C.SCORE_METHOD types.

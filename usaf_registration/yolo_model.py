@@ -4,14 +4,16 @@ from ultralytics import YOLO
 import numpy as np
 import matplotlib.pyplot as plt
 import constants as C
+from transforms import yolo2screen
 
 _MODEL_CACHE = {}
 MODEL_PATH = Path("./models/best23.pt")
 NUM_MODEL_PATH = Path("./models/best_num_classify.pt")
 # RES_MODEL_PATH = Path("./models/resolution_cls_model2.pt")
-# RES_MODEL_PATH = Path("./models/pattern_classify_v2_thresh_0.2.pt")
-RES_MODEL_PATH = Path("./models/0.2_threshold_classification.pt")
-PT4_MODEL_PATH = Path("./models/best_4p_4_focused.pt")
+RES_MODEL_PATH = Path("./models/pattern_classify_v2_thresh_0.2.pt")
+# RES_MODEL_PATH = Path("./models/0.2_threshold_classification.pt")
+# PT4_MODEL_PATH = Path("./models/best_4p_4_focused.pt")
+PT4_MODEL_PATH = Path("./models/4p_detect_ultra_pro_max.pt")
 SINGLE_SCANLINE_MODEL_PATH = Path("./models/single_pattern_scanline_v2.pt")
 
 
@@ -27,8 +29,9 @@ def classify_resolution(img):
     results = model(img, verbose=False)
     result = results[0]
     if result.probs is None:
-        return "unresolved"
-    return result.names[result.probs.top1]
+        return "unresolved", 0.0
+    # return result and it confidence score for the top class
+    return result.names[result.probs.top1], float(result.probs.top1conf.item())
 
 
 def count_4pts_pattern(img):
@@ -36,15 +39,39 @@ def count_4pts_pattern(img):
     if img is None:
         raise ValueError("yolo_model.count_4pts_pattern: Input image is None")
         
-    img = cv2.resize(img, (1280, 1280))
-    
+    input_config = True
+
+    if input_config:
+        # Letterbox to 1280x1280: scale longest side to 1280, then pad the shorter side.
+        h, w = img.shape[:2]
+        if h <= 0 or w <= 0:
+            raise ValueError("yolo_model.count_4pts_pattern: Input image has invalid dimensions")
+
+        scale = 1280.0 / max(h, w)
+        new_w = max(1, int(round(w * scale)))
+        new_h = max(1, int(round(h * scale)))
+        resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+        pad_w = 1280 - new_w
+        pad_h = 1280 - new_h
+        left = pad_w // 2
+        right = pad_w - left
+        top = pad_h // 2
+        bottom = pad_h - top
+        img = cv2.copyMakeBorder(resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+    else:
+        img = cv2.resize(img, (1280, 1280))
+
     # Safety Check 2: Ensure model path is valid
     try:
         model = YOLO(PT4_MODEL_PATH)
     except Exception as e:
         raise RuntimeError(f"yolo_model.count_4pts_pattern: Error loading model from {PT4_MODEL_PATH}: {e}")
         
-    results = model(img, imgsz=640, iou=0.3, conf=0.25)
+    if input_config:
+        results = model(img, imgsz=1280, iou=0.3, conf=0.30)
+    else:
+        results = model(img, imgsz=640, iou=0.3, conf=0.25)
     
     # Safety Check 3: Check what YOLO actually returned
     if not results or len(results) == 0:
@@ -59,6 +86,259 @@ def count_4pts_pattern(img):
 
     return first_result
     
+
+
+
+
+
+
+
+
+
+def yolo_4pt_calculation(pt4_pattern_result, img):
+    # extract the detected keypoints from the YOLO result
+    if pt4_pattern_result is None:
+        raise ValueError("yolo_model.yolo_4pt_calculation: Input result is None")
+
+    if pt4_pattern_result.boxes is None or len(pt4_pattern_result.boxes) == 0:
+        return []
+    
+    fliped = -1 if C.FLIPED_TARGET else 1
+    canonical_kps = np.array(
+        [
+            [1.0 * fliped, 0.0 * fliped],
+            [0.0, 0.0],
+            [0.0, 1.0],
+            [1.0 * fliped, 1.0 * fliped],
+        ],
+        dtype=np.float64,
+    )
+
+    # [box1, box2, ...] where box is (box1_x1, box1_y1, box1_x2, box1_y2)
+    boxes_xyxy = pt4_pattern_result.boxes.xyxy.cpu().numpy()
+    # [box1_kps, box2_kps, ...] where box_kps is [[kp1_x, kp1_y], [kp2_x, kp2_y], ...]
+    keypoints_xy = None
+    # [box1_kps_conf, box2_kps_conf, ...] where box_kps_conf is [kp1_conf, kp2_conf, ...]
+    keypoints_conf = None
+    if pt4_pattern_result.keypoints is not None and pt4_pattern_result.keypoints.xy is not None:
+        keypoints_xy = pt4_pattern_result.keypoints.xy.cpu().numpy()
+        if pt4_pattern_result.keypoints.conf is not None:
+            keypoints_conf = pt4_pattern_result.keypoints.conf.cpu().numpy()
+
+
+
+    # Parse YOLO results format
+    # [
+    #     {
+    #         "top_left": (int(box1_x1), int(round(float(box1_y1)))),
+    #         "bottom_right": (int(box1_x2), int(box1_y2)),
+    #         "keypoints": [
+    #                         {
+    #                             "idx": 0,
+    #                             "xy": (int(kp1_x), int(kp1_y)),
+    #                             "conf": float(kp1_conf) or None
+    #                         },
+    #                         ... 
+    #                      ],
+    #         "kp23_vector": (int(kp23_x), int(kp23_y)),
+    #     }, 
+    #     ...
+    # ]
+    parsed = []
+    yolo_angles = []
+    box_lengths = []
+    directions = []
+    yolo_dir = None
+    for det_idx, box in enumerate(boxes_xyxy):
+        box = [(box[0], box[1]), (box[2], box[3])]
+        [x1, y1], [x2, y2] = yolo2screen(box, img)
+        box_length = np.linalg.norm(np.array((x2, y2)) - np.array((x1, y1)))
+        if box_length != 0:
+            box_lengths.append(box_length)
+        item = {
+            "top_left": (int(round(float(x1))), int(round(float(y1)))),
+            "bottom_right": (int(round(float(x2))), int(round(float(y2)))),
+            "keypoints": [],
+            "kp23_vector": None,
+            "kp23_angle": None,
+            "kp23_length": None,
+        }
+
+        if keypoints_xy is not None and det_idx < len(keypoints_xy):
+            for kp_idx, (kx, ky) in enumerate(keypoints_xy[det_idx]):
+                if np.isnan(kx) or np.isnan(ky):
+                    continue
+                kx, ky = yolo2screen([(kx, ky)], img)[0]
+                kp_conf = None
+                if keypoints_conf is not None and det_idx < len(keypoints_conf) and kp_idx < len(keypoints_conf[det_idx]):
+                    kp_conf = float(keypoints_conf[det_idx][kp_idx])
+                    if kp_conf < 0.2:  # Filter out low confidence keypoints
+                        kp_conf = None
+
+                item["keypoints"].append(
+                    {
+                        "idx": kp_idx,
+                        "xy": (int(round(float(kx))), int(round(float(ky)))),
+                        "conf": kp_conf,
+                    }
+                )
+
+        # For boxes with >1 keypoint, determine if index-order motion around box center
+        # is clockwise (True) or counterclockwise (False).
+        if len(item["keypoints"]) >= 2:
+            ordered_kps = sorted(item["keypoints"], key=lambda kp: kp["idx"])
+            center = np.array([(x1 + x2) / 2.0, (y1 + y2) / 2.0], dtype=np.float64)
+            pts = np.array([kp["xy"] for kp in ordered_kps], dtype=np.float64)
+
+            # Convert screen y-down to y-up before computing angular direction.
+            rel = pts - center
+            rel[:, 1] *= -1.0
+            angles = np.arctan2(rel[:, 1], rel[:, 0])
+            unwrapped = np.unwrap(angles)
+            total_delta = float(np.sum(np.diff(unwrapped)))
+
+            if abs(total_delta) < 1e-12:
+                # Degenerate fallback: first non-zero local turn decides direction.
+                is_clockwise = False
+                for i in range(len(rel) - 1):
+                    cross_z = rel[i, 0] * rel[i + 1, 1] - rel[i, 1] * rel[i + 1, 0]
+                    if abs(cross_z) > 1e-12:
+                        is_clockwise = cross_z < 0
+                        break
+            else:
+                # in screen coordinate True = clockwise, False = counterclockwise
+                is_clockwise = total_delta < 0
+
+            yolo_dir = bool(is_clockwise)
+            total_conf = sum(kp["conf"] for kp in ordered_kps if kp["conf"] is not None)
+            directions.append([bool(is_clockwise), total_conf])
+
+            if not C.retry_flag:
+                # Canonical ordered square points for kp0..kp3.
+                C.FLIPED_TARGET = yolo_dir
+                fliped = -1 if C.FLIPED_TARGET else 1
+                canonical_kps = np.array(
+                    [
+                        [1.0 * fliped, 0.0 * fliped],
+                        [0.0, 0.0],
+                        [0.0, 1.0],
+                        [1.0 * fliped, 1.0 * fliped],
+                    ],
+                    dtype=np.float64,
+                )
+
+        # Reconstruct vector kp2-kp3 from any 2 valid keypoints (conf is not None)
+        # assuming keypoints are ordered and lie on a perfect square.
+        valid_kps = [
+            (kp["idx"], kp) for kp in item["keypoints"] if kp.get("conf") is not None
+        ]
+        if len(valid_kps) >= 2:
+            # Prefer the two highest-confidence keypoints.
+            idx_a, kp_a = valid_kps[0]
+            idx_b, kp_b = valid_kps[1]
+
+            p_a = np.array(kp_a["xy"], dtype=np.float64)
+            p_b = np.array(kp_b["xy"], dtype=np.float64)
+            u_a = canonical_kps[idx_a]
+            u_b = canonical_kps[idx_b]
+
+            du = u_b - u_a
+            dp = p_b - p_a
+            du_norm = np.linalg.norm(du)
+            dp_norm = np.linalg.norm(dp)
+
+            if du_norm > 1e-9 and dp_norm > 1e-9:
+                angle_u = float(np.arctan2(du[1], du[0]))
+                angle_p = float(np.arctan2(dp[1], dp[0]))
+                theta = angle_p - angle_u
+                scale = dp_norm / du_norm
+
+                cos_t = float(np.cos(theta))
+                sin_t = float(np.sin(theta))
+                rot = np.array([[cos_t, -sin_t], [sin_t, cos_t]], dtype=np.float64)
+
+                # target vector is kp2 - kp3 in canonical index space.
+                v23_canonical = canonical_kps[1] - canonical_kps[2]
+                v23 = scale * (rot @ v23_canonical)
+                item["kp23_vector"] = (float(v23[0]), float(v23[1]))
+        
+        if item["kp23_vector"] is not None:
+            kp23_angle = np.arctan2(item["kp23_vector"][1], item["kp23_vector"][0])
+            kp23_length = np.linalg.norm(item["kp23_vector"])
+            item["kp23_angle"] = float(kp23_angle)
+            item["kp23_length"] = float(kp23_length)
+            yolo_angles.append(kp23_angle)
+
+        parsed.append(item)
+
+    yolo_angles = [angle for angle in yolo_angles if angle is not None]
+    # Sort angles by size, largest first
+    yolo_angles = sorted(yolo_angles, reverse=True)
+
+    # Sort boxes by length, largest first
+    box_lengths = sorted(box_lengths, reverse=True)
+    if C.DEBUG_MODE:
+        print(f"Sorted yolo angles: {yolo_angles}")
+        print(f"Sorted box lengths: {box_lengths}")
+        print(f"Direction flags (clockwise=True): {directions}")
+
+    yolo_dir = None
+    if directions is None:
+        yolo_dir = None
+    else:
+        # take the highest confidence direction
+        yolo_dir = max(directions, key=lambda x: x[1])[0]
+
+    if yolo_dir is not None and not C.retry_flag:
+        C.FLIPED_TARGET = yolo_dir
+
+    if C.DEBUG_MODE and img is not None:
+        vis = img.copy()
+        color_map = [(0, 255, 0), (0, 255, 255), (255, 0, 255), (255, 255, 0)]
+
+        for item in parsed:
+            x1, y1 = item["top_left"]
+            x2, y2 = item["bottom_right"]
+            cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            kp_map = {}
+            for kp in item["keypoints"]:
+                idx = kp.get("idx", -1)
+                kx, ky = kp["xy"]
+                conf = kp.get("conf")
+                kp_map[idx] = (kx, ky)
+                color = color_map[idx % len(color_map)] if idx != -1 else (128, 128, 128)
+                cv2.circle(vis, (int(kx), int(ky)), 4, color, -1)
+                label = f"k{idx}" if conf is None else f"k{idx}:{conf:.2f}"
+                cv2.putText(vis, label, (int(kx) + 5, int(ky) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
+            v23 = item.get("kp23_vector")
+            if v23 is not None:
+                v = np.array(v23, dtype=np.float64)
+                origin = np.array([(x1 + x2) / 2.0, (y1 + y2) / 2.0], dtype=np.float64)
+
+                end = origin + v
+                p0 = (int(round(float(origin[0]))), int(round(float(origin[1]))))
+                p1 = (int(round(float(end[0]))), int(round(float(end[1]))))
+                cv2.arrowedLine(vis, p0, p1, (255, 0, 255), 2, tipLength=0.1)
+                cv2.putText(vis, "kp23", (p0[0] + 5, p0[1] + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 1)
+
+        plt.figure("YOLO 4pt keypoints", figsize=(10, 8))
+        plt.clf()
+        plt.imshow(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
+        plt.title("YOLO 4pt keypoints and reconstructed kp2-kp3 vector")
+        plt.axis("off")
+        plt.tight_layout()
+        plt.show(block=True)
+
+    return parsed, yolo_angles, box_lengths, yolo_dir
+
+
+
+
+
+
+
 
 
 def get_yolo_model(model_path):

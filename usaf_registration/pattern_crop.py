@@ -12,6 +12,55 @@ from yolo_model import classify_resolution, detect_single_scanline_keypoints
 
 
 
+
+
+
+def scanline_region_cropping(img, clean_img, pt_a, pt_b, curr_index):
+    scanline_center = (
+        (float(pt_a[0]) + float(pt_b[0])) / 2.0,
+        (float(pt_a[1]) + float(pt_b[1])) / 2.0,
+    )
+    scanline_length = np.linalg.norm(np.array(pt_a, dtype=np.float64) - np.array(pt_b, dtype=np.float64))
+    scanline_box_half_size = 0.9 * scanline_length
+    box_top_left = (
+        int(round(scanline_center[0] - scanline_box_half_size)),
+        int(round(scanline_center[1] - scanline_box_half_size)),
+    )
+    box_bottom_right = (
+        int(round(scanline_center[0] + scanline_box_half_size)),
+        int(round(scanline_center[1] + scanline_box_half_size)),
+    )
+    cv2.rectangle(img, box_top_left, box_bottom_right, (0, 255, 255), 1)
+
+    # if the box is out of bound
+    # suffix = ""
+    # if box_top_left[0] < 0 or box_top_left[1] < 0 or box_bottom_right[0] > clean_img.shape[1] or box_bottom_right[1] > clean_img.shape[0]:
+    #     suffix = "_out_of_bounds"
+
+    crop_x1 = max(0, box_top_left[0])
+    crop_y1 = max(0, box_top_left[1])
+    crop_x2 = min(clean_img.shape[1], box_bottom_right[0])
+    crop_y2 = min(clean_img.shape[0], box_bottom_right[1])
+
+    if crop_x2 > crop_x1 and crop_y2 > crop_y1:
+        pattern_crop_dir = C.CROP_DIR
+        pattern_crop_dir.mkdir(exist_ok=True)
+        crop_img = clean_img[crop_y1:crop_y2, crop_x1:crop_x2]
+        interpolation = cv2.INTER_AREA if crop_img.shape[0] > 256 or crop_img.shape[1] > 256 else cv2.INTER_CUBIC
+        crop_img = cv2.resize(crop_img, (256, 256), interpolation=interpolation)
+        if curr_index // 2 <= 32:
+            crop_name = f"{C.current_image_label}_horizontal_scan_{curr_index // 2:03d}.png"
+        else:
+            crop_name = f"{C.current_image_label}_vertical_scan_{(curr_index // 2) - 33:03d}.png"
+        cv2.imwrite(str(pattern_crop_dir / crop_name), crop_img)
+
+
+
+
+
+
+
+
 def classify_pattern_resolution(img):
     return classify_resolution(img)
 
@@ -60,7 +109,8 @@ def show_pattern_classification_results(evaluated_crops):
                 else:
                     ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
-                ax.set_title(f"G{item['group']} E{item['element']} {orientation}: {result}", fontsize=9)
+                confidence = item[f"{orientation}_confidence"]
+                ax.set_title(f"G{item['group']} E{item['element']} {orientation}: {result} ({confidence:.2f})", fontsize=9)
                 ax.axis("off")
 
         fig.tight_layout(rect=[0, 0, 1, 0.96])
@@ -95,7 +145,8 @@ def augumented_single_scanline_detection(img, debug_text=""):
     best_angle = None
     best_len = -1.0
 
-    for angle in range(0, 360, 90):
+    delta_angle = 45 if C.DIAG_AUGUMENTATION else 90
+    for angle in range(0, 360, delta_angle):
         matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
 
         cos = abs(matrix[0, 0])
@@ -115,9 +166,38 @@ def augumented_single_scanline_detection(img, debug_text=""):
             borderValue=(0, 0, 0),
         )
 
+        if C.DIAG_AUGUMENTATION and angle % 90 != 0:
+            # Build a validity mask so we can reject keypoints that land on black padding.
+            valid_mask = cv2.warpAffine(
+                np.ones((h, w), dtype=np.uint8) * 255,
+                matrix,
+                (new_w, new_h),
+                flags=cv2.INTER_NEAREST,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
+            # center crop back to original size
+            start_x = max(0, (new_w - w) // 2)
+            start_y = max(0, (new_h - h) // 2)
+            rotated = rotated[start_y : start_y + h, start_x : start_x + w]
+            valid_mask = valid_mask[start_y : start_y + h, start_x : start_x + w]
+
         kp_pairs = detect_single_scanline_keypoints(rotated)
 
         for p1, p2 in kp_pairs:
+            if C.DIAG_AUGUMENTATION and angle % 90 != 0:
+                x1, y1 = int(p1[0]), int(p1[1])
+                x2, y2 = int(p2[0]), int(p2[1])
+
+                # Reject pair if either keypoint is outside bounds or on padded region.
+                if (
+                    x1 < 0 or x1 >= valid_mask.shape[1] or y1 < 0 or y1 >= valid_mask.shape[0] or
+                    x2 < 0 or x2 >= valid_mask.shape[1] or y2 < 0 or y2 >= valid_mask.shape[0]
+                ):
+                    continue
+                if valid_mask[y1, x1] == 0 or valid_mask[y2, x2] == 0:
+                    continue
+
             length = float(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
             if length > best_len:
                 best_len = length
@@ -164,13 +244,19 @@ def augumented_single_scanline_detection(img, debug_text=""):
 
 
 
-def verify_pattern_crops(pattern_crop_result, depth=3):
+def verify_pattern_crops(pattern_crop_result):
+    depth = C.VERIFICATION_DEPTH
+    height = C.VERIFICATION_HEIGHT
     depth = max(0, depth)
+    height = max(0, height)
     score_index = pattern_crop_result["scan_index"]
-    verified_index = score_index        # the verified score index
+    # Reveal true index range for debugging, but keep it strict in production
+    max_index = (len(C.score_table) - 1) - (C.G1 - 2) * 6 if C.DEBUG_MODE else len(C.score_table) - 1
+    verified_index = score_index + height        # the verified score index
+    verified_index = max(0, min(max_index, verified_index))
     diff_list = []
 
-    for i in reversed(range(max(score_index - depth, 0), score_index + 1)):
+    for i in reversed(range(max(score_index - depth, 0), verified_index + 1)):
         vertical_path = find_pattern_crop(C.CROP_DIR, C.current_image_label, "vertical", i)
         horizontal_path = find_pattern_crop(C.CROP_DIR, C.current_image_label, "horizontal", i)
         vertical_img = cv2.imread(str(vertical_path))
@@ -223,6 +309,7 @@ def verify_pattern_crops(pattern_crop_result, depth=3):
     index1 = -1
     index2 = -1
     first_return_index = None
+    first_jump_index = None
     curr_state = -1
     for diff in diff_list:
         if diff[0] is None:
@@ -248,24 +335,43 @@ def verify_pattern_crops(pattern_crop_result, depth=3):
             else:
                 curr_state = 2
 
-        if curr_state == 1:
-            if first_return_index is not None and C.VERIFICATION_STRATEGY == "best":
-                verified_index = first_return_index
-            else:
-                verified_index = verified_index
-            break
-        elif curr_state == 2:
-            verified_index = verified_index - 1
-            continue
-        elif curr_state == 3:
-            if first_return_index is None:
-                first_return_index = verified_index
-            verified_index = verified_index - 1
-            continue
 
-    if curr_state == 3:
+        
+        if verified_index <= score_index:
+            if curr_state == 1:
+                # This ensures that score only jumps up from score_index if score_index element is resolved
+                if verified_index == score_index and first_jump_index is not None:
+                    verified_index = first_jump_index
+                    
+                if first_return_index is not None and C.VERIFICATION_STRATEGY == "best":
+                    verified_index = first_return_index
+                else:
+                    verified_index = verified_index
+                break
+            elif curr_state == 2:
+                verified_index = verified_index - 1
+                continue
+            elif curr_state == 3:
+                if first_return_index is None:
+                    first_return_index = verified_index
+                verified_index = verified_index - 1
+                continue
+        else:
+            # the jump up index require all element between itself and score_index to be resolved
+            # otherwise, it will be treated as unresolved and jump down until the first resolved element
+            if curr_state == 1:
+                if first_jump_index is None:
+                    first_jump_index = verified_index
+                verified_index = verified_index - 1
+            else:
+                verified_index = verified_index - 1
+                first_jump_index = None
+
+
+    if curr_state == 3 and first_return_index is not None and C.VERIFICATION_STRATEGY == "best":
         verified_index = first_return_index
 
+    verified_index = max(0, min(max_index, verified_index))
     verified_group, verified_element = C.score_table[verified_index]
     verfication_result = {
         "group": verified_group,

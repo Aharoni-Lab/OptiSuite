@@ -11,9 +11,9 @@ SCORE_METHOD = "min"
 # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
 # Note if using yolo classification and verification, "raw" is not available
 PT_TRANSFORM = "classic with sift"        
-# "classic with sift", "classic", "sift", "elastix", method to transform the reference 
+# "auto", "classic with sift", "classic", "sift", "elastix", method to transform the reference 
 # target-space point to test image for scoring and adjustment
-
+OPTIONAL_SETTING = False
 
 # gradient settings
 GRADIENT_MIN = False
@@ -31,6 +31,9 @@ PATTERN_CLASSIFICATION_ROWS_PER_PAGE = 6
 VERIFICATION_STRATEGY = "best"           # "best", pick the higher possible score, but can be risky
                                          # "reserved", pick the safest verified score
 ENABLE_VERIFY_PATTERN_CROP = True        # if True, use the pattern crop verification step to double check the yolo classification result, can improve accuracy
+DIAG_AUGUMENTATION = False            # center crop the augmented image to the same size as the original
+VERIFICATION_DEPTH = 5                 # how many elements to verify in the depth direction to larger pattern
+VERIFICATION_HEIGHT = 0                 # how many elements to verify in the height direction to smaller pattern
 CROP_DIR = Path("pattern_crop")          # directory to save pattern crops for yolo classification
 CONST_LABEL = True                       # use constant label for yolo classification crop img
 
@@ -65,19 +68,21 @@ SIFT_CONFIG_LIST = [
         "ANGLE" : 0.0,
     },
     {
-        # "REF_IMAGE_PATH" : "test_img/new_SIFT_ref_image_bordered.png",
-        # "REF_ORIGIN" : (1013.0, 343.5),
-        # "REF_PIXELS_PER_UNIT_X" : 226.1,
-        # "REF_PIXELS_PER_UNIT_Y" : 223.0,
-        # "ANGLE" : -0.235,
         "REF_IMAGE_PATH" : "test_img/SIFT_ref_image.png",
         "REF_ORIGIN" : (195.0, 66.5),
         "REF_PIXELS_PER_UNIT_X" : 44.3,
         "REF_PIXELS_PER_UNIT_Y" : 43.0,
         "ANGLE" : 0.0,
     },
+    {
+        "REF_IMAGE_PATH" : "test_img/new_SIFT_ref_image_bordered.png",
+        "REF_ORIGIN" : (1013.0, 343.5),
+        "REF_PIXELS_PER_UNIT_X" : 226.1,
+        "REF_PIXELS_PER_UNIT_Y" : 223.0,
+        "ANGLE" : -0.235,
+    },
 ]
-USE_SIFT_REF_CALIBRATION = True if PT_TRANSFORM == "classic with sift" or PT_TRANSFORM == "sift" or PT_TRANSFORM == "elastix" else False 
+USE_SIFT_REF_CALIBRATION = True if PT_TRANSFORM == "classic with sift" or PT_TRANSFORM == "sift" or PT_TRANSFORM == "elastix" or PT_TRANSFORM == "auto" else False 
 SIFT_REF_IMAGE_PATH = SIFT_CONFIG_LIST[2]["REF_IMAGE_PATH"]
 SIFT_REF_ORIGIN = SIFT_CONFIG_LIST[2]["REF_ORIGIN"]  # origin on reference image in pixel coordinates(1010.0, 343.5)
 SIFT_REF_PIXELS_PER_UNIT_X = SIFT_CONFIG_LIST[2]["REF_PIXELS_PER_UNIT_X"]  # x-axis pixels per unit on reference image
@@ -86,7 +91,7 @@ SIFT_ANGLE = SIFT_CONFIG_LIST[2]["ANGLE"]
 
 SIFT_REF_RATIO_TEST = 0.75
 SIFT_REF_RANSAC_REPROJ = 3.0
-SIFT_REF_MIN_MATCH_COUNT = 8
+SIFT_REF_MIN_MATCH_COUNT = 8            
 SIFT_REF_SHOW_PLOT = DEBUG_MODE
 
 
@@ -124,6 +129,15 @@ images = [
     'test_img/image.png',
     'test_img/Image0001.bmp',
     'test_img/Screenshot_2026-05-06_085659.png',
+    'test_img/image_new_test.png',
+    r'C:\Users\USER\Documents\Research\auto_label\training_set\images\screenshot_cam1_VEN-505-36U3M-M01_20260710_180143 - Copy.png',
+    # r'C:\Users\USER\Documents\Research\auto_label\training_set\images\screenshot_cam1_VEN-505-36U3M-M01_20260710_180143.png',
+    # r'C:\Users\USER\Documents\Research\auto_label\training_set\images\screenshot_cam1_VEN-505-36U3M-M01_20260710_180341.png',
+    # r'C:\Users\USER\Documents\Research\auto_label\training_set\images\screenshot_cam1_VEN-505-36U3M-M01_20260710_180342 - Copy.png',
+    # r'C:\Users\USER\Documents\Research\auto_label\training_set\images\screenshot_cam1_VEN-505-36U3M-M01_20260710_180342.png',
+    # r'C:\Users\USER\Documents\Research\auto_label\training_set\images\screenshot_cam1_VEN-505-36U3M-M01_20260710_180343.png',
+    # r'C:\Users\USER\Documents\Research\auto_label\training_set\images\screenshot_cam1_VEN-505-36U3M-M01_20260710_180344.png',
+    # r'C:\Users\USER\Documents\Research\auto_label\training_set\images\screenshot_cam1_VEN-505-36U3M-M01_20260710_180345 - Copy.png',
 ]
 
 
@@ -141,6 +155,7 @@ images = [
 
 
 # Global variables
+retry_flag = False              # global retry flag
 valid_squares = []
 retry_count = 0
 pattern_count = 0
@@ -359,3 +374,12 @@ mean_state_table = [
                     [1, 2, 3],
                   ]
 
+
+sift_weight = 1.3
+classic_weight = 0.7
+# yolo_weight[# of types][case #]
+yolo_weight = [
+                [0.4, 0.8, 1.2],
+                [0.3, 0.3, 0.3],
+                [0.3, 0.3, 0.3],
+              ]
