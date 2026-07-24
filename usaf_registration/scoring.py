@@ -1,7 +1,9 @@
 import cv2
 from pathlib import Path
-import constants as C
-from pattern_crop import find_pattern_crop, classify_pattern_resolution, show_pattern_classification_results
+from . import constants as C
+from .pattern_crop import find_pattern_crop, classify_pattern_resolution, show_pattern_classification_results
+
+
 
 
 
@@ -16,7 +18,11 @@ def score_pattern_crops(image_label="image"):
     crop_dir = Path(C.CROP_DIR)
     evaluated_crops = []
     last_resolved_result = None
-    for scan_index in [idx for idx in sorted(C.score_table.keys()) if idx >= 0]:
+    
+    # Store indices as a list so we can look ahead
+    scan_indices = [idx for idx in sorted(C.score_table.keys()) if idx >= 0]
+    
+    for i, scan_index in enumerate(scan_indices):
         group, element = C.score_table[scan_index]
         vertical_path = find_pattern_crop(crop_dir, image_label, "vertical", scan_index)
         horizontal_path = find_pattern_crop(crop_dir, image_label, "horizontal", scan_index)
@@ -25,6 +31,9 @@ def score_pattern_crops(image_label="image"):
         horizontal_result = None
         vertical_img = None
         horizontal_img = None
+        vertical_confidence = None
+        horizontal_confidence = None
+        
         if vertical_path is not None:
             vertical_img = cv2.imread(str(vertical_path))
             if vertical_img is not None:
@@ -54,19 +63,57 @@ def score_pattern_crops(image_label="image"):
         # loop breaking condition
         if ((str(vertical_result).lower() == "unresolved" or str(horizontal_result).lower() == "unresolved") and C.SCORE_METHOD == "min") \
             or ((str(vertical_result).lower() == "unresolved" and str(horizontal_result).lower() == "unresolved") and (C.SCORE_METHOD == "max" or C.SCORE_METHOD == "mean")):
-            if C.PATTERN_CLASSIFICATION_SHOW_PLOT:
-                show_pattern_classification_results(evaluated_crops)
-            if C.DEBUG_MODE:
-                if last_resolved_result is not None:
-                    print(
-                        f"Pattern crop classifier best focus: "
-                        f"group {last_resolved_result['group']}, element {last_resolved_result['element']}"
-                    )
-                else:
-                    print("Pattern crop classifier found unresolved at first scanned element")
-            if last_resolved_result is None:
-                raise RuntimeError("usaf_algo.score_pattern_crops: Pattern crop classifier found unresolved at first scanned element, no valid focus score can be determined.")
-            return last_resolved_result
+            
+            # Look ahead to verify if the next two indices contain any unresolved patterns
+            is_fluke = False
+            if i + 1 < len(scan_indices):
+                unresolved_in_lookahead = False
+                for offset in range(1, 3):
+                    if i + offset < len(scan_indices):
+                        next_idx = scan_indices[i + offset]
+                        
+                        # Check vertical pattern of future index
+                        v_path = find_pattern_crop(crop_dir, image_label, "vertical", next_idx)
+                        if v_path is not None:
+                            v_img = cv2.imread(str(v_path))
+                            if v_img is not None:
+                                v_res, _ = classify_pattern_resolution(v_img)
+                                if str(v_res).lower() == "unresolved":
+                                    unresolved_in_lookahead = True
+                                    break
+                                    
+                        # Check horizontal pattern of future index
+                        h_path = find_pattern_crop(crop_dir, image_label, "horizontal", next_idx)
+                        if h_path is not None:
+                            h_img = cv2.imread(str(h_path))
+                            if C.OPTIONAL_SETTING:
+                                h_img = cv2.rotate(h_img, cv2.ROTATE_90_CLOCKWISE)
+                            if h_img is not None:
+                                h_res, _ = classify_pattern_resolution(h_img)
+                                if str(h_res).lower() == "unresolved":
+                                    unresolved_in_lookahead = True
+                                    break
+                
+                        
+                # If no unresolved patterns were found in the look-ahead, treat this break as a fluke
+                if not unresolved_in_lookahead:
+                    is_fluke = True
+
+            # If it's not a fluke, execute the standard termination logic
+            if not is_fluke:
+                if C.PATTERN_CLASSIFICATION_SHOW_PLOT:
+                    show_pattern_classification_results(evaluated_crops)
+                if C.DEBUG_MODE:
+                    if last_resolved_result is not None:
+                        print(
+                            f"Pattern crop classifier best focus: "
+                            f"group {last_resolved_result['group']}, element {last_resolved_result['element']}"
+                        )
+                    else:
+                        print("Pattern crop classifier found unresolved at first scanned element")
+                if last_resolved_result is None:
+                    raise RuntimeError("usaf_algo.score_pattern_crops: Pattern crop classifier found unresolved at first scanned element, no valid focus score can be determined.")
+                return last_resolved_result
 
         if (str(vertical_result).lower() == "resolved" and str(horizontal_result).lower() == "resolved" and C.SCORE_METHOD == "min") \
             or ((str(vertical_result).lower() == "resolved" or str(horizontal_result).lower() == "resolved") and (C.SCORE_METHOD == "max" or C.SCORE_METHOD == "mean")):
@@ -87,6 +134,15 @@ def score_pattern_crops(image_label="image"):
     if C.PATTERN_CLASSIFICATION_SHOW_PLOT:
         show_pattern_classification_results(evaluated_crops)
     return last_resolved_result
+
+
+
+
+
+
+
+
+
 
 
 

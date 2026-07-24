@@ -3,10 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import importlib
-import constants as C
+from . import constants as C
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from transforms import usaf2screen_homography, fast_usaf2screen_homography, ref_to_screen_homography_matrix
+from .transforms import usaf2screen_homography, fast_usaf2screen_homography, ref_to_screen_homography_matrix
 
 
 

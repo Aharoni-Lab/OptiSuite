@@ -2,19 +2,19 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from yolo_model import extract_yolo_detections, visualize_detections, count_4pts_pattern, yolo_4pt_calculation
+from .yolo_model import extract_yolo_detections, visualize_detections, count_4pts_pattern, yolo_4pt_calculation
 from scipy.signal import savgol_filter
 import shutil
 import os
-import constants as C
-from sift_warp import get_sift_reference_image, sift_homography_with_origin, _sift_ref_origin_for_target
-from classic_warp import find_white_corner_in_region, find_target_orientation, get_adjusted_top_corners_from_enclosing_rectangle, find_square_corners
-from elastix_warp import setup_itkelastix_ref_mapping, ref_usaf_point_to_target, fast_ref_usaf_point_to_target
-from pt_adjust import apply_point_adjustment_algorithm, find_replacement_keypoints, extend_line
-from transforms import usaf2screen_homography, usaf2screen_classic, get_rotated_pt
-from pattern_crop import verify_pattern_crops, scanline_region_cropping
-from helper import sample_line_profile, is_image_clear, normalize_image_contrast, gradient_visualization, usaf_lp_per_mm, usaf_resolution_mm
-from scoring import find_best_focus_group, score_pattern_crops
+from . import constants as C
+from .sift_warp import get_sift_reference_image, sift_homography_with_origin, _sift_ref_origin_for_target
+from .classic_warp import find_white_corner_in_region, find_target_orientation, get_adjusted_top_corners_from_enclosing_rectangle, find_square_corners
+from .elastix_warp import setup_itkelastix_ref_mapping, ref_usaf_point_to_target, fast_ref_usaf_point_to_target
+from .pt_adjust import apply_point_adjustment_algorithm, find_replacement_keypoints, extend_line
+from .transforms import usaf2screen_homography, usaf2screen_classic, get_rotated_pt
+from .pattern_crop import verify_pattern_crops, scanline_region_cropping
+from .helper import sample_line_profile, is_image_clear, normalize_image_contrast, gradient_visualization, usaf_lp_per_mm, usaf_resolution_mm
+from .scoring import find_best_focus_group, score_pattern_crops
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -440,9 +440,9 @@ def scanline_visualization(img, gray, center_x, center_y, angle, side_length, to
 
 
 
-def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0):
+def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_instance = 0):
     '''
-    Calculate the focus scores for each group element based on the defined scanlines and the detected corners for coordinate calibration.
+    Calculate the scanline contrast scores for each group element based on the defined scanlines and the detected corners for coordinate calibration.
     If YOLO detections are provided, replace scanline endpoints that fall within YOLO bounding boxes with YOLO keypoints.
     
     Args:
@@ -453,7 +453,7 @@ def calculate_focus_scores(curr_image, yolo_detections=None, retry_instance = 0)
     '''
     initial_retry_instance = retry_instance
     if curr_image is None:
-        raise ValueError("usaf_algo.calculate_focus_scores: Input image is None.")
+        raise ValueError("usaf_algo.calculate_scanline_contrast_scores: Input image is None.")
     img = curr_image
     
 
@@ -859,7 +859,7 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
         run_indices = [0] if C.USE_SIFT_REF_CALIBRATION or C.YOLO_DETECT else [0, 1, 2]
         try:
             for idx in run_indices:
-                scores[idx], scanline_map[idx] = calculate_focus_scores(curr_image, yolo_detections, idx)
+                scores[idx], scanline_map[idx] = calculate_scanline_contrast_scores(curr_image, yolo_detections, idx)
                 
                 if C.YOLO_CLASSIFICATION:
                     pattern_crop_result = score_pattern_crops(C.current_image_label)
@@ -1238,10 +1238,9 @@ def load_config(config):
 
 
 
-
-
-for image_path in C.images:
+def score_image_routine(image_path):
     default_config = None
+    usaf_result = None
     C.retry_flag = False
     try:
         if C.PT_TRANSFORM == "auto":
@@ -1250,11 +1249,11 @@ for image_path in C.images:
             if C.DEBUG_MODE or True:
                 print("Auto Config: ", img_configuration)
             load_config(img_configuration)
-            find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
+            usaf_result = find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
             load_config(default_config)
         else:
             default_config = None
-            find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
+            usaf_result = find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
         
     except FileNotFoundError as e:
         print(f"File not found error: {image_path}. {e}, Retry fliped.")
@@ -1288,6 +1287,7 @@ for image_path in C.images:
             default_config[1] = not default_config[1]
             C.retry_flag = True
         else:
+            print(f"Unknown error: {e}")
             raise e
     
     # final clean up
@@ -1295,9 +1295,10 @@ for image_path in C.images:
     if default_config is not None:
         load_config(default_config)
     if not C.retry_flag:
-        continue
+        return usaf_result
 
     print(f"Retrying image: {image_path}")
+    usaf_result = None
     
     try:
         if C.PT_TRANSFORM == "auto":
@@ -1306,11 +1307,11 @@ for image_path in C.images:
             if C.DEBUG_MODE or True:
                 print("Auto Config: ", img_configuration)
             load_config(img_configuration)
-            find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
+            usaf_result = find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
             load_config(default_config)
         else:
             default_config = None
-            find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
+            usaf_result = find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
         
     except FileNotFoundError as e:
         print(f"File not found error: {image_path}. {e}, skipping this image.")
@@ -1339,5 +1340,10 @@ for image_path in C.images:
     if default_config is not None:
         load_config(default_config)
 
+    return usaf_result
 
 
+
+
+# for image_path in C.images:
+#     score_image_routine(image_path)

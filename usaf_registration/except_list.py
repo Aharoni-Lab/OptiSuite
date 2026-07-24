@@ -43,6 +43,9 @@
 # improve yolo model
 
 
+# debug unk error when using algo interface
+
+
 
 
 
@@ -196,6 +199,28 @@ def map_ref_corners(orientation, gray, center_x, center_y, angle, side_length):
         low_left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, C.low_left_ref_coord, 1.0/5.0, BR_dir)
 
     return top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner, sift_angle, sift_length
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

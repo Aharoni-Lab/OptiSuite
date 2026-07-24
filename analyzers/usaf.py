@@ -10,6 +10,10 @@ import numpy as np
 
 import usaf_registration.usaf_algo as usaf_algo
 import usaf_registration.yolo_model as yolo_model
+import usaf_registration.constants as usaf_const
+import usaf_registration.helper as usaf_helper
+import usaf_registration.classic_warp as usaf_classic_warp
+
 from analyzers.base import ResolutionAnalyzer
 from core.visualization import register_runtime_image
 from core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
@@ -33,22 +37,22 @@ class USAFAnalyzerConfig(AnalyzerConfig):
 @contextlib.contextmanager
 def _legacy_config_scope(config: USAFAnalyzerConfig) -> Iterator[None]:
     original = {
-        "DEBUG_MODE": usaf_algo.DEBUG_MODE,
-        "PREVIEW_MODE": usaf_algo.PREVIEW_MODE,
-        "YOLO_DETECT": usaf_algo.YOLO_DETECT,
-        "FLIPED_TARGET": usaf_algo.FLIPED_TARGET,
-        "AUTO_ADJUST": usaf_algo.AUTO_ADJUST,
+        "DEBUG_MODE": usaf_const.DEBUG_MODE,
+        "PREVIEW_MODE": usaf_const.PREVIEW_MODE,
+        "YOLO_DETECT": usaf_const.YOLO_DETECT,
+        "FLIPED_TARGET": usaf_const.FLIPED_TARGET,
+        "AUTO_ADJUST": usaf_const.AUTO_ADJUST,
     }
-    usaf_algo.DEBUG_MODE = config.debug_mode
-    usaf_algo.PREVIEW_MODE = config.show_preview
-    usaf_algo.YOLO_DETECT = config.allow_model_assist
-    usaf_algo.FLIPED_TARGET = config.flipped_target
-    usaf_algo.AUTO_ADJUST = config.auto_adjust
+    usaf_const.DEBUG_MODE = config.debug_mode
+    usaf_const.PREVIEW_MODE = config.show_preview
+    usaf_const.YOLO_DETECT = config.allow_model_assist
+    usaf_const.FLIPED_TARGET = config.flipped_target
+    usaf_const.AUTO_ADJUST = config.auto_adjust
     try:
         yield
     finally:
         for key, value in original.items():
-            setattr(usaf_algo, key, value)
+            setattr(usaf_const, key, value)
 
 
 def _candidate_quality(scores: list[float], threshold: float) -> float:
@@ -99,7 +103,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
             probe_config = replace(self.config, flipped_target=flipped_target)
             try:
                 with _legacy_config_scope(probe_config):
-                    corners = usaf_algo.find_square_corners(context.gray_image.copy())
+                    corners = usaf_classic_warp.find_square_corners(context.gray_image.copy())
                     if corners is not None:
                         calibration = usaf_algo.coordinate_calibration(context.gray_image.copy(), corners)
                         if calibration is not None:
@@ -122,7 +126,8 @@ class USAFAnalyzer(ResolutionAnalyzer):
             candidate_config = replace(self.config, flipped_target=flipped_target)
             try:
                 with _legacy_config_scope(candidate_config):
-                    usaf_payload = usaf_algo.find_usaf_score(context.image_path, imgsz=self.config.imgsz, threshold=threshold)
+                    # !!! only default 0.2 threshold work yet, need train more models !!!
+                    usaf_payload = usaf_algo.score_image_routine(context.image_path)
                     if usaf_payload is None:
                         raise RuntimeError("USAF score calculation failed.")
 
@@ -143,7 +148,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
                     scores_list = [scores[i]["score"] for i in range(len(scores))]
 
                     overlay_items: list[OverlayItem] = []
-                    corners = usaf_algo.find_square_corners(context.gray_image.copy())
+                    corners = usaf_classic_warp.find_square_corners(context.gray_image.copy())
                     corners = None
                     if corners is not None:
                         screen_points = [(int(x), int(context.gray_image.shape[0] - y - 1)) for x, y in corners]
@@ -263,13 +268,13 @@ class USAFAnalyzer(ResolutionAnalyzer):
 
         curve: list[ContrastSample] = []
         resolved_label = f"G{best_focus_group[0]} E{best_focus_group[1]}"
-        resolved_frequency = usaf_algo.usaf_lp_per_mm(best_focus_group[0], best_focus_group[1])
-        resolved_resolution_mm = usaf_algo.usaf_resolution_mm(best_focus_group[0], best_focus_group[1])
+        resolved_frequency = usaf_helper.usaf_lp_per_mm(best_focus_group[0], best_focus_group[1])
+        resolved_resolution_mm = usaf_helper.usaf_resolution_mm(best_focus_group[0], best_focus_group[1])
 
         # calculate contrast and frequency for all elements and store it in a list "curve"
         for index in range(len(scores)):
-            group, element = usaf_algo.score_table[index]
-            frequency = usaf_algo.usaf_lp_per_mm(group, element)
+            group, element = usaf_const.score_table[index]
+            frequency = usaf_helper.usaf_lp_per_mm(group, element)
             contrast = float(abs(scores[index]["score"]))
             passed = contrast >= threshold
             curve.append(

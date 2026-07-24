@@ -3,8 +3,8 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import math
-import constants as C
-from yolo_model import classify_resolution, detect_single_scanline_keypoints
+from . import constants as C
+from .yolo_model import classify_resolution, detect_single_scanline_keypoints
 
 
 

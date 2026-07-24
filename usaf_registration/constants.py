@@ -10,7 +10,7 @@ SCORE_THRESHOLD = 0.2          # threshold to determine if a scanline is valid, 
 SCORE_METHOD = "min"           
 # "mean", "min", "max", "raw", method to merge the score from horizational and vertical scanlines
 # Note if using yolo classification and verification, "raw" is not available
-PT_TRANSFORM = "classic with sift"        
+PT_TRANSFORM = "auto"        
 # "auto", "classic with sift", "classic", "sift", "elastix", method to transform the reference 
 # target-space point to test image for scoring and adjustment
 OPTIONAL_SETTING = False
@@ -52,30 +52,31 @@ FOCUS_GROUP_LAST_ABOVE_THRESHOLD = False  # True: last score above threshold in 
 
 # SIFT calibration settings
 # if True, use SIFT+homography for secondary ref corners
+BASE_DIR = str(Path(__file__).resolve().parent)
 SIFT_CONFIG_LIST = [
     {
-        "REF_IMAGE_PATH" : "test_img/image_g67only.png",
+        "REF_IMAGE_PATH" : BASE_DIR + "/test_img/image_g67only.png",
         "REF_ORIGIN" : (425.0, 170.0),
         "REF_PIXELS_PER_UNIT_X" : 91.0,
         "REF_PIXELS_PER_UNIT_Y" : 91.0,
         "ANGLE" : -0.60,
     },
     {
-        "REF_IMAGE_PATH" : "test_img/SIFT_ref_image.png",
+        "REF_IMAGE_PATH" : BASE_DIR + "/test_img/SIFT_ref_image.png",
         "REF_ORIGIN" : (195.0, 66.5),
         "REF_PIXELS_PER_UNIT_X" : 44.3,
         "REF_PIXELS_PER_UNIT_Y" : 43.0,
         "ANGLE" : 0.0,
     },
     {
-        "REF_IMAGE_PATH" : "test_img/SIFT_ref_image.png",
+        "REF_IMAGE_PATH" : BASE_DIR + "/test_img/SIFT_ref_image.png",
         "REF_ORIGIN" : (195.0, 66.5),
         "REF_PIXELS_PER_UNIT_X" : 44.3,
         "REF_PIXELS_PER_UNIT_Y" : 43.0,
         "ANGLE" : 0.0,
     },
     {
-        "REF_IMAGE_PATH" : "test_img/new_SIFT_ref_image_bordered.png",
+        "REF_IMAGE_PATH" : BASE_DIR + "/test_img/new_SIFT_ref_image_bordered.png",
         "REF_ORIGIN" : (1013.0, 343.5),
         "REF_PIXELS_PER_UNIT_X" : 226.1,
         "REF_PIXELS_PER_UNIT_Y" : 223.0,

@@ -1,6 +1,6 @@
 
 import numpy as np
-import constants as C
+from . import constants as C
 
 
 

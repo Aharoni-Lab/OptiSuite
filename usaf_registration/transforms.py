@@ -1,8 +1,8 @@
 
 import cv2
 import numpy as np
-import constants as C
-from sift_warp import _sift_ref_origin_for_target
+from . import constants as C
+from .sift_warp import _sift_ref_origin_for_target
 
 
 

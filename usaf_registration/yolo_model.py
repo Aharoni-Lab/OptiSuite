@@ -3,18 +3,19 @@ import cv2
 from ultralytics import YOLO
 import numpy as np
 import matplotlib.pyplot as plt
-import constants as C
-from transforms import yolo2screen
+from . import constants as C
+from .transforms import yolo2screen
 
 _MODEL_CACHE = {}
-MODEL_PATH = Path("./models/best23.pt")
-NUM_MODEL_PATH = Path("./models/best_num_classify.pt")
-# RES_MODEL_PATH = Path("./models/resolution_cls_model2.pt")
-RES_MODEL_PATH = Path("./models/pattern_classify_v2_thresh_0.2.pt")
-# RES_MODEL_PATH = Path("./models/0.2_threshold_classification.pt")
-# PT4_MODEL_PATH = Path("./models/best_4p_4_focused.pt")
-PT4_MODEL_PATH = Path("./models/4p_detect_ultra_pro_max.pt")
-SINGLE_SCANLINE_MODEL_PATH = Path("./models/single_pattern_scanline_v2.pt")
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "models/best23.pt"
+NUM_MODEL_PATH = BASE_DIR / "models/best_num_classify.pt"
+# RES_MODEL_PATH = BASE_DIR / "models/resolution_cls_model2.pt"
+RES_MODEL_PATH = BASE_DIR / "models/pattern_classify_v2_thresh_0.2.pt"
+# RES_MODEL_PATH = BASE_DIR / "models/0.2_threshold_classification.pt"
+# PT4_MODEL_PATH = BASE_DIR / "models/best_4p_4_focused.pt"
+PT4_MODEL_PATH = BASE_DIR / "models/4p_detect_ultra_pro_max.pt"
+SINGLE_SCANLINE_MODEL_PATH = BASE_DIR / "models/single_pattern_scanline_v2.pt"
 
 
 
@@ -64,7 +65,7 @@ def count_4pts_pattern(img):
 
     # Safety Check 2: Ensure model path is valid
     try:
-        model = YOLO(PT4_MODEL_PATH)
+        model = YOLO(str(PT4_MODEL_PATH))
     except Exception as e:
         raise RuntimeError(f"yolo_model.count_4pts_pattern: Error loading model from {PT4_MODEL_PATH}: {e}")
         
@@ -344,7 +345,7 @@ def yolo_4pt_calculation(pt4_pattern_result, img):
 def get_yolo_model(model_path):
     model_path = str(model_path)
     if model_path not in _MODEL_CACHE:
-        _MODEL_CACHE[model_path] = YOLO(model_path)
+        _MODEL_CACHE[model_path] = YOLO(str(model_path))
     return _MODEL_CACHE[model_path]
 
 

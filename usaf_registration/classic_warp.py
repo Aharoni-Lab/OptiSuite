@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import random
-import constants as C
-from transforms import get_rotated_pt
+from . import constants as C
+from .transforms import get_rotated_pt
 
 
 
