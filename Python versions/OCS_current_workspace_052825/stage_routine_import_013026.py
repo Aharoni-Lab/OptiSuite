@@ -1,5 +1,5 @@
 # stage_routine.py
-# used in 2camera_ZeroMQ_102325.py
+# used in 2camera_ZeroMQ_06132026.py
 
 class StageRoutine:
     def __init__(self, send_move_callback, log_callback=None):
@@ -53,9 +53,12 @@ class StageRoutine:
         # Routine state
         # -----------------------------
         self.steps = []
+        self.custom_stops = []
         self.current_step = 0
         self.paused = False
         self.running = False
+        self.pause_after_each_step = True
+        self.awaiting_step_completion = False
 
     # -----------------------------
     # Calibration
@@ -106,6 +109,11 @@ class StageRoutine:
 
         # Keep floats to preserve calibration precision (e.g. Z=60.875)
         x2, y2, z2 = self._apply_stage_limits(target_x, target_y, target_z, label=label)
+        self.send_move(x2, y2, z2)
+
+    def _run_to_xyz(self, x, y, z, label=""):
+        self.log(f"[StageRoutine] Running to {label} -> Stage ({x}, {y}, {z})")
+        x2, y2, z2 = self._apply_stage_limits(x, y, z, label=label)
         self.send_move(x2, y2, z2)
 
 
@@ -176,12 +184,51 @@ class StageRoutine:
         ]
         self.current_step = 0
 
+    def SetCustomStops(self, stops):
+        normalized_stops = []
+        for stop in stops:
+            projector = None
+            if len(stop) >= 5:
+                projector = stop[4]
+            if len(stop) >= 4:
+                x, y, z, prop = stop[:4]
+            else:
+                x, y, z = stop[:3]
+                prop = "imaging"
+            normalized_stops.append((float(x), float(y), float(z), str(prop), projector))
+        self.custom_stops = normalized_stops
+        self.BuildCustomRoutine()
+
+    def ClearCustomStops(self):
+        self.custom_stops = []
+        self.steps = []
+
+    def SetPauseAfterEachStep(self, enabled=True):
+        self.pause_after_each_step = bool(enabled)
+
+    def BuildCustomRoutine(self):
+        self.steps = []
+        for idx, (x, y, z, prop, _projector) in enumerate(self.custom_stops, start=1):
+            self.steps.append(
+                lambda x=x, y=y, z=z, prop=prop, idx=idx: self._run_to_xyz(x, y, z, f"Custom stop {idx} ({prop})")
+            )
+        self.current_step = 0
+
+    def CurrentCompletedStop(self):
+        idx = self.current_step - 1
+        if idx < 0 or idx >= len(self.custom_stops):
+            return None
+        return self.custom_stops[idx]
+
     def StartRoutine(self):
-        if not self.steps:
+        if self.custom_stops:
+            self.BuildCustomRoutine()
+        elif not self.steps:
             self.BuildTestRoutine()
 
         self.running = True
         self.paused = False
+        self.awaiting_step_completion = False
         self.current_step = 0
         self.log("[StageRoutine] Routine started.")
         self._run_next_step()
@@ -199,6 +246,7 @@ class StageRoutine:
             return
 
         self.paused = False
+        self.awaiting_step_completion = False
         self.log("[StageRoutine] Routine resumed.")
 
         # If still moving axes for this station, continue those first
@@ -211,10 +259,13 @@ class StageRoutine:
     def Stop(self):
         self.running = False
         self.paused = False
+        self.awaiting_step_completion = False
         self.log("[StageRoutine] Routine stopped.")
 
     def StepCompleted(self):
         if not self.running:
+            return
+        if self.paused:
             return
 
         # If we still have axis moves pending for this step, do next one
@@ -223,6 +274,7 @@ class StageRoutine:
             return
 
         # Otherwise go to next station
+        self.awaiting_step_completion = False
         self._run_next_step()
 
 
@@ -233,6 +285,7 @@ class StageRoutine:
         if self.current_step >= len(self.steps):
             self.log("[StageRoutine] Routine finished.")
             self.running = False
+            self.awaiting_step_completion = False
             return
 
         step_fn = self.steps[self.current_step]
@@ -241,5 +294,11 @@ class StageRoutine:
         step_fn() # This will send the first axis move
 
         self.current_step += 1
-        self.paused = True  # Paused after station (X+Y done)
-        self.log("[StageRoutine] Paused after step.")
+        if self.pause_after_each_step:
+            self.paused = True
+            self.awaiting_step_completion = False
+            self.log("[StageRoutine] Paused after step.")
+        else:
+            self.paused = False
+            self.awaiting_step_completion = True
+            self.log("[StageRoutine] Auto-advance enabled; waiting for step completion.")

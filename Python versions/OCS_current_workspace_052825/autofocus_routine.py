@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
-# used in 2camera_ZeroMQ_102325.py
+# used in 2camera_ZeroMQ_06132026.py
 
 #from autofocus.py file
 import autofocus as af
@@ -161,14 +161,30 @@ class AutofocusRoutine:
                     round_best_score = pt.score
                     round_best_z = pt.z_meas
                     round_best_img = os.path.basename(pt.image_path)
+                if pt.score >= best_score:
+                    best_score = pt.score
+                    best_z = pt.z_meas
 
-            best_z = round_best_z
-            best_score = round_best_score
-            summary = {"span": float(span), "step": float(step), "best_z": float(best_z), "best_score": float(best_score), "best_img": round_best_img}
+            if round_best_score >= best_score:
+                best_z = round_best_z
+                best_score = round_best_score
+
+            summary = {
+                "span": float(span),
+                "step": float(step),
+                "round_best_z": float(round_best_z),
+                "round_best_score": float(round_best_score),
+                "round_best_img": round_best_img,
+                "global_best_z": float(best_z),
+                "global_best_score": float(best_score),
+            }
             round_summaries.append(summary)
             with open(Path(out_dir) / "summary.json", "w", encoding="utf-8") as f:
                 json.dump({"rounds": round_summaries, "best_z": float(best_z), "best_score": float(best_score)}, f, indent=2)
-            self.log(f"[AF] best round z={best_z:.3f} score={best_score:.6g} img={round_best_img}")
+            self.log(
+                f"[AF] best round z={round_best_z:.3f} score={round_best_score:.6g} img={round_best_img}; "
+                f"global best z={best_z:.3f} score={best_score:.6g}"
+            )
 
         if not self._is_cancelled():
             self.log(f"[AF] returning to best z={best_z:.3f}")

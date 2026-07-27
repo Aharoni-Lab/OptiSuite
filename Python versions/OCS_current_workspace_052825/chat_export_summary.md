@@ -54,7 +54,7 @@ C# publishes events like:
 ---
 
 ## 3) Camera GUI improvements
-**File:** `2camera_ZeroMQ_102325.py`
+**File:** `2camera_ZeroMQ_06132026.py`
 
 ### Camera controls
 - **Gain/Exposure** moved to numeric inputs (spinboxes) with safe clamping in `CameraManager`.
@@ -84,7 +84,7 @@ C# publishes events like:
 **Files:**
 - `autofocus.py` (focus metrics; requires Pillow)
 - `autofocus_routine.py` (coarse-to-fine sweep controller)
-- integrated into `2camera_ZeroMQ_102325.py`
+- integrated into `2camera_ZeroMQ_06132026.py`
 
 ### What autofocus does
 - Uses **C#→Python events** to:
@@ -154,7 +154,7 @@ python -m pip install -r "C:\Users\stimscope1\Documents\OptiSuite\Python version
 - `chat_export_summary.md` (this file)
 
 ### Updated (Python)
-- `2camera_ZeroMQ_102325.py`
+- `2camera_ZeroMQ_06132026.py`
 - `stage_routine_import_013026.py`
 - `camera_manager_class_import_120425.py`
 
