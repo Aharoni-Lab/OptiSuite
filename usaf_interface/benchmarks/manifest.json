@@ -1,0 +1,38 @@
+[
+  {
+    "name": "usaf_reference",
+    "path": "benchmarks\\usaf\\usaf_reference.png",
+    "expected_chart_type": "usaf",
+    "expected_success": true
+  },
+  {
+    "name": "siemens_star",
+    "path": "benchmarks\\siemens\\siemens_star.png",
+    "expected_chart_type": "siemens",
+    "expected_success": true
+  },
+  {
+    "name": "grid_pattern",
+    "path": "benchmarks\\grid\\grid_pattern.png",
+    "expected_chart_type": "grid",
+    "expected_success": true
+  },
+  {
+    "name": "slanted_edge",
+    "path": "benchmarks\\slanted_edge\\slanted_edge.png",
+    "expected_chart_type": "slanted_edge",
+    "expected_success": true
+  },
+  {
+    "name": "contrast_chart",
+    "path": "benchmarks\\contrast\\contrast_chart.png",
+    "expected_chart_type": "contrast",
+    "expected_success": true
+  },
+  {
+    "name": "blank_failure",
+    "path": "benchmarks\\failure\\blank.png",
+    "expected_chart_type": "contrast",
+    "expected_success": false
+  }
+]
