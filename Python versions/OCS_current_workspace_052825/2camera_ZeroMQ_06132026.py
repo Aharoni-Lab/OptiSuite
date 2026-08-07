@@ -23,6 +23,8 @@ from stage_routine_import_013026 import StageRoutine #stage routine class
 from zmq_push_worker import ZMQWorker
 from zmq_pull_listener import ZMQPullListener
 from autofocus_routine import AutofocusRoutine
+# from usaf_interface.resolution_app import main as resolution_app_main
+
 
 #main pytHON gui FOR CAM, STAGE CONNECTION
 
@@ -54,6 +56,24 @@ class SpectrometerBus(QObject):
     spectrum = pyqtSignal(object, object)
     status = pyqtSignal(str)
     error = pyqtSignal(str)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class StageSequenceEditorDialog(QDialog):
@@ -352,6 +372,28 @@ class StageSequenceEditorDialog(QDialog):
         self._apply_global_z_to_all_stops()
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class ProjectionSettingsDialog(QDialog):
     IMAGE_EXTENSIONS = (".bmp", ".gif", ".jpeg", ".jpg", ".png", ".tif", ".tiff")
 
@@ -607,6 +649,53 @@ class ProjectionSettingsDialog(QDialog):
         event.accept()
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class ProjectionWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -666,6 +755,40 @@ class ProjectionWindow(QWidget):
         elif self._solid_color is not None:
             self.display_solid_color(self._solid_color)
         super().resizeEvent(event)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def make_gauge_icon(size: int = 72) -> QIcon:
@@ -729,6 +852,32 @@ def format_power_watts(power_w: float) -> str:
     return f"{value * 1e12:.6g} pW"
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class EmptyCameraManager:
     def __init__(self, save_dir="captures", reason="No camera backend available."):
         self.save_dir = save_dir
@@ -776,6 +925,41 @@ class EmptyCameraManager:
 
     def close(self):
         return
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class PowerTraceWidget(QWidget):
@@ -870,6 +1054,42 @@ class PowerTraceWidget(QWidget):
         painter.end()
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class PowerMeterWindow(QWidget):
     closed = pyqtSignal()
 
@@ -925,6 +1145,39 @@ class PowerMeterWindow(QWidget):
         self.stop_callback()
         self.closed.emit()
         event.accept()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class PowerMeterWorker(threading.Thread):
@@ -1056,6 +1309,49 @@ class PowerMeterWorker(threading.Thread):
         self.rm = None
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class SpectrumTraceWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1157,6 +1453,46 @@ class SpectrumTraceWidget(QWidget):
         painter.end()
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class SpectrometerWindow(QWidget):
     closed = pyqtSignal()
 
@@ -1246,6 +1582,34 @@ class SpectrometerWindow(QWidget):
         self.stop_callback()
         self.closed.emit()
         event.accept()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class SpectrometerWorker(threading.Thread):
@@ -1384,6 +1748,46 @@ class SpectrometerWorker(threading.Thread):
         except Exception:
             pass
         self.handle = c_int(0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #import the camera functinality from another file
 # -------- Main GUI Application -------- #
@@ -2990,6 +3394,7 @@ class CameraApp(QWidget):
         self.zmq_thread.send_message(json.dumps({"command": "MoveToXYZ", "x": float(x), "y": float(y), "z": float(z)}))
 
         def _match_completed(e):
+            print(f"CommandReceived: {e}")
             if e.get("event") != "CommandCompleted":
                 return False
             if e.get("command") != "MoveToXYZ":
@@ -3111,8 +3516,9 @@ class CameraApp(QWidget):
                     max_size=1024,
                     cancel_event=self.af_cancel,
                 )
-                best_z, _pts = routine.run()
+                best_z, best_img_path, _pts = routine.run()
                 self.ui_bus.log.emit(f"[AF] done best_z={best_z:.3f}")
+
             except Exception as e:
                 self.ui_bus.log.emit(f"[AF] error: {e}")
             finally:
@@ -3552,6 +3958,25 @@ class CameraApp(QWidget):
                 self.append_local_log(f"[Screenshot] failed cam={cam_index+1}")
         except Exception as e:
             self.append_local_log(f"[Screenshot] error: {e}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

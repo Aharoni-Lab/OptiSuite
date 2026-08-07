@@ -6,7 +6,7 @@ from datetime import datetime
 import cv2
 import numpy as np
 
-
+# used in 2camera_ZeroMQ_06132026.py
 class PycroManagerCameraManager:
     """
     CameraManager-compatible wrapper for the active Micro-Manager camera.

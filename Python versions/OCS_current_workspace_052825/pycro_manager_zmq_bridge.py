@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import zmq
 
-
+# could be indirectly used in 2camera_ZeroMQ_06132026.py
 class PycroManagerStage:
     def __init__(self, mm_host="127.0.0.1", mm_port=4827):
         self.mm_host = mm_host

@@ -10,6 +10,7 @@ import numpy as np
 DMK_DEFAULT_EXPOSURE_US = 66666.0
 
 
+# used in 2camera_ZeroMQ_06132026.py
 class OpenCVDShowCamera:
     def __init__(self, camera_index=None, save_dir="captures", display_name="DMK 27BUP031"):
         self.camera_index = camera_index
