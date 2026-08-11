@@ -3,14 +3,14 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-import usaf_registration.yolo_model as yolo_model
-from analyzers.contrast_chart import ContrastChartAnalyzer, ContrastChartAnalyzerConfig
-from analyzers.grid import GridAnalyzer, GridAnalyzerConfig
-from analyzers.siemens import SiemensAnalyzer, SiemensAnalyzerConfig
-from analyzers.slanted_edge import SlantedEdgeAnalyzer, SlantedEdgeAnalyzerConfig
-from analyzers.usaf import USAFAnalyzer, USAFAnalyzerConfig
-from core.registration import load_image_context
-from core.results import AnalyzerConfig, AnalyzerResult, ChartType, RouterDecision
+import usaf_interface.usaf_registration.yolo_model as yolo_model
+from usaf_interface.analyzers.contrast_chart import ContrastChartAnalyzer, ContrastChartAnalyzerConfig
+from usaf_interface.analyzers.grid import GridAnalyzer, GridAnalyzerConfig
+from usaf_interface.analyzers.siemens import SiemensAnalyzer, SiemensAnalyzerConfig
+from usaf_interface.analyzers.slanted_edge import SlantedEdgeAnalyzer, SlantedEdgeAnalyzerConfig
+from usaf_interface.analyzers.usaf import USAFAnalyzer, USAFAnalyzerConfig
+from usaf_interface.core.registration import load_image_context
+from usaf_interface.core.results import AnalyzerConfig, AnalyzerResult, ChartType, RouterDecision
 
 
 SUPPORTED_CHART_TYPES: list[ChartType] = ["auto", "usaf", "siemens", "grid", "slanted_edge", "contrast"]

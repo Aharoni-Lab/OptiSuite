@@ -42,13 +42,13 @@ class ThresholdReading:
 
 @dataclass(slots=True)
 class AnalyzerConfig:
-    chart_type: ChartType = "auto"
+    chart_type: ChartType = "usaf"
     contrast_threshold: float = 0.2
     show_preview: bool = False
     debug_mode: bool = False
     use_detection_fallback: bool = True
     allow_model_assist: bool = False
-    flip_mode: FlipMode = "auto"
+    flip_mode: FlipMode = "fliped"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

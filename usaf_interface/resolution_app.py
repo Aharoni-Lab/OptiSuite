@@ -15,9 +15,9 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from PIL import Image, ImageTk
 
-from core.results import AnalyzerConfig, AnalyzerResult, ChartType, OverlayItem
-from core.router import SUPPORTED_CHART_TYPES, TargetRouter
-from core.visualization import get_runtime_image, render_result_image
+from usaf_interface.core.results import AnalyzerConfig, AnalyzerResult, ChartType, OverlayItem
+from usaf_interface.core.router import SUPPORTED_CHART_TYPES, TargetRouter
+from usaf_interface.core.visualization import get_runtime_image, render_result_image
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -48,13 +48,13 @@ class ResolutionApp:
         self.current_overlay_image: Image.Image | None = None
         self.current_plot_image: Image.Image | None = None
 
-        self.override_var = tk.StringVar(value="auto")
+        self.override_var = tk.StringVar(value="usaf")
         self.threshold_var = tk.DoubleVar(value=0.2)
         self.preview_var = tk.BooleanVar(value=False)
         self.debug_var = tk.BooleanVar(value=False)
-        self.model_assist_var = tk.BooleanVar(value=True)
-        self.fallback_var = tk.BooleanVar(value=True)
-        self.flip_mode_var = tk.StringVar(value="auto")
+        self.model_assist_var = tk.BooleanVar(value=False)
+        self.fallback_var = tk.BooleanVar(value=False)
+        self.flip_mode_var = tk.StringVar(value="flipped")
         self.status_var = tk.StringVar(value="Add images or folders, then run analysis.")
         self.output_group_var = tk.StringVar(value="n/a")
         self.output_element_var = tk.StringVar(value="n/a")

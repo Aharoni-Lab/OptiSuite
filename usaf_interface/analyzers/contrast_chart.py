@@ -5,10 +5,10 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from analyzers.base import ResolutionAnalyzer
-from core.contrast import michelson_contrast
-from core.registration import approximate_patch_rectangles
-from core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
+from usaf_interface.analyzers.base import ResolutionAnalyzer
+from usaf_interface.core.contrast import michelson_contrast
+from usaf_interface.core.registration import approximate_patch_rectangles
+from usaf_interface.core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
 
 
 @dataclass(slots=True)

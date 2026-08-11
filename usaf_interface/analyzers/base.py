@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from core.results import AnalyzerConfig, AnalyzerResult, ChartType, ImageContext
+from usaf_interface.core.results import AnalyzerConfig, AnalyzerResult, ChartType, ImageContext
 
 
 class ResolutionAnalyzer(ABC):

@@ -6,6 +6,7 @@ from .yolo_model import extract_yolo_detections, visualize_detections, count_4pt
 from scipy.signal import savgol_filter
 import shutil
 import os
+import json
 from . import constants as C
 from .sift_warp import get_sift_reference_image, sift_homography_with_origin, _sift_ref_origin_for_target
 from .classic_warp import find_white_corner_in_region, find_target_orientation, get_adjusted_top_corners_from_enclosing_rectangle, find_square_corners
@@ -13,7 +14,7 @@ from .elastix_warp import setup_itkelastix_ref_mapping, ref_usaf_point_to_target
 from .pt_adjust import apply_point_adjustment_algorithm, find_replacement_keypoints, extend_line
 from .transforms import usaf2screen_homography, usaf2screen_classic, get_rotated_pt
 from .pattern_crop import verify_pattern_crops, scanline_region_cropping
-from .helper import sample_line_profile, is_image_clear, normalize_image_contrast, gradient_visualization, usaf_lp_per_mm, usaf_resolution_mm
+from .helper import sample_line_profile, is_image_clear, normalize_image_contrast, gradient_visualization, usaf_lp_per_mm, usaf_resolution_mm, timestamped_path
 from .scoring import find_best_focus_group, score_pattern_crops
 
 
@@ -1295,6 +1296,12 @@ def score_image_routine(image_path):
     if default_config is not None:
         load_config(default_config)
     if not C.retry_flag:
+        usaf_result = list(usaf_result) if usaf_result is not None else None
+        if usaf_result is not None and len(usaf_result) > 4:
+            usaf_result.pop(4)
+        cache_payload = image_path, usaf_result
+        with open(timestamped_path(C.LOG_PATH, "usaf_log"), "w") as file:
+            json.dump(cache_payload, file, indent=4)
         return usaf_result
 
     print(f"Retrying image: {image_path}")
@@ -1340,6 +1347,12 @@ def score_image_routine(image_path):
     if default_config is not None:
         load_config(default_config)
 
+    usaf_result = list(usaf_result) if usaf_result is not None else None
+    if usaf_result is not None and len(usaf_result) > 4:
+        usaf_result.pop(4)
+    cache_payload = image_path, usaf_result
+    with open(timestamped_path(C.LOG_PATH, "usaf_log"), "w") as file:
+        json.dump(cache_payload, file, indent=4)
     return usaf_result
 
 

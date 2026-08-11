@@ -7,10 +7,10 @@ import unittest
 
 import cv2
 
-from analyzers.usaf import USAFAnalyzer, USAFAnalyzerConfig
-from core.registration import load_image_context
-from core.results import AnalyzerConfig
-from core.router import TargetRouter
+from usaf_interface.analyzers.usaf import USAFAnalyzer, USAFAnalyzerConfig
+from usaf_interface.core.registration import load_image_context
+from usaf_interface.core.results import AnalyzerConfig
+from usaf_interface.core.router import TargetRouter
 
 
 class ResolutionPipelineTests(unittest.TestCase):

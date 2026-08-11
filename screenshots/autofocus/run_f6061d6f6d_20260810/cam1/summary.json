@@ -1,0 +1,24 @@
+{
+  "rounds": [
+    {
+      "span": 3.0,
+      "step": 0.5,
+      "round_best_z": 80.8,
+      "round_best_score": 0.006050844676792622,
+      "round_best_img": "af_Z80_800_164110_20260810_164110.png",
+      "global_best_z": 80.8,
+      "global_best_score": 0.006050844676792622
+    },
+    {
+      "span": 0.6,
+      "step": 0.2,
+      "round_best_z": 80.4,
+      "round_best_score": 0.005776796489953995,
+      "round_best_img": "af_Z80_400_164122_20260810_164122.png",
+      "global_best_z": 80.8,
+      "global_best_score": 0.006050844676792622
+    }
+  ],
+  "best_z": 80.8,
+  "best_score": 0.006050844676792622
+}

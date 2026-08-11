@@ -5,10 +5,10 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from analyzers.base import ResolutionAnalyzer
-from core.contrast import mtf_from_edge_samples
-from core.registration import detect_long_lines, line_to_overlay
-from core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, ThresholdReading
+from usaf_interface.analyzers.base import ResolutionAnalyzer
+from usaf_interface.core.contrast import mtf_from_edge_samples
+from usaf_interface.core.registration import detect_long_lines, line_to_overlay
+from usaf_interface.core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, ThresholdReading
 
 
 @dataclass(slots=True)

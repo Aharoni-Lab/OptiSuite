@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from datetime import datetime
+from pathlib import Path
 from . import constants as C
 
 
@@ -132,4 +134,15 @@ def usaf_lp_per_mm(group: int, element: int) -> float:
 
 def usaf_resolution_mm(group: int, element: int) -> float:
     return float(1.0 / (2.0 * usaf_lp_per_mm(group, element)))
+
+def timestamped_path(directory, stem, suffix=".json"):
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    candidate = directory / f"{stem}_{timestamp}{suffix}"
+    counter = 1
+    while candidate.exists():
+        candidate = directory / f"{stem}_{timestamp}_{counter}{suffix}"
+        counter += 1
+    return candidate
 

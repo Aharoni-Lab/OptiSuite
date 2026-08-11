@@ -5,10 +5,10 @@ from dataclasses import dataclass
 import numpy as np
 import cv2
 
-from analyzers.base import ResolutionAnalyzer
-from core.contrast import dominant_frequency_1d, percentile_contrast, sample_along_circle
-from core.registration import detect_circle
-from core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
+from usaf_interface.analyzers.base import ResolutionAnalyzer
+from usaf_interface.core.contrast import dominant_frequency_1d, percentile_contrast, sample_along_circle
+from usaf_interface.core.registration import detect_circle
+from usaf_interface.core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
 
 
 @dataclass(slots=True)

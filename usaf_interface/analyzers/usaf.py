@@ -7,16 +7,17 @@ from typing import Iterator
 
 import cv2
 import numpy as np
+import json
 
-import usaf_registration.usaf_algo as usaf_algo
-import usaf_registration.yolo_model as yolo_model
-import usaf_registration.constants as usaf_const
-import usaf_registration.helper as usaf_helper
-import usaf_registration.classic_warp as usaf_classic_warp
+import usaf_interface.usaf_registration.usaf_algo as usaf_algo
+import usaf_interface.usaf_registration.yolo_model as yolo_model
+import usaf_interface.usaf_registration.constants as usaf_const
+import usaf_interface.usaf_registration.helper as usaf_helper
+import usaf_interface.usaf_registration.classic_warp as usaf_classic_warp
 
-from analyzers.base import ResolutionAnalyzer
-from core.visualization import register_runtime_image
-from core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
+from usaf_interface.analyzers.base import ResolutionAnalyzer
+from usaf_interface.core.visualization import register_runtime_image
+from usaf_interface.core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
 
 
 @dataclass(slots=True)
@@ -126,8 +127,21 @@ class USAFAnalyzer(ResolutionAnalyzer):
             candidate_config = replace(self.config, flipped_target=flipped_target)
             try:
                 with _legacy_config_scope(candidate_config):
+                    # use cache
+                    # try:
+                    #     with open("usaf_cache.json", "r") as file:
+                    #         cache_payload = json.load(file)
+                    # except (FileNotFoundError, json.JSONDecodeError):
+                    #     cache_payload = None
+
+                    # if cache_payload and cache_payload[0] == context.image_path:
+                    #     usaf_payload = cache_payload[1]
+                    #     usaf_payload[3] = {int(k): v for k, v in usaf_payload[3].items()}
+                    # else:
+                    
                     # !!! only default 0.2 threshold work yet, need train more models !!!
                     usaf_payload = usaf_algo.score_image_routine(context.image_path)
+                    
                     if usaf_payload is None:
                         raise RuntimeError("USAF score calculation failed.")
 
@@ -145,7 +159,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
                         raise RuntimeError(
                             f"No USAF group/element met the configured contrast threshold of {threshold:.0%}."
                         )
-                    scores_list = [scores[i]["score"] for i in range(len(scores))]
+                    scores_list = [item["score"] for item in scores.values()]
 
                     overlay_items: list[OverlayItem] = []
                     corners = usaf_classic_warp.find_square_corners(context.gray_image.copy())

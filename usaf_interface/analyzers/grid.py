@@ -4,10 +4,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from analyzers.base import ResolutionAnalyzer
-from core.contrast import dominant_frequency_1d, percentile_contrast
-from core.registration import detect_long_lines, grid_frequency_signature, line_to_overlay
-from core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
+from usaf_interface.analyzers.base import ResolutionAnalyzer
+from usaf_interface.core.contrast import dominant_frequency_1d, percentile_contrast
+from usaf_interface.core.registration import detect_long_lines, grid_frequency_signature, line_to_overlay
+from usaf_interface.core.results import AnalyzerConfig, AnalyzerResult, ContrastSample, OverlayItem, ThresholdReading
 
 
 @dataclass(slots=True)

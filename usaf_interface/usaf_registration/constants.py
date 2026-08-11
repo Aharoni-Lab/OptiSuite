@@ -108,7 +108,7 @@ ITKELASTIX_SHOW_PLOT = DEBUG_MODE
 ITKELASTIX_LOG_TO_CONSOLE = True
 
 
-
+LOG_PATH = Path(BASE_DIR).parent.parent / "logs"
 
 
 

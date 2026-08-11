@@ -5,7 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from core.results import ImageContext, OverlayItem
+from usaf_interface.core.results import ImageContext, OverlayItem
 
 
 def load_image_context(image_path: str) -> ImageContext:

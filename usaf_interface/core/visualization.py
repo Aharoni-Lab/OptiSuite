@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from core.results import AnalyzerResult, OverlayItem
+from usaf_interface.core.results import AnalyzerResult, OverlayItem
 
 _RUNTIME_IMAGE_CACHE: dict[str, np.ndarray] = {}
 

@@ -15,7 +15,6 @@ from typing import Callable, Iterable, Optional
 #from autofocus.py file
 import autofocus as af
 
-
 # @ means the variable is a class variable
 @dataclass(frozen=True)
 class AutofocusPoint:
@@ -100,7 +99,7 @@ class AutofocusRoutine:
         
         rounds: Iterable[tuple[float, float]] = ((3.0, 0.5), (0.6, 0.2)),
         move_timeout_s: float = 30.0,
-        settle_s: float = 0.2,
+        settle_s: float = 0.20,
         warmup_frames: int = 10,
     ) -> tuple[float, list[AutofocusPoint]]:
         x0, y0, z0 = self.get_position_xyz()
@@ -165,12 +164,12 @@ class AutofocusRoutine:
                     round_best_z = pt.z_meas
                     round_best_img = os.path.basename(pt.image_path)
                     round_best_img_path = pt.image_path
-
                 if pt.score >= best_score:
                     best_score = pt.score
                     best_z = pt.z_meas
                     best_img_path = pt.image_path
-                    
+
+
             if round_best_score >= best_score:
                 best_z = round_best_z
                 best_score = round_best_score
@@ -197,5 +196,5 @@ class AutofocusRoutine:
             self.log(f"[AF] returning to best z={best_z:.3f}")
             self.move_to_xyz_and_wait(x0, y0, float(best_z), move_timeout_s)
 
-        return best_z, best_img_path, all_points
+        return best_z, all_points, best_img_path
 
