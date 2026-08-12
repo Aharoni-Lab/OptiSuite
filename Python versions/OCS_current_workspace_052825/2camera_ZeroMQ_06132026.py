@@ -116,14 +116,17 @@ def make_gauge_icon(size: int = 72) -> QIcon:
 # -------- Main GUI Application -------- #
 class CameraApp(QWidget):
     def _stage_ports_for_backend(self, backend: str):
+        """Return the ZMQ command and event ports for the selected hardware backend."""
         if backend == BACKEND_PYCRO:
             return self.pycro_stage_host, self.pycro_stage_cmd_port, self.pycro_stage_event_port
         return self.native_stage_host, self.native_stage_cmd_port, self.native_stage_event_port
 
     def _stage_status_prefix(self):
+        """Return the stage label prefix shown for the active hardware backend."""
         return "Pycro stage" if getattr(self, "hardware_backend", BACKEND_NATIVE) == BACKEND_PYCRO else "C# stage"
 
     def _create_camera_manager(self, backend: str):
+        """Create the camera manager or fallback manager for the requested backend."""
         if backend == BACKEND_PYCRO:
             try:
                 from pycro_camera_client import PycroManagerCameraManager
@@ -153,6 +156,7 @@ class CameraApp(QWidget):
             return EmptyCameraManager(save_dir=self.save_dir, reason=msg)
 
     def _apply_microscope_default_exposure(self, manager):
+        """Apply the default microscope exposure to camera slot 1 if available."""
         if getattr(manager, "num_cameras", 0) <= 0:
             return
         try:
@@ -162,6 +166,7 @@ class CameraApp(QWidget):
             print(f"[Camera] Could not set microscope default exposure: {e}")
 
     def __init__(self):
+        """Build the main OptiSuite camera, stage, instrument, and routine UI."""
         super().__init__()
         self.setWindowTitle("OptiSuite GUI interface")
         # We set a fixed size later after building the layout.
@@ -993,6 +998,7 @@ class CameraApp(QWidget):
         )
 
     def _camera_title(self, cam_index: int, camera_detected: bool) -> str:
+        """Build the display title for a camera slot."""
         if cam_index == 0:
             cam_title = "Cam 1: Microscope"
         elif cam_index == 1:
@@ -1006,6 +1012,7 @@ class CameraApp(QWidget):
         return cam_title + " (camera not detected)"
 
     def _set_camera_controls_enabled(self, cam_index: int, enabled: bool):
+        """Enable or disable camera controls for one camera slot."""
         if cam_index >= len(self.camera_control_widgets):
             return
         widgets = self.camera_control_widgets[cam_index]
@@ -1032,6 +1039,7 @@ class CameraApp(QWidget):
         widgets["zoom_label"].setText("1.0x" if enabled else "--")
 
     def _refresh_score_camera_choices(self):
+        """Refresh the focus-score camera dropdown based on available cameras."""
         if not hasattr(self, "score_cam_select"):
             return
         self.score_cam_select.blockSignals(True)
@@ -1050,6 +1058,7 @@ class CameraApp(QWidget):
         self.score_cam_select.blockSignals(False)
 
     def _refresh_camera_ui_state(self):
+        """Refresh camera labels, controls, exposure, gain, and score choices."""
         if hasattr(self, "characterization_camera_select"):
             self.characterization_camera_select.setEnabled(self.hardware_backend == BACKEND_NATIVE)
 
@@ -1072,6 +1081,7 @@ class CameraApp(QWidget):
         self._refresh_score_camera_choices()
 
     def on_characterization_camera_changed(self, _index=None):
+        """Switch the Cam 2 characterization source in native backend mode."""
         if self.hardware_backend != BACKEND_NATIVE:
             return
         if not hasattr(self, "characterization_camera_select"):
@@ -1107,6 +1117,7 @@ class CameraApp(QWidget):
             self._refresh_camera_ui_state()
 
     def on_backend_changed(self, _index=None):
+        """Switch between native and Pycro hardware backends."""
         backend = self.backend_select.currentData()
         if backend == self.hardware_backend:
             return
@@ -1133,6 +1144,7 @@ class CameraApp(QWidget):
         )
 
     def eventFilter(self, obj, event):
+        """Handle camera preview mouse events for zooming and panning."""
         # Mouse-wheel zoom + cursor tracking on each preview label
         cam_index = obj.property("cam_index") if hasattr(obj, "property") else None
         if cam_index is None:
@@ -1194,6 +1206,7 @@ class CameraApp(QWidget):
         return super().eventFilter(obj, event)
 
     def pan_camera_view(self, cam_index, label_pos):
+        """Pan a zoomed camera preview based on mouse movement."""
         prev = self.pan_last_pos[cam_index]
         if prev is None or label_pos is None:
             self.pan_last_pos[cam_index] = label_pos
@@ -1229,13 +1242,16 @@ class CameraApp(QWidget):
         self.pan_last_pos[cam_index] = label_pos
 
     def adjust_zoom(self, cam_index, multiplier):
+        """Zoom a camera preview around the last known mouse position."""
         self.zoom_at_label_pos(cam_index, float(multiplier), self.last_mouse_pos[cam_index])
 
     def reset_zoom(self, cam_index):
+        """Reset one camera preview to full-frame 1x zoom."""
         self.view_states[cam_index] = {"zoom": 1.0, "cx": 0.5, "cy": 0.5}
         self._update_zoom_label(cam_index)
 
     def _update_zoom_label(self, cam_index):
+        """Update the text label that shows the current preview zoom level."""
         lbl = self.zoom_labels[cam_index]
         if not lbl:
             return
@@ -1246,6 +1262,7 @@ class CameraApp(QWidget):
             lbl.setText(f"{z:.2f}x")
 
     def _get_pixmap_rect_in_label(self, label: QLabel):
+        """Return the displayed pixmap rectangle inside a preview label."""
         pm = label.pixmap()
         if pm is None:
             return None
@@ -1258,6 +1275,7 @@ class CameraApp(QWidget):
         return off_x, off_y, pm_w, pm_h
 
     def zoom_at_label_pos(self, cam_index, factor, label_pos):
+        """Zoom toward a point in the preview while keeping that point anchored."""
         state = self.view_states[cam_index]
         z_old = float(state["zoom"])
         z_new = max(1.0, z_old * float(factor))
@@ -1315,6 +1333,7 @@ class CameraApp(QWidget):
         self._update_zoom_label(cam_index)
 
     def apply_zoom(self, frame, cam_index):
+        """Crop and resize a frame according to the stored software zoom state."""
         if frame is None:
             return frame
 
@@ -1349,6 +1368,7 @@ class CameraApp(QWidget):
         return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
 
     def apply_exposure(self, cam_index, widget: QDoubleSpinBox):
+        """Apply the exposure value from the UI to the selected camera."""
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log(f"[Camera] cam={cam_index+1} not available")
             return
@@ -1362,6 +1382,7 @@ class CameraApp(QWidget):
             print(f"[UI] Exposure rejected cam{cam_index}, kept {applied}")
 
     def apply_gain(self, cam_index, widget: QDoubleSpinBox):
+        """Apply the gain value from the UI to the selected camera."""
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log(f"[Camera] cam={cam_index+1} not available")
             return
@@ -1374,6 +1395,7 @@ class CameraApp(QWidget):
             print(f"[UI] Gain rejected cam{cam_index}, kept {applied}")
 
     def on_stage_event(self, msg: str):
+        """Display stage events and advance routines when stage moves complete."""
         # Called on the Qt thread via StageEventBus
         try:
             data = json.loads(msg)
@@ -1435,9 +1457,11 @@ class CameraApp(QWidget):
                 self.stage_routine.StepCompleted()
 
     def _now_hhmmss(self):
+        """Return the current local time formatted for UI log lines."""
         return datetime.now().strftime("%H:%M:%S")
 
     def _fmt_ts(self, ts_utc_ms):
+        """Format a stage event timestamp, falling back to local time."""
         try:
             ms = int(ts_utc_ms)
             dt = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).astimezone()
@@ -1446,6 +1470,7 @@ class CameraApp(QWidget):
             return self._now_hhmmss()
 
     def send_zmq_command(self):
+        """Send the selected manual stage command over ZMQ."""
         if not (self.zmq_thread and self.zmq_thread.running):
             print("[ZMQ] Not connected.")
             return
@@ -1486,6 +1511,7 @@ class CameraApp(QWidget):
         self.zmq_thread.send_message(json_msg)
 
     def update_frames(self):
+        """Refresh live camera previews and write recording frames."""
         # Display each camera live feed
         for i in range(self.cam_mgr.num_cameras):
             frame = self.cam_mgr.get_frame(i)
@@ -1548,6 +1574,7 @@ class CameraApp(QWidget):
 
     # ---- ZMQ Controls ---- #
     def connect_zmq(self):
+        """Start ZMQ stage command/event connections and verify the stage responds."""
         if self.zmq_thread and self.zmq_thread.running:
             print("[ZMQ] Already connected.")
             return
@@ -1579,6 +1606,7 @@ class CameraApp(QWidget):
         )
 
     def disconnect_zmq(self):
+        """Stop ZMQ stage command/event connections."""
         if self.zmq_thread:
             self.zmq_thread.stop()
             self.zmq_thread = None
@@ -1588,6 +1616,7 @@ class CameraApp(QWidget):
         self.status_label.setText("Disconnected")
 
     def _show_stage_connection_error(self, detail: str):
+        """Show a modal error explaining why stage connection failed."""
         QMessageBox.critical(
             self,
             "Stage Connection Failed",
@@ -1601,6 +1630,7 @@ class CameraApp(QWidget):
         )
 
     def _probe_stage_connection(self, timeout_s: float = 3.0) -> bool:
+        """Send a position query to confirm the stage backend is alive."""
         deadline = time.monotonic() + float(timeout_s)
         while time.monotonic() < deadline:
             if self.zmq_thread and self.zmq_thread.running:
@@ -1641,6 +1671,7 @@ class CameraApp(QWidget):
         return True
 
     def _handle_stage_event_from_thread(self, msg: str):
+        """Queue background stage events and forward them to the UI thread."""
         # Called on ZMQPullListener thread
         try:
             data = json.loads(msg)
@@ -1670,10 +1701,12 @@ class CameraApp(QWidget):
         self.stage_event_bus.message.emit(msg)
 
     def _get_stage_seq(self) -> int:
+        """Return the latest received stage event sequence number."""
         with self._stage_seq_lock:
             return int(self._stage_last_seq)
 
     def _wait_for_stage_event(self, predicate, *, min_seq: int, timeout_s: float):
+        """Wait until a queued stage event newer than min_seq matches a predicate."""
         deadline = time.monotonic() + float(timeout_s)
         while time.monotonic() < deadline:
             remaining = max(0.05, deadline - time.monotonic())
@@ -1691,6 +1724,7 @@ class CameraApp(QWidget):
         raise TimeoutError("Timed out waiting for stage event")
 
     def stage_get_position_xyz(self, timeout_s: float = 5.0) -> tuple[float, float, float]:
+        """Request and return the current stage XYZ position."""
         if not (self.zmq_thread and self.zmq_thread.running):
             raise RuntimeError("Not connected to stage (ZMQ)")
         min_seq = self._get_stage_seq()
@@ -1708,6 +1742,7 @@ class CameraApp(QWidget):
         return x, y, z
 
     def stage_move_to_xyz_and_wait(self, x: float, y: float, z: float, timeout_s: float = 30.0):
+        """Move the stage to XYZ and block until the matching completion event arrives."""
         if not (self.zmq_thread and self.zmq_thread.running):
             raise RuntimeError("Not connected to stage (ZMQ)")
         if self.af_cancel.is_set():
@@ -1735,12 +1770,14 @@ class CameraApp(QWidget):
         self._wait_for_stage_event(_match_completed, min_seq=min_seq, timeout_s=timeout_s)
 
     def append_local_log(self, line: str):
+        """Append a timestamped message to the local stage/status log."""
         t = self._now_hhmmss()
         txt = f"{t} {line}".strip()
         self.stage_log.appendPlainText(txt)
         self.stage_status.setText(f"{self._stage_status_prefix()}: {txt}")
 
     def _center_crop_fraction(self, gray: np.ndarray, fraction: float) -> np.ndarray:
+        """Return the centered crop used for focus scoring."""
         f = float(fraction)
         if f >= 1.0:
             return gray
@@ -1752,6 +1789,7 @@ class CameraApp(QWidget):
         return gray[y0 : y0 + ch, x0 : x0 + cw]
 
     def _downscale_max_size(self, gray: np.ndarray, max_size: int) -> np.ndarray:
+        """Downscale an image so focus scoring stays fast."""
         m = int(max_size)
         if m <= 0:
             return gray
@@ -1767,6 +1805,7 @@ class CameraApp(QWidget):
     def compute_focus_score_from_frame(
         self, frame_bgr: np.ndarray, metric: af.MetricName = "laplacian_var", roi: float = 0.8, max_size: int = 1024
     ) -> float:
+        """Compute a focus score from a BGR camera frame."""
         gray_u8 = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         gray = gray_u8.astype(np.float32) / 255.0
         gray = self._downscale_max_size(gray, max_size=max_size)
@@ -1774,6 +1813,7 @@ class CameraApp(QWidget):
         return float(af.focus_score(gray, metric=metric))
 
     def score_current_frame(self):
+        """Sample one camera repeatedly and log focus-score statistics."""
         cam_index = int(self.score_cam_select.currentIndex())
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log("[Score] no camera available")
@@ -1800,17 +1840,19 @@ class CameraApp(QWidget):
             f"[Score] cam={cam_index+1} metric={metric} (higher=sharper) n={n} mean={mean:.6g} std={std:.6g} min={arr.min():.6g} max={arr.max():.6g}"
         )
 
-    def start_autofocus(self, cam_index: int = 0):
+    def start_autofocus(self, cam_index: int = 0, on_finished=None):
+        """Run autofocus in a worker thread and open the USAF result UI."""
         if not (self.zmq_thread and self.zmq_thread.running):
             self.append_local_log("[AF] Not connected.")
-            return
+            return False
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log("[AF] No camera available.")
-            return
+            return False
         if self.af_thread and self.af_thread.is_alive():
             self.append_local_log("[AF] Already running.")
-            return
+            return False
 
+        self.autofocus_finished_callback = on_finished
         self.af_cancel.clear()
         self.autofocus_btn.setEnabled(False)
         self.cancel_af_btn.setEnabled(True)
@@ -1859,9 +1901,11 @@ class CameraApp(QWidget):
 
         self.af_thread = threading.Thread(target=_runner, daemon=True)
         self.af_thread.start()
+        return True
 
 
     def cancel_autofocus(self):
+        """Request cancellation of the running autofocus routine."""
         if not (self.af_thread and self.af_thread.is_alive()):
             return
         self.af_cancel.set()
@@ -1873,6 +1917,7 @@ class CameraApp(QWidget):
         self.append_local_log("[AF] cancel requested (sent StopRun)")
 
     def _on_autofocus_finished(self):
+        """Restore preview and button state after autofocus exits."""
         # Resume preview
         try:
             self.timer.start(30)
@@ -1882,8 +1927,16 @@ class CameraApp(QWidget):
         self.cancel_af_btn.setEnabled(False)
         self._refresh_resume_button_state()
         self.preview_status.hide()
+        callback = getattr(self, "autofocus_finished_callback", None)
+        self.autofocus_finished_callback = None
+        if callback:
+            callback()
 
+    #------------------------------------------------------------------------------------------------------------------
+    #power meter
+    #------------------------------------------------------------------------------------------------------------------
     def open_power_meter_plot(self):
+        """Open the power meter plot window and start streaming samples."""
         if self.power_meter_window is not None:
             self.power_meter_window.show()
             self.power_meter_window.raise_()
@@ -1901,6 +1954,7 @@ class CameraApp(QWidget):
         self.start_power_meter_stream()
 
     def start_power_meter_stream(self):
+        """Start the background power meter worker."""
         if self.power_meter_thread and self.power_meter_thread.is_alive():
             self._on_power_meter_status("Power meter stream already running.")
             return
@@ -1914,6 +1968,7 @@ class CameraApp(QWidget):
             self.power_meter_window.set_stream_running(True)
 
     def stop_power_meter_stream(self):
+        """Stop the background power meter worker and update controls."""
         if self.power_meter_thread:
             self.power_meter_thread.stop()
             self.power_meter_thread = None
@@ -1923,10 +1978,12 @@ class CameraApp(QWidget):
             self.power_meter_window.set_stream_running(False)
 
     def _on_power_meter_sample(self, elapsed_s: float, power_w: float):
+        """Forward a power meter sample to the plot window."""
         if self.power_meter_window is not None:
             self.power_meter_window.add_sample(elapsed_s, power_w)
 
     def _on_power_meter_status(self, text: str):
+        """Display power meter status in the plot window and main log."""
         if self.power_meter_window is not None:
             self.power_meter_window.set_status(text)
         self.append_local_log(f"[PowerMeter] {text}")
@@ -1938,6 +1995,7 @@ class CameraApp(QWidget):
                 self.power_meter_window.set_stream_running(False)
 
     def _on_power_meter_error(self, text: str):
+        """Display a power meter error and re-enable related controls."""
         if self.power_meter_window is not None:
             self.power_meter_window.set_status(text)
             self.power_meter_window.set_stream_running(False)
@@ -1946,9 +2004,14 @@ class CameraApp(QWidget):
             self.power_meter_btn.setEnabled(True)
 
     def _on_power_meter_window_closed(self):
+        """Clear the stored power meter window reference after close."""
         self.power_meter_window = None
 
+    #------------------------------------------------------------------------------------------------------------------
+    #spectrometer
+    #------------------------------------------------------------------------------------------------------------------
     def open_spectrometer_plot(self):
+        """Open the spectrometer plot window and start streaming spectra."""
         if self.spectrometer_window is not None:
             self.spectrometer_window.show()
             self.spectrometer_window.raise_()
@@ -1966,6 +2029,7 @@ class CameraApp(QWidget):
         self.start_spectrometer_stream()
 
     def start_spectrometer_stream(self):
+        """Start the background spectrometer worker."""
         if self.spectrometer_thread and self.spectrometer_thread.is_alive():
             self._on_spectrometer_status("Spectrometer stream already running.")
             return
@@ -1983,6 +2047,7 @@ class CameraApp(QWidget):
             self.spectrometer_window.set_stream_running(True)
 
     def stop_spectrometer_stream(self):
+        """Stop the background spectrometer worker and update controls."""
         if self.spectrometer_thread:
             self.spectrometer_thread.stop()
             self.spectrometer_thread = None
@@ -1992,10 +2057,12 @@ class CameraApp(QWidget):
             self.spectrometer_window.set_stream_running(False)
 
     def _on_spectrometer_spectrum(self, wavelengths, intensities):
+        """Forward a spectrum to the spectrometer plot window."""
         if self.spectrometer_window is not None:
             self.spectrometer_window.set_spectrum(wavelengths, intensities)
 
     def _on_spectrometer_status(self, text: str):
+        """Display spectrometer status in the plot window and main log."""
         if self.spectrometer_window is not None:
             self.spectrometer_window.set_status(text)
         self.append_local_log(f"[Spectrometer] {text}")
@@ -2007,6 +2074,7 @@ class CameraApp(QWidget):
                 self.spectrometer_window.set_stream_running(False)
 
     def _on_spectrometer_error(self, text: str):
+        """Display a spectrometer error and re-enable related controls."""
         if self.spectrometer_window is not None:
             self.spectrometer_window.set_status(text)
             self.spectrometer_window.set_stream_running(False)
@@ -2015,10 +2083,26 @@ class CameraApp(QWidget):
             self.spectrometer_btn.setEnabled(True)
 
     def _on_spectrometer_window_closed(self):
+        """Clear the stored spectrometer window reference after close."""
         self.spectrometer_window = None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     #make the json & pass it to the zmq class to send
     def send_message(self):
+        """Parse the free-text command box and send a JSON stage command."""
         if not (self.zmq_thread and self.zmq_thread.running):
             print("[ZMQ] Not connected.")
             return
@@ -2050,40 +2134,55 @@ class CameraApp(QWidget):
         self.zmq_thread.send_message(json_msg)
 
     def _handle_completed_stage_stop_actions(self):
+        """Run stop-specific actions after a custom stage stop completes."""
         stop = self.stage_routine.CurrentCompletedStop()
         if not stop or len(stop) < 4:
             return False
 
         prop = str(stop[3]).strip().lower()
-        if prop != "projection":
-            return False
+        if prop == "projection":
+            projector_index = stop[4] if len(stop) >= 5 else None
+            if projector_index is None:
+                self.append_local_log("[Projection] projection stop has no projector selected")
+                return False
+            try:
+                projector_index = int(projector_index)
+            except Exception:
+                self.append_local_log(f"[Projection] invalid projector selected for projection stop: {projector_index}")
+                return False
 
-        projector_index = stop[4] if len(stop) >= 5 else None
-        if projector_index is None:
-            self.append_local_log("[Projection] projection stop has no projector selected")
-            return False
-        try:
-            projector_index = int(projector_index)
-        except Exception:
-            self.append_local_log(f"[Projection] invalid projector selected for projection stop: {projector_index}")
-            return False
+            role, patterns = self._projection_patterns_for_projector(projector_index)
+            if not patterns:
+                self.append_local_log(
+                    f"[Projection] no saved projection patterns for Display {projector_index + 1}; continuing"
+                )
+                return False
 
-        role, patterns = self._projection_patterns_for_projector(projector_index)
-        if not patterns:
-            self.append_local_log(
-                f"[Projection] no saved projection patterns for Display {projector_index + 1}; continuing"
+            started = self._start_projection_sequence(
+                projector_index,
+                patterns,
+                role,
+                on_finished=self.stage_routine.StepCompleted,
             )
+            return started
+        elif prop == "resolution":
+            return self.start_autofocus(cam_index=0, on_finished=self.stage_routine.StepCompleted)
+        else:
             return False
 
-        started = self._start_projection_sequence(
-            projector_index,
-            patterns,
-            role,
-            on_finished=self.stage_routine.StepCompleted,
-        )
-        return started
 
+
+
+
+
+
+
+
+    #------------------------------------------------------------------------------------------------------------------
+    #projection
+    #------------------------------------------------------------------------------------------------------------------
     def _projection_patterns_for_projector(self, projector_index):
+        """Return the saved projection role and image list for a display."""
         if projector_index is None:
             return None, []
         try:
@@ -2106,6 +2205,7 @@ class CameraApp(QWidget):
         return None, []
 
     def _show_live_solid_projection(self, projector_index, color: QColor):
+        """Show a solid color on the selected projector display."""
         screens = QApplication.screens()
         try:
             projector_index = int(projector_index)
@@ -2125,6 +2225,7 @@ class CameraApp(QWidget):
         return True
 
     def _stop_live_solid_projection(self, projector_index=None):
+        """Close one or all live solid-color projection windows."""
         if projector_index is None:
             for window in list(self.projection_windows.values()):
                 window.close()
@@ -2139,6 +2240,7 @@ class CameraApp(QWidget):
             self.append_local_log(f"[Projection] Display {projector_index + 1}: solid color projection stopped")
 
     def _start_projection_sequence(self, projector_index, patterns, role=None, on_finished=None):
+        """Display projection images in sequence on a selected display."""
         screens = QApplication.screens()
         if projector_index < 0 or projector_index >= len(screens):
             self.append_local_log(f"[Projection] Display {projector_index + 1} is not available")
@@ -2187,8 +2289,28 @@ class CameraApp(QWidget):
         QTimer.singleShot(0, show_next)
         return True
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     #013026 add this for importing stage routine
     def open_stage_sequence_editor(self):
+        """Open the custom stage sequence editor and save its stops."""
         dialog = StageSequenceEditorDialog(getattr(self, "custom_stage_sequence", None), self)
         if dialog.exec_() != QDialog.Accepted:
             return
@@ -2196,6 +2318,7 @@ class CameraApp(QWidget):
         self.append_local_log(f"[StageSequence] saved {len(self.custom_stage_sequence)} stop(s)")
 
     def open_projection_settings_editor(self):
+        """Open the projection settings editor and save display/pattern settings."""
         dialog = ProjectionSettingsDialog(getattr(self, "projection_settings", None), self)
         if dialog.exec_() != QDialog.Accepted:
             return
@@ -2210,17 +2333,20 @@ class CameraApp(QWidget):
         )
 
     def _resume_pause_enabled(self):
+        """Return whether stage routines should pause after each stop."""
         if hasattr(self, "resumePauseMode_check"):
             return self.resumePauseMode_check.isChecked()
         return True
 
     def _refresh_resume_button_state(self):
+        """Enable Resume only when allowed and autofocus is not running."""
         if not hasattr(self, "resumeRoutine_btn"):
             return
         autofocus_running = bool(self.af_thread and self.af_thread.is_alive())
         self.resumeRoutine_btn.setEnabled(self._resume_pause_enabled() and not autofocus_running)
 
     def start_stage_routine(self):
+        """Start the configured custom or fallback stage routine."""
         # For now, use your hardcoded test values
         custom_stops = getattr(self, "custom_stage_sequence", None)
         pause_after_each_step = self._resume_pause_enabled()
@@ -2238,9 +2364,11 @@ class CameraApp(QWidget):
         self.stage_routine.StartRoutine()
 
     def resume_stage_routine(self):
+        """Resume a paused stage routine."""
         self.stage_routine.Resume()
 
     def send_stage_move(self, x, y, z):
+        """Send a MoveToXYZ command for StageRoutine callbacks."""
         if not (self.zmq_thread and self.zmq_thread.running):
             print("[ZMQ] Not connected (cannot send stage move).")
             self.append_local_log("[Stage] Not connected (cannot send move).")
@@ -2256,6 +2384,7 @@ class CameraApp(QWidget):
 
 
     def closeEvent(self, event):
+        """Clean up cameras, workers, ZMQ threads, and windows on exit."""
         try:
             self.af_cancel.set()
         except Exception:
@@ -2281,6 +2410,7 @@ class CameraApp(QWidget):
         event.accept()
 
     def _on_screenshot(self, cam_index: int):
+        """Capture and log a screenshot from the selected camera."""
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log(f"[Screenshot] cam={cam_index+1} not available")
             return
