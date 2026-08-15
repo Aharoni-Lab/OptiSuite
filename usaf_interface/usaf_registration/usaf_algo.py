@@ -14,7 +14,7 @@ from .elastix_warp import setup_itkelastix_ref_mapping, ref_usaf_point_to_target
 from .pt_adjust import apply_point_adjustment_algorithm, find_replacement_keypoints, extend_line
 from .transforms import usaf2screen_homography, usaf2screen_classic, get_rotated_pt
 from .pattern_crop import verify_pattern_crops, scanline_region_cropping
-from .helper import sample_line_profile, is_image_clear, normalize_image_contrast, gradient_visualization, usaf_lp_per_mm, usaf_resolution_mm, timestamped_path
+from .helper import sample_line_profile, is_image_clear, normalize_image_contrast, gradient_visualization, usaf_lp_per_mm, usaf_resolution_mm
 from .scoring import find_best_focus_group, score_pattern_crops
 
 
@@ -1300,7 +1300,7 @@ def score_image_routine(image_path):
         if usaf_result is not None and len(usaf_result) > 4:
             usaf_result.pop(4)
         cache_payload = image_path, usaf_result
-        with open(timestamped_path(C.LOG_PATH, "usaf_log"), "w") as file:
+        with open(C.LOG_PATH / f"usaf_log_{Path(image_path).stem}.json", "w") as file:
             json.dump(cache_payload, file, indent=4)
         return usaf_result
 
@@ -1351,7 +1351,7 @@ def score_image_routine(image_path):
     if usaf_result is not None and len(usaf_result) > 4:
         usaf_result.pop(4)
     cache_payload = image_path, usaf_result
-    with open(timestamped_path(C.LOG_PATH, "usaf_log"), "w") as file:
+    with open(C.LOG_PATH / f"usaf_log_{Path(image_path).stem}.json", "w") as file:
         json.dump(cache_payload, file, indent=4)
     return usaf_result
 

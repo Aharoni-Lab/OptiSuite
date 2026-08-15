@@ -109,7 +109,7 @@ ITKELASTIX_LOG_TO_CONSOLE = True
 
 
 LOG_PATH = Path(BASE_DIR).parent.parent / "logs"
-
+LOG_PATH.mkdir(parents=True, exist_ok=True)
 
 
 def get_image_paths(folder_path, recursive=False):

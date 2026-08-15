@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import os
+import argparse
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -983,9 +984,27 @@ class ResolutionApp:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("image_paths", nargs="*")
+    parser.add_argument("--no-ui", action="store_true")
+    args = parser.parse_args()
+
+    if args.no_ui and not args.image_paths:
+        return
+
     root_class = TkinterDnD.Tk if TkinterDnD is not None else tk.Tk
     root = root_class()
+    if args.no_ui:
+        root.withdraw()
+
     app = ResolutionApp(root)
+    if args.image_paths:
+        if args.no_ui:
+            app._add_items(args.image_paths)
+            app._run_analysis()
+            root.destroy()
+            return
+        root.after(0, lambda: (app._add_items(args.image_paths), app._run_analysis()))
     root.mainloop()
 
 

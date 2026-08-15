@@ -3,10 +3,14 @@ import os
 import cv2
 import numpy as np
 import queue
+import subprocess
 import threading
 import time
 from ctypes import byref, c_double, c_int, c_void_p, cdll
-from usaf_interface.resolution_app import ResolutionApp
+from pathlib import Path
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 from collections import deque
 from datetime import datetime, timezone
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QComboBox, QHBoxLayout, QGridLayout, QLineEdit, QSpinBox, QSizePolicy
@@ -29,13 +33,6 @@ from projection_settings import ProjectionSettingsDialog, ProjectionWindow
 from empty_cam_mgr import EmptyCameraManager
 from power_meter import PowerMeterBus, PowerMeterWorker, PowerMeterWindow, PowerTraceWidget, format_power_watts
 from spectro_meter import SpectrometerBus, SpectrometerWorker, SpectrometerWindow, SpectrumTraceWidget
-import tkinter as tk
-
-try:
-    from tkinterdnd2 import DND_FILES, TkinterDnD
-except ImportError:
-    DND_FILES = None
-    TkinterDnD = None
 
 #main pytHON gui FOR CAM, STAGE CONNECTION
 
@@ -209,6 +206,7 @@ class CameraApp(QWidget):
         self.ui_bus.autofocus_finished.connect(self._on_autofocus_finished)
         self.af_cancel = threading.Event()
         self.af_thread = None
+        self.autofocus_best_image_paths = []
 
         self.power_meter_bus = PowerMeterBus()
         self.power_meter_bus.sample.connect(self._on_power_meter_sample)
@@ -1456,6 +1454,8 @@ class CameraApp(QWidget):
             if not self._handle_completed_stage_stop_actions():
                 self.stage_routine.StepCompleted()
 
+            self.resolution_app_after_routine()
+
     def _now_hhmmss(self):
         """Return the current local time formatted for UI log lines."""
         return datetime.now().strftime("%H:%M:%S")
@@ -1840,7 +1840,7 @@ class CameraApp(QWidget):
             f"[Score] cam={cam_index+1} metric={metric} (higher=sharper) n={n} mean={mean:.6g} std={std:.6g} min={arr.min():.6g} max={arr.max():.6g}"
         )
 
-    def start_autofocus(self, cam_index: int = 0, on_finished=None):
+    def start_autofocus(self, cam_index: int = 0, on_finished=None, no_ui=False):
         """Run autofocus in a worker thread and open the USAF result UI."""
         if not (self.zmq_thread and self.zmq_thread.running):
             self.append_local_log("[AF] Not connected.")
@@ -1881,18 +1881,17 @@ class CameraApp(QWidget):
                     cancel_event=self.af_cancel,
                 )
                 best_z, _pts, best_img_path = routine.run()
+                self.autofocus_best_image_paths.append(str(best_img_path))
                 self.ui_bus.log.emit(f"[AF] done best_z={best_z:.3f}")
 
-                root_class = TkinterDnD.Tk if TkinterDnD is not None else tk.Tk
-                root = root_class()
-                app = ResolutionApp(root)
-
-                def load_best_image():
-                    app._add_items([best_img_path])
-                    app._run_analysis()
-                
-                root.after(0, load_best_image)
-                root.mainloop()
+                resolution_cmd = [sys.executable, "-m", "usaf_interface.resolution_app", str(best_img_path)]
+                if no_ui:
+                    resolution_cmd.append("--no-ui")
+                subprocess.Popen(
+                    resolution_cmd,
+                    cwd=str(ROOT_DIR),
+                )
+                self.ui_bus.log.emit(f"[AF] launched USAF UI for {best_img_path}")
 
             except Exception as e:
                 self.ui_bus.log.emit(f"[AF] error: {e}")
@@ -2133,6 +2132,18 @@ class CameraApp(QWidget):
         json_msg = json.dumps(msg)
         self.zmq_thread.send_message(json_msg)
 
+    def resolution_app_after_routine(self):
+        """launch a final multi-image USAF run if finished."""
+        if getattr(self.stage_routine, "running", False) or not self.autofocus_best_image_paths:
+            return
+        image_paths = list(self.autofocus_best_image_paths)
+        self.autofocus_best_image_paths.clear()
+        subprocess.Popen(
+            [sys.executable, "-m", "usaf_interface.resolution_app", *image_paths],
+            cwd=str(ROOT_DIR),
+        )
+        self.append_local_log(f"[AF] launched final USAF UI for {len(image_paths)} image(s)")
+
     def _handle_completed_stage_stop_actions(self):
         """Run stop-specific actions after a custom stage stop completes."""
         stop = self.stage_routine.CurrentCompletedStop()
@@ -2166,7 +2177,7 @@ class CameraApp(QWidget):
             )
             return started
         elif prop == "resolution":
-            return self.start_autofocus(cam_index=0, on_finished=self.stage_routine.StepCompleted)
+            return self.start_autofocus(cam_index=0, on_finished=self.stage_routine.StepCompleted, no_ui=True)
         else:
             return False
 
@@ -2348,6 +2359,7 @@ class CameraApp(QWidget):
     def start_stage_routine(self):
         """Start the configured custom or fallback stage routine."""
         # For now, use your hardcoded test values
+        self.autofocus_best_image_paths.clear()
         custom_stops = getattr(self, "custom_stage_sequence", None)
         pause_after_each_step = self._resume_pause_enabled()
         self.stage_routine.SetPauseAfterEachStep(pause_after_each_step)
