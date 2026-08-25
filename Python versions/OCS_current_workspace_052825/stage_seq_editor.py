@@ -12,7 +12,7 @@ class StageSequenceEditorDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Set Stage Sequence")
         self.resize(920, 420)
-        self.property_options = ["Start", "imaging", "projection", "powermeter", "spectrometer", "image sensor", "resolution"]
+        self.property_options = ["Start", "imaging", "projection", "powermeter", "spectrometer", "image sensor", "resolution", "auto solid projection"]
         self.screens = QApplication.screens()
         self._applying_offset = False
 

@@ -30,6 +30,7 @@ from zmq_pull_listener import ZMQPullListener
 from autofocus_routine import AutofocusRoutine
 from stage_seq_editor import StageSequenceEditorDialog
 from projection_settings import ProjectionSettingsDialog, ProjectionWindow
+from auto_solid_project import AutoSolidIntensityController
 from empty_cam_mgr import EmptyCameraManager
 from power_meter import PowerMeterBus, PowerMeterWorker, PowerMeterWindow, PowerTraceWidget, format_power_watts
 from spectro_meter import SpectrometerBus, SpectrometerWorker, SpectrometerWindow, SpectrumTraceWidget
@@ -52,6 +53,8 @@ class StageEventBus(QObject):
 class UiBus(QObject):
     log = pyqtSignal(str)
     autofocus_finished = pyqtSignal()
+    auto_solid_apply = pyqtSignal(int)
+    auto_solid_finished = pyqtSignal()
 
 
 
@@ -112,6 +115,9 @@ def make_gauge_icon(size: int = 72) -> QIcon:
 #import the camera functinality from another file
 # -------- Main GUI Application -------- #
 class CameraApp(QWidget):
+    #---------------------------------------------------------------------------------------------------------------------------------
+    # Configuration Functions
+    #---------------------------------------------------------------------------------------------------------------------------------
     def _stage_ports_for_backend(self, backend: str):
         """Return the ZMQ command and event ports for the selected hardware backend."""
         if backend == BACKEND_PYCRO:
@@ -121,6 +127,17 @@ class CameraApp(QWidget):
     def _stage_status_prefix(self):
         """Return the stage label prefix shown for the active hardware backend."""
         return "Pycro stage" if getattr(self, "hardware_backend", BACKEND_NATIVE) == BACKEND_PYCRO else "C# stage"
+
+
+    def _apply_microscope_default_exposure(self, manager):
+        """Apply the default microscope exposure to camera slot 1 if available."""
+        if getattr(manager, "num_cameras", 0) <= 0:
+            return
+        try:
+            ok, applied = manager.set_exposure(0, MICROSCOPE_DEFAULT_EXPOSURE_US)
+            print(f"[Camera] Microscope default exposure set to {applied:.2f} us (ok={ok})")
+        except Exception as e:
+            print(f"[Camera] Could not set microscope default exposure: {e}")
 
     def _create_camera_manager(self, backend: str):
         """Create the camera manager or fallback manager for the requested backend."""
@@ -152,18 +169,20 @@ class CameraApp(QWidget):
             print(f"[Backend] {msg}")
             return EmptyCameraManager(save_dir=self.save_dir, reason=msg)
 
-    def _apply_microscope_default_exposure(self, manager):
-        """Apply the default microscope exposure to camera slot 1 if available."""
-        if getattr(manager, "num_cameras", 0) <= 0:
-            return
-        try:
-            ok, applied = manager.set_exposure(0, MICROSCOPE_DEFAULT_EXPOSURE_US)
-            print(f"[Camera] Microscope default exposure set to {applied:.2f} us (ok={ok})")
-        except Exception as e:
-            print(f"[Camera] Could not set microscope default exposure: {e}")
 
+
+
+    #---------------------------------------------------------------------------------------------------------------------------------
+    # Initialization Functions
+    #---------------------------------------------------------------------------------------------------------------------------------
     def __init__(self):
         """Build the main OptiSuite camera, stage, instrument, and routine UI."""
+        
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # stage event and ZMQ Setup
+        #---------------------------------------------------------------------------------------------------------------------------------
+        
+        # initialize the super class QWidget
         super().__init__()
         self.setWindowTitle("OptiSuite GUI interface")
         # We set a fixed size later after building the layout.
@@ -171,43 +190,78 @@ class CameraApp(QWidget):
         # ZMQ Setup
         self.zmq_thread = None
         self.zmq_events = None
+
+        # hard coded TCP setup, only accesses via config functions
         self.native_stage_host = "localhost"
         self.native_stage_cmd_port = 5555
         self.native_stage_event_port = 5556
         self.pycro_stage_host = "127.0.0.1"
         self.pycro_stage_cmd_port = 5655
         self.pycro_stage_event_port = 5656
+
+        # get the hardware backend from the environment variable, if not set, use the default
         self.hardware_backend = os.environ.get("OPTISUITE_BACKEND", BACKEND_NATIVE).strip().lower()
         if self.hardware_backend not in BACKEND_LABELS:
             self.hardware_backend = BACKEND_NATIVE
         self.characterization_camera_source = os.environ.get("OPTISUITE_CHAR_CAMERA", "dmk:0").strip().lower()
+
+        # get the stage ports for the selected backend, will be used for the stage event
         self.stage_host, self.stage_cmd_port, self.stage_event_port = self._stage_ports_for_backend(self.hardware_backend)
+
+
         self.stage_event_queue = queue.Queue(maxsize=2000)
         self._stage_seq_lock = threading.Lock()
         self._stage_last_seq = 0
-
-        # Stage status/event UI + thread-safe signal bridge
+        # stage event bus for the stage event signals
         self.stage_event_bus = StageEventBus()
         self.stage_event_bus.message.connect(self.on_stage_event)
+
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Preview Status/UI
+        #---------------------------------------------------------------------------------------------------------------------------------
+
+        # preview status label, used to indicate preview is paused
         self.preview_status = QLabel("")
         self.preview_status.setStyleSheet("color: #b45309; font-weight: 600;")
         self.preview_status.setWordWrap(True)
         self.preview_status.hide()
+
+        # stage status label, unused feature for now
         self.stage_status = QLabel(f"{self._stage_status_prefix()}: (no events)")
         self.stage_status.setWordWrap(True)
         self.stage_status.hide()
+
+        # stage log text edit, used to display the stage event log
         self.stage_log = QPlainTextEdit()
         self.stage_log.setReadOnly(True)
         self.stage_log.setMaximumBlockCount(500)
-        self.stage_log.setMinimumWidth(220)
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Functionality Bus Setup
+        #---------------------------------------------------------------------------------------------------------------------------------
+
+        # ui bus for the ui event signals
         self.ui_bus = UiBus()
         self.ui_bus.log.connect(self.append_local_log)
         self.ui_bus.autofocus_finished.connect(self._on_autofocus_finished)
+        self.ui_bus.auto_solid_apply.connect(self._on_auto_solid_apply)
+        self.ui_bus.auto_solid_finished.connect(self._on_auto_solid_finished)
+
+        # autofocus related variables
+        # autofocus cancel flag
         self.af_cancel = threading.Event()
+        # autofocus thread
         self.af_thread = None
+        # autofocus best image paths, used to store the best image paths for the autofocus routine
         self.autofocus_best_image_paths = []
 
+        # auto solid related variables
+        self.auto_solid_thread = None
+        self.auto_solid_applied = threading.Event()
+        self.auto_solid_finished_callback = None
+
+        # finished 
+        # power meter variables
         self.power_meter_bus = PowerMeterBus()
         self.power_meter_bus.sample.connect(self._on_power_meter_sample)
         self.power_meter_bus.status.connect(self._on_power_meter_status)
@@ -215,23 +269,35 @@ class CameraApp(QWidget):
         self.power_meter_thread = None
         self.power_meter_window = None
 
+        # spectrometer variables
         self.spectrometer_bus = SpectrometerBus()
         self.spectrometer_bus.spectrum.connect(self._on_spectrometer_spectrum)
         self.spectrometer_bus.status.connect(self._on_spectrometer_status)
         self.spectrometer_bus.error.connect(self._on_spectrometer_error)
         self.spectrometer_thread = None
         self.spectrometer_window = None
+
+        # projection settings variables
         self.projection_settings = {}
         self.projection_windows = {}
         self.projection_sequence_running = False
 
+        # save directory for the screenshots
         self.save_dir = r"C:\Users\stimscope1\Documents\OptiSuite\screenshots"
+
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Camera Manager and Zoom Setup
+        #---------------------------------------------------------------------------------------------------------------------------------
+
+        # create the camera manager for the selected backend
         #use the class instead
         self.cam_mgr = self._create_camera_manager(self.hardware_backend)
         self.camera_slot_count = max(2, self.cam_mgr.num_cameras)
+        # indicate the zoom level for each camera, initialized with None, but will be set later
         self.zoom_labels = [None] * self.camera_slot_count
         # Per-camera view state for software zoom/pan
         # zoom: >= 1.0, cx/cy are normalized [0..1] center coordinates in the source frame
+        # track zoom level and center coordinates for each camera in the current view
         self.view_states = [{"zoom": 1.0, "cx": 0.5, "cy": 0.5} for _ in range(self.camera_slot_count)]
         # Track last mouse position in label coords (for button zoom anchoring)
         self.last_mouse_pos = [None] * self.camera_slot_count
@@ -242,7 +308,11 @@ class CameraApp(QWidget):
         self.frame_fps = [0.0] * self.camera_slot_count
         self.frame_last_ts = [None] * self.camera_slot_count
         self.frame_last_ids = [None] * self.camera_slot_count
-       
+
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Camera UI Layout
+        #---------------------------------------------------------------------------------------------------------------------------------
+
         # - -   -   -   -   -
         # for the dual camera layout
         #   -   --  -   -   -
@@ -262,14 +332,22 @@ class CameraApp(QWidget):
         rows = (n_cams + cols - 1) // cols
 
         # Fit to screen so the bottom panel doesn't get pushed off-screen.
+        # set the initial window size relative to the available geometry of the primary screen
         screen = QApplication.primaryScreen().availableGeometry()
         max_win_w = int(screen.width() * 0.95)
         max_win_h = int(screen.height() * 0.95)
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # set stage log ui, cont.
         stage_log_w = min(400, max(320, int(max_win_w * 0.32)))
         self.stage_log.setMinimumWidth(260)
         self.stage_log.resize(stage_log_w, self.stage_log.height())
         self.stage_log.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        #---------------------------------------------------------------------------------------------------------------------------------
+
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Camera UI starting size and position
+        #---------------------------------------------------------------------------------------------------------------------------------
 
         # Reserve enough vertical space for stacked bottom control rows.
         # Keep the initial preview size modest; resizing can then grow it.
@@ -282,6 +360,11 @@ class CameraApp(QWidget):
         preview_w = min(520, max_win_w - stage_log_w - 80)
         preview_w = max(360, preview_w)
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Characterization Plate Control UI
+        #---------------------------------------------------------------------------------------------------------------------------------
+
+        # builder for characterization plate control ui
         def add_characterization_controls(control_stack):
             characterization_box = QGroupBox("Charactrization plate")
             characterization_box.setStyleSheet(
@@ -528,6 +611,10 @@ class CameraApp(QWidget):
             self.spectrometer_btn = spectrometer_btn
             self.power_meter_btn = power_btn
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Camera UI Initialization loop (Left side)
+        #---------------------------------------------------------------------------------------------------------------------------------
+
         # Keep fixed camera slots so downstream instrument controls do not move when cameras are missing.
         for i in range(self.camera_slot_count):
             camera_detected = i < self.cam_mgr.num_cameras
@@ -536,6 +623,7 @@ class CameraApp(QWidget):
             if camera_detected and hasattr(self.cam_mgr, "camera_names") and i < len(self.cam_mgr.camera_names):
                 model = str(self.cam_mgr.camera_names[i])
 
+            # camera title, based on the camera index
             if i == 0:
                 cam_title = "Cam 1: Microscope"
             elif i == 1:
@@ -548,6 +636,7 @@ class CameraApp(QWidget):
             title = QLabel(cam_title + title_suffix)
             title.setStyleSheet("font-weight: 600;")
 
+            # camera preview label
             label = QLabel("" if camera_detected else "Camera not detected")
             label.setAlignment(Qt.AlignCenter)
             label.setStyleSheet("border:1px solid gray; background:black; color:white;")
@@ -585,6 +674,8 @@ class CameraApp(QWidget):
                 btn.setFixedSize(28, 28)
                 btn.setToolTip(tip)
                 btn.setStyleSheet(overlay_button_style)
+            
+            # record button
             rec_btn.setFixedSize(28, 28)
             rec_btn.setToolTip("Record video")
             rec_btn.setStyleSheet(
@@ -647,6 +738,8 @@ class CameraApp(QWidget):
             zoom_overlay_layout.addWidget(rec_btn)
             zoom_overlay_layout.addWidget(zoom_lbl)
 
+            # view container for the camera preview and zoom overlay
+            # constain both the preview label and the zoom overlay
             view_container = QWidget()
             view_container.setMinimumSize(180, 80)
             view_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -662,14 +755,19 @@ class CameraApp(QWidget):
             cam_box.setStretch(0, 0)
             cam_box.setStretch(1, 1)
             self.grid.addLayout(cam_box, i // cols * 2, i % cols)
+            # set the row stretch for ui
+            # i // cols * 2 are preview cam box
+            # i // cols * 2 + 1 are control panel, added later, not allow to change size
             self.grid.setRowStretch(i // cols * 2, 1)
             self.grid.setRowStretch(i // cols * 2 + 1, 0)
 
+            # store the camera preview label and title label
             self.cam_labels.append(label)
             self.cam_title_labels.append(title)
 
             # ------- CONTROL PANEL -------
-            # do 2 rows for the control panel
+            # created two row for preview control panel
+            # only panel 1 was used, panel 2 was unused
             panel = QHBoxLayout()
             panel.setContentsMargins(0, 0, 0, 0)
             panel.setSpacing(14)
@@ -677,11 +775,10 @@ class CameraApp(QWidget):
             panel2.setContentsMargins(0, 0, 0, 0)
             panel2.setSpacing(6)
 
-            # Exposure input (µs)
+            # Exposure input box (µs)
             exp_input = QDoubleSpinBox()
             exp_input.setDecimals(2)
             exp_input.setKeyboardTracking(False)
-
             exp_rng = self.cam_mgr.get_exposure_range(i) if camera_detected else None
             if exp_rng:
                 exp_input.setRange(float(exp_rng["min"]), float(exp_rng["max"]))
@@ -690,30 +787,34 @@ class CameraApp(QWidget):
             else:
                 exp_input.setRange(0.0, 1e9)
                 exp_input.setSingleStep(1000.0)
-
             exp_input.setValue(float(self.cam_mgr.get_exposure(i)) if camera_detected else 0.0)
+            exp_input.setFixedWidth(110)
+
+            # apply button for the exposure input box
             exp_apply = QPushButton("Set Exp")
             exp_apply.clicked.connect(lambda _, c=i, w=exp_input: self.apply_exposure(c, w))
+            exp_apply.setFixedWidth(64)
 
+            # exposure label
             exp_label = QLabel("Exposure (us):")
             exp_label.setFixedWidth(92)
             exp_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            exp_input.setFixedWidth(110)
-            exp_apply.setFixedWidth(64)
+            
+            # exposure group for the exposure input box and apply button and label
             exp_group = QHBoxLayout()
             exp_group.setContentsMargins(0, 0, 0, 0)
             exp_group.setSpacing(4)
             exp_group.addWidget(exp_label)
             exp_group.addWidget(exp_input)
             exp_group.addWidget(exp_apply)
+            # add the exposure group to the preview control panel
             panel.addLayout(exp_group)
             self.exposure_inputs.append(exp_input)
 
-            # Gain input
+            # Gain input box
             gain_input = QDoubleSpinBox()
             gain_input.setDecimals(2)
             gain_input.setKeyboardTracking(False)
-
             gain_rng = self.cam_mgr.get_gain_range(i) if camera_detected else None
             if gain_rng:
                 gain_input.setRange(float(gain_rng["min"]), float(gain_rng["max"]))
@@ -721,33 +822,33 @@ class CameraApp(QWidget):
             else:
                 gain_input.setRange(0.0, 100.0)
                 gain_input.setSingleStep(0.5)
-
             gain_input.setValue(float(self.cam_mgr.get_gain(i)) if camera_detected else 0.0)
+            gain_input.setFixedWidth(90)
+
+            # apply button for the gain input box
             gain_apply = QPushButton("Set Gain")
             gain_apply.clicked.connect(lambda _, c=i, w=gain_input: self.apply_gain(c, w))
+            gain_apply.setFixedWidth(68)
 
+            # gain label
             gain_label = QLabel("Gain:")
             gain_label.setFixedWidth(42)
             gain_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            gain_input.setFixedWidth(90)
-            gain_apply.setFixedWidth(68)
+            
+            # gain group for the gain input box and apply button and label
             gain_group = QHBoxLayout()
             gain_group.setContentsMargins(0, 0, 0, 0)
             gain_group.setSpacing(4)
             gain_group.addWidget(gain_label)
             gain_group.addWidget(gain_input)
             gain_group.addWidget(gain_apply)
+            # add the gain group to the preview control panel
             panel.addLayout(gain_group)
+            # add a stretch to the preview control panel
             panel.addStretch(1)
             self.gain_inputs.append(gain_input)
 
-            if i == 1:
-                self.characterization_camera_select = QComboBox()
-                self.characterization_camera_select.addItem("Daheng / current Cam 2", "daheng")
-                self.characterization_camera_select.addItem("DMK 27BUP031", "dmk:0")
-                char_index = self.characterization_camera_select.findData(self.characterization_camera_source)
-                self.characterization_camera_select.setCurrentIndex(max(0, char_index))
-                self.characterization_camera_select.currentIndexChanged.connect(self.on_characterization_camera_changed)
+
 
             self.camera_control_widgets.append(
                 {
@@ -769,15 +870,34 @@ class CameraApp(QWidget):
             control_stack.addLayout(panel2)
 
             if i == 1:
+                # characterization camera select box, never used in ui, but is still needed as other ui templates use it
+                self.characterization_camera_select = QComboBox()
+                self.characterization_camera_select.addItem("Daheng / current Cam 2", "daheng")
+                self.characterization_camera_select.addItem("DMK 27BUP031", "dmk:0")
+                char_index = self.characterization_camera_select.findData(self.characterization_camera_source)
+                self.characterization_camera_select.setCurrentIndex(max(0, char_index))
+                self.characterization_camera_select.currentIndexChanged.connect(self.on_characterization_camera_changed)
+                # build the characterizaion plate control panel
                 add_characterization_controls(control_stack)
 
+            # add the control stack to the grid
             self.grid.addLayout(control_stack, i // cols * 2 + 1, i % cols)
             self.control_panels.append(panel)
+
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Main UI Layout
+        #---------------------------------------------------------------------------------------------------------------------------------
 
         # Top area: camera grid + C# stage status/log
         top_layout = QHBoxLayout()
         top_layout.addLayout(self.grid, 3)
-        stage_panel = QVBoxLayout()
+
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Status log and stage controls layout (Right side)
+        #---------------------------------------------------------------------------------------------------------------------------------
+
+        # right side ui layout
+        # stage controls box for the stage controls
         stage_controls_box = QGroupBox("Controls")
         stage_controls_box.setMinimumWidth(220)
         stage_controls_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -789,14 +909,21 @@ class CameraApp(QWidget):
         self.stage_controls_layout = QVBoxLayout(stage_controls_box)
         self.stage_controls_layout.setContentsMargins(8, 12, 8, 8)
         self.stage_controls_layout.setSpacing(6)
+        
+        # stage panel for the stage status, controls, and log
+        stage_panel = QVBoxLayout()
         stage_panel.addWidget(self.preview_status)
         stage_panel.addWidget(stage_controls_box)
         stage_panel.addWidget(self.stage_log)
         stage_panel.setStretch(0, 0)
         stage_panel.setStretch(1, 1)
         stage_panel.setStretch(2, 1)
-        top_layout.addLayout(stage_panel, 2)
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Assemble Main UI
+        #---------------------------------------------------------------------------------------------------------------------------------
+
+        top_layout.addLayout(stage_panel, 2)
         self.layout.addLayout(top_layout)
         self.setLayout(self.layout)
 
@@ -805,10 +932,10 @@ class CameraApp(QWidget):
         win_h = rows * (preview_h + caption_h + control_h) + bottom_panel_h
         self.resize(win_w, win_h)
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Stage Routine, Autofocus, ZeroMQ, and Backend/stage command controls layout (right side)
+        #---------------------------------------------------------------------------------------------------------------------------------
 
-        # - -   -   -   -
-        #Bottom panel for routine, Autofocus, ZeroMQ
-        # -     -   -   -
         #stage_routine_panel for stage routine, resume step
         stage_routine_panel = QHBoxLayout()
         #autofocus_panel for autofocus, score, n, score button, capture frame button
@@ -818,7 +945,11 @@ class CameraApp(QWidget):
         stage_connection_panel = QHBoxLayout()
         command_panel = QHBoxLayout()
         command_target_panel = QHBoxLayout()
-        
+
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Stage Command Controls
+        #---------------------------------------------------------------------------------------------------------------------------------
+
         # Convenience: allow user to go to individual instruments using StageRoutine
         self.cmd_select = QComboBox()
         self.cmd_select.addItems([
@@ -853,6 +984,10 @@ class CameraApp(QWidget):
         send_btn.setText("Send")
         send_btn.setFixedWidth(58)
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Focus Scoring Tool
+        #---------------------------------------------------------------------------------------------------------------------------------
+
         # ---- Focus scoring tool (noise check) ----
         score_cam_select = QComboBox()
         if self.cam_mgr.num_cameras:
@@ -876,32 +1011,58 @@ class CameraApp(QWidget):
         score_btn.setFixedWidth(58)
         self.score_btn = score_btn
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Stage Functionality Controls (Stage Routine, Projection, AutoSolid Projection)
+        #---------------------------------------------------------------------------------------------------------------------------------
+
         #013026 add these buttons for the stageRoutine
         # ---- Stage Routine Controls ----
         setStageSequence_btn = QPushButton("Set Stage Sequence")
         setProjectionSettings_btn = QPushButton("Set Projection Settings")
+        autoSolidProjection_btn = QPushButton("Auto Solid Projection")
         startRoutine_btn = QPushButton("Start Characterization")
         resumeRoutine_btn = QPushButton("Resume")
+
+        for sequence_btn in (
+            setStageSequence_btn,
+            setProjectionSettings_btn,
+            autoSolidProjection_btn,
+            startRoutine_btn,
+            resumeRoutine_btn,
+        ):
+            sequence_btn.setMinimumWidth(136)
+            sequence_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        autoSolidProjection_btn.setEnabled(self.cam_mgr.num_cameras > 0)
+
+
+
         resumePauseMode_check = QCheckBox("Enable Resume")
         resumePauseMode_check.setChecked(True)
         resumePauseMode_check.setToolTip("Checked pauses after each characterization stop so Resume is required. Unchecked runs through the sequence automatically.")
         autofocus_btn = QPushButton("Autofocus")
         cancel_af_btn = QPushButton("Cancel AF")
-        for sequence_btn in (setStageSequence_btn, setProjectionSettings_btn, startRoutine_btn, resumeRoutine_btn):
-            sequence_btn.setMinimumWidth(136)
-            sequence_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    
         resumePauseMode_check.setMinimumWidth(136)
         resumePauseMode_check.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         autofocus_btn.setEnabled(self.cam_mgr.num_cameras > 0)
         cancel_af_btn.setEnabled(False)
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Stage Functionality Connections (Stage Routine, Projection, AutoSolid Projection)
+        #---------------------------------------------------------------------------------------------------------------------------------
+
         startRoutine_btn.clicked.connect(self.start_stage_routine)
         setStageSequence_btn.clicked.connect(self.open_stage_sequence_editor)
         setProjectionSettings_btn.clicked.connect(self.open_projection_settings_editor)
+        autoSolidProjection_btn.clicked.connect(lambda: self.start_auto_solid_projection(cam_index=0))
         resumeRoutine_btn.clicked.connect(self.resume_stage_routine)
         resumePauseMode_check.stateChanged.connect(lambda _=None: self._refresh_resume_button_state())
         autofocus_btn.clicked.connect(lambda: self.start_autofocus(cam_index=0))
         cancel_af_btn.clicked.connect(self.cancel_autofocus)
+
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Stage Functionality UI Assembly (Stage Routine, Projection, AutoSolid Projection)
+        #---------------------------------------------------------------------------------------------------------------------------------
 
         stage_sequence_buttons = QGridLayout()
         stage_sequence_buttons.setContentsMargins(0, 0, 0, 0)
@@ -909,14 +1070,17 @@ class CameraApp(QWidget):
         stage_sequence_buttons.setVerticalSpacing(4)
         stage_sequence_buttons.addWidget(setStageSequence_btn, 0, 0)
         stage_sequence_buttons.addWidget(setProjectionSettings_btn, 0, 1)
+        stage_sequence_buttons.addWidget(autoSolidProjection_btn, 0, 2)
         stage_sequence_buttons.addWidget(startRoutine_btn, 1, 0)
         stage_sequence_buttons.addWidget(resumeRoutine_btn, 1, 1)
         stage_sequence_buttons.addWidget(resumePauseMode_check, 1, 2)
         stage_sequence_buttons.setColumnStretch(0, 1)
         stage_sequence_buttons.setColumnStretch(1, 1)
         stage_sequence_buttons.setColumnStretch(2, 1)
+
         stage_routine_panel.addLayout(stage_sequence_buttons)
         stage_routine_panel.addStretch(1)
+
         autofocus_panel.addWidget(autofocus_btn)
         autofocus_panel.addWidget(cancel_af_btn)
         autofocus_panel.addWidget(QLabel("Score:"))
@@ -930,18 +1094,22 @@ class CameraApp(QWidget):
         self.resumeRoutine_btn = resumeRoutine_btn
         self.setStageSequence_btn = setStageSequence_btn
         self.setProjectionSettings_btn = setProjectionSettings_btn
+        self.autoSolidProjection_btn = autoSolidProjection_btn
         self.startRoutine_btn = startRoutine_btn
         self.resumePauseMode_check = resumePauseMode_check
         self._refresh_camera_ui_state()
         self._refresh_resume_button_state()
 
-
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Stage Connection Controls
+        #---------------------------------------------------------------------------------------------------------------------------------
 
         # ---- Connect/Disconnect ----
         self.connect_btn = QPushButton("Connect Stage")
         self.disconnect_btn = QPushButton("Disconnect Stage")
         self.status_label = QLabel("Disconnected")
         self.backend_select = QComboBox()
+
         self.backend_select.addItem(BACKEND_LABELS[BACKEND_NATIVE], BACKEND_NATIVE)
         self.backend_select.addItem(BACKEND_LABELS[BACKEND_PYCRO], BACKEND_PYCRO)
         backend_index = self.backend_select.findData(self.hardware_backend)
@@ -955,6 +1123,10 @@ class CameraApp(QWidget):
 
         self.connect_btn.clicked.connect(self.connect_zmq)
         self.disconnect_btn.clicked.connect(self.disconnect_zmq)
+
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Stage Connection UI Assembly
+        #---------------------------------------------------------------------------------------------------------------------------------
 
         # ---- Layout ----
         backend_panel.addWidget(QLabel("Backend:"))
@@ -977,6 +1149,10 @@ class CameraApp(QWidget):
         command_target_panel.addWidget(send_btn)
         command_target_panel.addStretch(1)
 
+        #---------------------------------------------------------------------------------------------------------------------------------
+        # Full Control Panel Assembly
+        #---------------------------------------------------------------------------------------------------------------------------------
+
         for row in (stage_routine_panel, autofocus_panel, backend_panel, stage_connection_panel, command_panel, command_target_panel):
             row.setContentsMargins(0, 0, 0, 0)
             row.setSpacing(6)
@@ -994,6 +1170,25 @@ class CameraApp(QWidget):
             send_move_callback=self.send_stage_move,
             log_callback=print  # for now, just print to console
         )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def _camera_title(self, cam_index: int, camera_detected: bool) -> str:
         """Build the display title for a camera slot."""
@@ -1851,6 +2046,9 @@ class CameraApp(QWidget):
         if self.af_thread and self.af_thread.is_alive():
             self.append_local_log("[AF] Already running.")
             return False
+        if self.auto_solid_thread and self.auto_solid_thread.is_alive():
+            self.append_local_log("[AF] wait for auto solid projection to finish")
+            return False
 
         self.autofocus_finished_callback = on_finished
         self.af_cancel.clear()
@@ -2178,6 +2376,8 @@ class CameraApp(QWidget):
             return started
         elif prop == "resolution":
             return self.start_autofocus(cam_index=0, on_finished=self.stage_routine.StepCompleted, no_ui=True)
+        elif prop == "auto solid projection":
+            return self.start_auto_solid_projection(cam_index=0, on_finished=self.stage_routine.StepCompleted)
         else:
             return False
 
@@ -2215,6 +2415,18 @@ class CameraApp(QWidget):
                 return role, list(patterns or [])
         return None, []
 
+    def _solid_color_from_settings(self, settings):
+        """Build a solid-projection QColor from saved intensity and channel."""
+        settings = settings or {}
+        intensity = max(0, min(100, int(settings.get("solid_intensity", 100))))
+        value = int(round(255 * intensity / 100.0))
+        color_name = str(settings.get("solid_color") or "red").strip().lower()
+        if color_name == "green":
+            return QColor(0, value, 0)
+        if color_name == "blue":
+            return QColor(0, 0, value)
+        return QColor(value, 0, 0)
+
     def _show_live_solid_projection(self, projector_index, color: QColor):
         """Show a solid color on the selected projector display."""
         screens = QApplication.screens()
@@ -2234,6 +2446,104 @@ class CameraApp(QWidget):
         window.show_on_screen(screens[projector_index])
         window.display_solid_color(color)
         return True
+
+    def _solid_display_index(self):
+        """Return the saved or first external display index for solid projection."""
+        settings = getattr(self, "projection_settings", {}) or {}
+        for key in ("solid_display", "microscope_display", "plate_display"):
+            try:
+                return int(settings[key])
+            except Exception:
+                continue
+        screens = QApplication.screens()
+        primary = QApplication.primaryScreen()
+        for index, screen in enumerate(screens):
+            if screen != primary:
+                return index
+        return 0 if screens else None
+
+    def _apply_auto_solid_intensity(self, intensity):
+        """Show the saved solid color at intensity without opening the dialog."""
+        settings = dict(getattr(self, "projection_settings", {}) or {})
+        settings["solid_intensity"] = int(intensity)
+        settings["solid_color"] = settings.get("solid_color") or "red"
+        settings["solid_display"] = self._solid_display_index()
+        self.projection_settings = settings
+        return self._show_live_solid_projection(
+            settings.get("solid_display"),
+            self._solid_color_from_settings(settings),
+        )
+
+    def _set_auto_solid_intensity(self, intensity):
+        """Ask the GUI thread to update the projector, then wait until it is applied."""
+        self.auto_solid_applied.clear()
+        self.ui_bus.auto_solid_apply.emit(int(intensity))
+        self.auto_solid_applied.wait(2.0)
+
+    def _on_auto_solid_apply(self, intensity):
+        """Apply solid projection on the GUI thread."""
+        try:
+            self._apply_auto_solid_intensity(intensity)
+        finally:
+            self.auto_solid_applied.set()
+
+    def start_auto_solid_projection(self, cam_index: int = 0, on_finished=None):
+        """Run AutoSolidIntensityController in a worker thread."""
+        if self.auto_solid_thread and self.auto_solid_thread.is_alive():
+            self.append_local_log("[AutoSolid] already running")
+            return False
+        if self.af_thread and self.af_thread.is_alive():
+            self.append_local_log("[AutoSolid] wait for autofocus to finish")
+            return False
+        if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
+            self.append_local_log("[AutoSolid] no camera available")
+            return False
+
+        self.auto_solid_finished_callback = on_finished
+        if hasattr(self, "autoSolidProjection_btn"):
+            self.autoSolidProjection_btn.setEnabled(False)
+        self.timer.stop()
+        self.preview_status.setText("Preview paused (auto solid projection running).")
+        self.preview_status.show()
+
+        start_intensity = int((getattr(self, "projection_settings", {}) or {}).get("solid_intensity", 50) or 50)
+        out_dir = os.path.join(self.cam_mgr.save_dir, "auto_solid")
+
+        def _runner():
+            try:
+                controller = AutoSolidIntensityController(
+                    cam_index=cam_index,
+                    take_screenshot=lambda ci, save_dir, prefix, warmup_frames: self.cam_mgr.take_screenshot(
+                        ci, save_dir=save_dir, prefix=prefix, warmup_frames=warmup_frames, simple_name=True
+                    ),
+                    set_intensity=self._set_auto_solid_intensity,
+                    log=lambda s: self.ui_bus.log.emit(s),
+                    start_intensity=start_intensity,
+                )
+                best, _stats = controller.run(out_dir=out_dir)
+                self.ui_bus.log.emit(f"[AutoSolid] done intensity={best}%")
+            except Exception as e:
+                self.ui_bus.log.emit(f"[AutoSolid] error: {e}")
+            finally:
+                self.ui_bus.auto_solid_finished.emit()
+
+        self.auto_solid_thread = threading.Thread(target=_runner, daemon=True)
+        self.auto_solid_thread.start()
+        return True
+
+    def _on_auto_solid_finished(self):
+        """Restore preview and button state after auto solid intensity exits."""
+        try:
+            self.timer.start(30)
+        except Exception:
+            pass
+        if hasattr(self, "autoSolidProjection_btn"):
+            self.autoSolidProjection_btn.setEnabled(self.cam_mgr.num_cameras > 0)
+        self.preview_status.hide()
+        callback = self.auto_solid_finished_callback
+        self.auto_solid_finished_callback = None
+        if callback:
+            callback()
 
     def _stop_live_solid_projection(self, projector_index=None):
         """Close one or all live solid-color projection windows."""
@@ -2336,12 +2646,21 @@ class CameraApp(QWidget):
         self.projection_settings = dialog.get_settings()
         microscope_count = len(self.projection_settings.get("microscope_patterns", []))
         plate_count = len(self.projection_settings.get("plate_patterns", []))
+        applied = self._show_live_solid_projection(
+            self.projection_settings.get("solid_display"),
+            self._solid_color_from_settings(self.projection_settings),
+        )
         self.append_local_log(
             "[Projection] settings saved "
             f"(microscope display={self.projection_settings.get('microscope_display')}, "
             f"plate display={self.projection_settings.get('plate_display')}, "
-            f"microscope patterns={microscope_count}, plate patterns={plate_count})"
+            f"microscope patterns={microscope_count}, plate patterns={plate_count}, "
+            f"solid display={self.projection_settings.get('solid_display')}, "
+            f"solid color={self.projection_settings.get('solid_color')}, "
+            f"solid intensity={self.projection_settings.get('solid_intensity')}%)"
         )
+        if applied:
+            self.append_local_log("[Projection] solid color projection updated on screen")
 
     def _resume_pause_enabled(self):
         """Return whether stage routines should pause after each stop."""
