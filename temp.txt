@@ -124,6 +124,11 @@ Best focus group for test_img/image_new_test.png: 2, element 3
 
 
 
+initial x offset 9.907 mm
+initial y offset 0.0 mm
+
+
+
 
 
 

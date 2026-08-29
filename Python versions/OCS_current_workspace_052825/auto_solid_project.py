@@ -6,56 +6,48 @@ from typing import Callable, Optional
 import cv2
 import numpy as np
 
+import autofocus as af
 
-TARGET_SPLIT = 125
-TARGET_FRAC_BELOW = 0.5
-FRAC_TOLERANCE = 0.05
-MEDIAN_TOLERANCE = 8
 MIN_INTENSITY = 0
 MAX_INTENSITY = 100
-MAX_STEPS = 10
+# Coarse 10% samples, then 2% steps in a 20%-wide window around the best.
+CANDIDATE_INTENSITIES = (10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
+FINE_STEP = 2
+FINE_WINDOW = 20
 
 
 def clamp_intensity(value) -> int:
     return int(max(MIN_INTENSITY, min(MAX_INTENSITY, round(float(value)))))
 
 
+def fine_intensities(center: int) -> list[int]:
+    """2% steps across a 20% region centered on the coarse best intensity."""
+    lo = clamp_intensity(center - FINE_WINDOW // 2)
+    hi = clamp_intensity(center + FINE_WINDOW // 2)
+    return list(range(lo, hi + 1, FINE_STEP))
+
+
 def frame_to_gray(frame) -> np.ndarray:
     """Convert a captured camera frame to 8-bit grayscale."""
     if frame is None:
-        raise ValueError("No camera frame available for histogram measurement")
+        raise ValueError("No camera frame available for laplacian scoring")
     image = np.asarray(frame)
     if image.ndim == 3:
         return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     return image.astype(np.uint8, copy=False)
 
 
-def measure_grayscale_histogram(frame, split: int = TARGET_SPLIT) -> dict:
-    """Return grayscale histogram stats for a captured photo."""
-    gray = frame_to_gray(frame).reshape(-1)
-    if gray.size == 0:
+def measure_laplacian_score(frame) -> dict:
+    """Return Laplacian-variance focus score (higher is sharper / better exposed)."""
+    gray_u8 = frame_to_gray(frame)
+    if gray_u8.size == 0:
         raise ValueError("Captured frame has no pixels")
-    split = int(split)
-    frac_below = float(np.mean(gray < split))
-    frac_above = float(np.mean(gray > split))
-    return {
-        "split": split,
-        "frac_below": frac_below,
-        "frac_above": frac_above,
-        "median": float(np.median(gray)),
-        "mean": float(np.mean(gray)),
-    }
-
-
-def histogram_is_balanced(stats: dict) -> bool:
-    """True when ~50% of pixels are below 125 and ~50% are above."""
-    median_ok = abs(float(stats["median"]) - TARGET_SPLIT) <= MEDIAN_TOLERANCE
-    frac_ok = abs(float(stats["frac_below"]) - TARGET_FRAC_BELOW) <= FRAC_TOLERANCE
-    return median_ok or frac_ok
+    gray = gray_u8.astype(np.float32) / 255.0
+    return {"score": float(af.focus_score(gray, metric="laplacian_var"))}
 
 
 class AutoSolidIntensityController:
-    """Binary-search projector intensity until the camera histogram is balanced."""
+    """Sample projector intensities and keep the one with the best Laplacian score."""
 
     def __init__(
         self,
@@ -71,43 +63,53 @@ class AutoSolidIntensityController:
         self.set_intensity = set_intensity
         self.log = log
         self.intensity = clamp_intensity(start_intensity)
-        self.lo = MIN_INTENSITY
-        self.hi = MAX_INTENSITY
         self.step = 0
+        self.best_intensity = self.intensity
+        self.best_score = float("-inf")
+        self._phase = "coarse"
+        self._scored = set()
+        self._queue = [self.intensity] + [c for c in CANDIDATE_INTENSITIES if c != self.intensity]
 
     def suggest_next_intensity(self, frame) -> tuple[int, dict, bool]:
-        """Measure the current photo and return (next_intensity, stats, done)."""
-        stats = measure_grayscale_histogram(frame)
+        """Score the current photo and return (next_intensity, stats, done)."""
+        stats = measure_laplacian_score(frame)
         stats["intensity"] = self.intensity
+        self._scored.add(self.intensity)
         self.step += 1
 
-        if histogram_is_balanced(stats) or self.step >= MAX_STEPS:
-            stats["done_reason"] = "balanced" if histogram_is_balanced(stats) else "max_steps"
-            return self.intensity, stats, True
+        if float(stats["score"]) > self.best_score:
+            self.best_score = float(stats["score"])
+            self.best_intensity = self.intensity
 
-        too_dark = float(stats["median"]) < TARGET_SPLIT
-        if too_dark:
-            self.lo = self.intensity + 1
-        else:
-            self.hi = self.intensity - 1
+        if self.step >= len(self._queue):
+            if self._phase == "coarse":
+                extra = [i for i in fine_intensities(self.best_intensity) if i not in self._scored]
+                self.log(
+                    f"[AutoSolid] coarse best={self.best_intensity}% "
+                    f"(laplacian={self.best_score:.6g}); fine scan {extra}"
+                )
+                if extra:
+                    self._phase = "fine"
+                    self._queue.extend(extra)
+                else:
+                    return self._finish(stats)
 
-        if self.lo > self.hi:
-            stats["done_reason"] = "search_exhausted"
-            return self.intensity, stats, True
+            if self.step >= len(self._queue):
+                return self._finish(stats)
 
-        nxt = clamp_intensity((self.lo + self.hi) / 2)
-        if nxt == self.intensity:
-            nxt = clamp_intensity(self.intensity + (1 if too_dark else -1))
-        if nxt == self.intensity or nxt < self.lo or nxt > self.hi:
-            stats["done_reason"] = "no_better_step"
-            return self.intensity, stats, True
-
-        self.intensity = nxt
+        self.intensity = self._queue[self.step]
         stats["next_intensity"] = self.intensity
         return self.intensity, stats, False
 
+    def _finish(self, stats: dict) -> tuple[int, dict, bool]:
+        self.intensity = self.best_intensity
+        stats["done_reason"] = "best_laplacian"
+        stats["best_intensity"] = self.best_intensity
+        stats["best_score"] = self.best_score
+        return self.intensity, stats, True
+
     def run(self, *, out_dir=None, settle_s: float = 0.5, warmup_frames: int = 10) -> tuple[int, dict]:
-        """Set intensity, capture a screenshot, and search until the histogram is balanced."""
+        """Set intensity, capture a screenshot, and keep the best Laplacian score."""
         while True:
             self.set_intensity(self.intensity)
             if settle_s > 0:
@@ -122,10 +124,12 @@ class AutoSolidIntensityController:
             _nxt, stats, done = self.suggest_next_intensity(frame)
             self.log(
                 f"[AutoSolid] step={self.step} intensity={stats['intensity']}% "
-                f"median={stats['median']:.1f} below125={100.0 * stats['frac_below']:.1f}% "
-                f"above125={100.0 * stats['frac_above']:.1f}% image={img_path}"
+                f"laplacian={stats['score']:.6g} image={img_path}"
             )
             if done:
                 self.set_intensity(self.intensity)
-                self.log(f"[AutoSolid] settled at {self.intensity}% ({stats.get('done_reason', 'balanced')})")
+                self.log(
+                    f"[AutoSolid] settled at {self.intensity}% "
+                    f"(best laplacian={self.best_score:.6g})"
+                )
                 return self.intensity, stats
