@@ -97,6 +97,8 @@ def count_4pts_pattern(img):
 
 
 def yolo_4pt_calculation(pt4_pattern_result, img):
+    """ Caution contains side effect of changing C.FLIPED_TARGET """
+    
     # extract the detected keypoints from the YOLO result
     if pt4_pattern_result is None:
         raise ValueError("yolo_model.yolo_4pt_calculation: Input result is None")

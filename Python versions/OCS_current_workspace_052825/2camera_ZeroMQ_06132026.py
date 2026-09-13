@@ -1,5 +1,7 @@
 import sys
 import os
+import socket
+import signal
 import cv2
 import numpy as np
 import queue
@@ -128,7 +130,6 @@ class CameraApp(QWidget):
         """Return the stage label prefix shown for the active hardware backend."""
         return "Pycro stage" if getattr(self, "hardware_backend", BACKEND_NATIVE) == BACKEND_PYCRO else "C# stage"
 
-
     def _apply_microscope_default_exposure(self, manager):
         """Apply the default microscope exposure to camera slot 1 if available."""
         if getattr(manager, "num_cameras", 0) <= 0:
@@ -136,6 +137,7 @@ class CameraApp(QWidget):
         try:
             ok, applied = manager.set_exposure(0, MICROSCOPE_DEFAULT_EXPOSURE_US)
             print(f"[Camera] Microscope default exposure set to {applied:.2f} us (ok={ok})")
+            print("-------------1-------------------")
         except Exception as e:
             print(f"[Camera] Could not set microscope default exposure: {e}")
 
@@ -147,6 +149,7 @@ class CameraApp(QWidget):
 
                 manager = PycroManagerCameraManager(save_dir=self.save_dir)
                 self._apply_microscope_default_exposure(manager)
+                print("-------------2-------------------")
                 return manager
             except Exception as e:
                 msg = f"Pycro-Manager camera unavailable: {e}"
@@ -163,6 +166,7 @@ class CameraApp(QWidget):
                     print(f"[Backend] Characterization camera fallback to Daheng/current: {e}")
                     self.characterization_camera_source = "daheng"
             self._apply_microscope_default_exposure(router)
+            print("-------------3-------------------")
             return router
         except Exception as e:
             msg = f"Native camera unavailable: {e}"
@@ -203,6 +207,21 @@ class CameraApp(QWidget):
         self.hardware_backend = os.environ.get("OPTISUITE_BACKEND", BACKEND_NATIVE).strip().lower()
         if self.hardware_backend not in BACKEND_LABELS:
             self.hardware_backend = BACKEND_NATIVE
+        # pycro helper processes if backend is pycro
+        self._pycro_headless_proc = None
+        self._pycro_bridge_proc = None
+        if self.hardware_backend == BACKEND_PYCRO:
+            try:
+                self._start_pycro_headless()
+            except Exception as e:
+                print(f"[Backend] failed to start headless MM: {e}")
+
+            try:
+                self._start_pycro_bridge()
+            except Exception as e:
+                print(f"[Backend] failed to start pycro stage bridge: {e}")
+
+
         self.characterization_camera_source = os.environ.get("OPTISUITE_CHAR_CAMERA", "dmk:0").strip().lower()
 
         # get the stage ports for the selected backend, will be used for the stage event
@@ -290,7 +309,7 @@ class CameraApp(QWidget):
         #---------------------------------------------------------------------------------------------------------------------------------
 
         # create the camera manager for the selected backend
-        #use the class instead
+        # use the class instead
         self.cam_mgr = self._create_camera_manager(self.hardware_backend)
         self.camera_slot_count = max(2, self.cam_mgr.num_cameras)
         # indicate the zoom level for each camera, initialized with None, but will be set later
@@ -1188,7 +1207,9 @@ class CameraApp(QWidget):
 
 
 
-
+    # ---------------------------------------------------------------------------------------------------------------------------------
+    # Camera UI Refresh Functions
+    # ---------------------------------------------------------------------------------------------------------------------------------
 
     def _camera_title(self, cam_index: int, camera_detected: bool) -> str:
         """Build the display title for a camera slot."""
@@ -1252,8 +1273,10 @@ class CameraApp(QWidget):
 
     def _refresh_camera_ui_state(self):
         """Refresh camera labels, controls, exposure, gain, and score choices."""
+        print("-------------4-------------------")
         if hasattr(self, "characterization_camera_select"):
             self.characterization_camera_select.setEnabled(self.hardware_backend == BACKEND_NATIVE)
+        print("-------------5-------------------")
 
         for i, label in enumerate(self.cam_labels):
             camera_detected = i < self.cam_mgr.num_cameras
@@ -1272,6 +1295,10 @@ class CameraApp(QWidget):
                 self.gain_inputs[i].setValue(float(self.cam_mgr.get_gain(i)) if camera_detected else 0.0)
 
         self._refresh_score_camera_choices()
+
+    # ---------------------------------------------------------------------------------------------------------------------------------
+    # Camera Source and Backend Switching Functions
+    # ---------------------------------------------------------------------------------------------------------------------------------
 
     def on_characterization_camera_changed(self, _index=None):
         """Switch the Cam 2 characterization source in native backend mode."""
@@ -1323,18 +1350,105 @@ class CameraApp(QWidget):
         except Exception:
             pass
 
+        self._stop_pycro_helper_processes()
+
         self.hardware_backend = backend
         self.stage_host, self.stage_cmd_port, self.stage_event_port = self._stage_ports_for_backend(backend)
         self.stage_event_queue = queue.Queue(maxsize=2000)
         with self._stage_seq_lock:
             self._stage_last_seq = 0
+
+        if backend == BACKEND_PYCRO:
+            try:
+                self._start_pycro_headless()
+            except Exception as e:
+                self.append_local_log(f"[Backend] failed to start headless MM: {e}")
+
+            try:
+                self._start_pycro_bridge()
+            except Exception as e:
+                self.append_local_log(f"[Backend] failed to start pycro stage bridge: {e}")
+
         self.cam_mgr = self._create_camera_manager(backend)
+        print("-------------6-------------------")
         self._refresh_camera_ui_state()
         self.stage_status.setText(f"{self._stage_status_prefix()}: backend selected")
         self.append_local_log(
             f"[Backend] selected {BACKEND_LABELS.get(backend, backend)} "
             f"(stage tcp://{self.stage_host}:{self.stage_cmd_port}, events {self.stage_event_port})"
         )
+
+    #---------------------------------------------------------------------------------------------------------------------------------
+    # Pycro Helper Processes Functions
+    #---------------------------------------------------------------------------------------------------------------------------------
+
+    def _stop_pycro_helper_processes(self):
+        """Terminate headless MM and stage-bridge subprocesses if they are running."""
+        for attr in ("_pycro_bridge_proc", "_pycro_headless_proc"):
+            proc = getattr(self, attr, None)
+            if proc is None:
+                continue
+            try:
+                if proc.poll() is None:
+                    if attr == "_pycro_headless_proc" and sys.platform == "win32":
+                        # Ask the child to run stop_headless() via SIGBREAK.
+                        try:
+                            print("Sending SIGBREAK to pycro_server_headless.py")
+                            proc.send_signal(signal.CTRL_BREAK_EVENT)
+                            proc.wait(timeout=15)
+                            print("SIGBREAK sent to pycro_server_headless.py")
+                        except Exception:
+                            pass
+                    else:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=3)
+                        except Exception:
+                            proc.kill()
+            except Exception:
+                pass
+            setattr(self, attr, None)
+
+    def _wait_for_local_port(self, port: int, timeout_s: float = 20.0) -> bool:
+        """Return True once a local TCP port accepts connections."""
+        deadline = time.time() + float(timeout_s)
+        while time.time() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", int(port)), timeout=0.35):
+                    return True
+            except OSError:
+                time.sleep(0.25)
+        return False
+
+    def _start_pycro_headless(self):
+        """Launch pycro_server_headless.py and wait for MM ZMQ port 4827."""
+        base = Path(__file__).resolve().parent
+        kwargs = {"cwd": str(base)}
+        if sys.platform == "win32":
+            # Needed so we can send CTRL_BREAK_EVENT for graceful stop_headless().
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        self._pycro_headless_proc = subprocess.Popen(
+            [sys.executable, str(base / "pycro_server_headless.py")],
+            **kwargs,
+        )
+        if not self._wait_for_local_port(4827):
+            msg = "[Backend] headless MM did not open port 4827 in time"
+            if hasattr(self, "stage_log"):
+                self.append_local_log(msg)
+            else:
+                print(msg)
+
+    def _start_pycro_bridge(self):
+        """Launch pycro_manager_zmq_bridge.py after headless MM is up."""
+        base = Path(__file__).resolve().parent
+        self._pycro_bridge_proc = subprocess.Popen(
+            [sys.executable, str(base / "pycro_manager_zmq_bridge.py")],
+            cwd=str(base),
+        )
+
+    #---------------------------------------------------------------------------------------------------------------------------------
+    # Camera Preview Mouse Events and Zooming Functions
+    #---------------------------------------------------------------------------------------------------------------------------------
 
     def eventFilter(self, obj, event):
         """Handle camera preview mouse events for zooming and panning."""
@@ -1435,7 +1549,10 @@ class CameraApp(QWidget):
         self.pan_last_pos[cam_index] = label_pos
 
     def adjust_zoom(self, cam_index, multiplier):
-        """Zoom a camera preview around the last known mouse position."""
+        """
+        Zoom a camera preview around the last known mouse position.
+        use for zoom button where no mouse position is provided
+        """
         self.zoom_at_label_pos(cam_index, float(multiplier), self.last_mouse_pos[cam_index])
 
     def reset_zoom(self, cam_index):
@@ -1560,6 +1677,10 @@ class CameraApp(QWidget):
             return frame
         return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
 
+    #---------------------------------------------------------------------------------------------------------------------------------
+    # Camera Exposure and Gain Functions
+    #---------------------------------------------------------------------------------------------------------------------------------
+
     def apply_exposure(self, cam_index, widget: QDoubleSpinBox):
         """Apply the exposure value from the UI to the selected camera."""
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
@@ -1586,6 +1707,10 @@ class CameraApp(QWidget):
         widget.blockSignals(False)
         if not ok:
             print(f"[UI] Gain rejected cam{cam_index}, kept {applied}")
+
+    #---------------------------------------------------------------------------------------------------------------------------------
+    # Main Utility Functions
+    #---------------------------------------------------------------------------------------------------------------------------------
 
     def on_stage_event(self, msg: str):
         """Display stage events and advance routines when stage moves complete."""
@@ -1766,8 +1891,11 @@ class CameraApp(QWidget):
 
 
 
-
     # ---- ZMQ Controls ---- #
+    #---------------------------------------------------------------------------------------------------------------------------------
+    # ZMQ Stage Connection Functions
+    #---------------------------------------------------------------------------------------------------------------------------------
+
     def connect_zmq(self):
         """Start ZMQ stage command/event connections and verify the stage responds."""
         if self.zmq_thread and self.zmq_thread.running:
@@ -1864,6 +1992,13 @@ class CameraApp(QWidget):
             return False
 
         return True
+
+
+
+
+
+
+
 
     def _handle_stage_event_from_thread(self, msg: str):
         """Queue background stage events and forward them to the UI thread."""
@@ -1971,6 +2106,10 @@ class CameraApp(QWidget):
         self.stage_log.appendPlainText(txt)
         self.stage_status.setText(f"{self._stage_status_prefix()}: {txt}")
 
+    #---------------------------------------------------------------------------------------------------------------------------------
+    # Camera Focus Scoring Functions
+    #---------------------------------------------------------------------------------------------------------------------------------
+
     def _center_crop_fraction(self, gray: np.ndarray, fraction: float) -> np.ndarray:
         """Return the centered crop used for focus scoring."""
         f = float(fraction)
@@ -2034,6 +2173,37 @@ class CameraApp(QWidget):
         self.append_local_log(
             f"[Score] cam={cam_index+1} metric={metric} (higher=sharper) n={n} mean={mean:.6g} std={std:.6g} min={arr.min():.6g} max={arr.max():.6g}"
         )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def start_autofocus(self, cam_index: int = 0, on_finished=None, no_ui=False):
         """Run autofocus in a worker thread and open the USAF result UI."""
@@ -2128,6 +2298,18 @@ class CameraApp(QWidget):
         self.autofocus_finished_callback = None
         if callback:
             callback()
+
+
+
+
+
+
+
+
+
+
+
+
 
     #------------------------------------------------------------------------------------------------------------------
     #power meter
@@ -2628,7 +2810,6 @@ class CameraApp(QWidget):
 
 
 
-
     #013026 add this for importing stage routine
     def open_stage_sequence_editor(self):
         """Open the custom stage sequence editor and save its stops."""
@@ -2714,6 +2895,10 @@ class CameraApp(QWidget):
 
 
 
+
+
+
+
     def closeEvent(self, event):
         """Clean up cameras, workers, ZMQ threads, and windows on exit."""
         try:
@@ -2721,7 +2906,11 @@ class CameraApp(QWidget):
         except Exception:
             pass
         self.timer.stop()
-        self.cam_mgr.close()
+        try:
+            self.cam_mgr.close()
+        except Exception:
+            pass
+        self._stop_pycro_helper_processes()
         if self.zmq_thread:
             self.zmq_thread.stop()
         if self.zmq_events:
@@ -2753,6 +2942,8 @@ class CameraApp(QWidget):
                 self.append_local_log(f"[Screenshot] failed cam={cam_index+1}")
         except Exception as e:
             self.append_local_log(f"[Screenshot] error: {e}")
+
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

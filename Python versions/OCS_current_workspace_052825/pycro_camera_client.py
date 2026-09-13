@@ -235,4 +235,25 @@ class PycroManagerCameraManager:
 
     def close(self):
         self.stop_recording(0)
+
+        core = getattr(self, "core", None)
+        self.core = None
+        self.num_cameras = 0
+        self.cameras = []
+        self.camera_names = []
+
+        if core is not None:
+            try:
+                if hasattr(core, "_close"):
+                    core._close()
+            except Exception as e:
+                print(f"[PycroCamera] core._close error: {e}")
+
+            try:
+                bridge = getattr(core, "_bridge", None)
+                if bridge is not None and hasattr(bridge, "close"):
+                    bridge.close()
+            except Exception as e:
+                print(f"[PycroCamera] bridge.close error: {e}")
+
         print("[PycroCamera] Closed.")

@@ -878,6 +878,7 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
         except ValueError as e:
             if "Angle too small or large" in str(e):
                 # rotate current image by 30 degrees and fill background with black
+                # deprecated, no such error
                 (h, w) = curr_image.shape[:2]
                 center = (w // 2, h // 2)
                 matrix = cv2.getRotationMatrix2D(center, -30, 1.0)

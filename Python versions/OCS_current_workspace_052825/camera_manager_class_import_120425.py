@@ -6,6 +6,17 @@ import threading
 
 # used in 2camera_ZeroMQ_06132026.py
 class CameraManager:
+    """Daheng-only camera backend (gxipy / GenICam).
+
+    Owns hardware open/stream for all detected Daheng devices. Exposes the
+    shared camera API used by the GUI (get_frame, exposure/gain, screenshot,
+    recording, close, num_cameras, camera_names, ...).
+
+    On the native path this is wrapped by CharacterizationCameraRouter so Cam 2
+    can optionally be overridden with a non-Daheng source (e.g. DMK). This
+    class itself never talks to DirectShow or Pycro-Manager.
+    """
+
     def __init__(self, save_dir="captures"):
         self.device_manager = gx.DeviceManager()
         dev_info_list = self.device_manager.update_device_list()

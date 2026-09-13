@@ -12,6 +12,14 @@ DMK_DEFAULT_EXPOSURE_US = 66666.0
 
 # used in 2camera_ZeroMQ_06132026.py
 class OpenCVDShowCamera:
+    """Single-camera DirectShow backend (typically DMK via OpenCV CAP_DSHOW).
+
+    Implements the same duck-typed camera API as CameraManager for one device
+    (get_frame, exposure/gain, screenshot, recording, close, ...). Not used as
+    the top-level GUI cam_mgr; CharacterizationCameraRouter mounts this as the
+    Cam-2 override when the characterization source is dmk:N.
+    """
+
     def __init__(self, camera_index=None, save_dir="captures", display_name="DMK 27BUP031"):
         self.camera_index = camera_index
         self.save_dir = save_dir
@@ -241,6 +249,17 @@ class OpenCVDShowCamera:
 
 
 class CharacterizationCameraRouter:
+    """Facade that looks like CameraManager but can mix camera backends.
+
+    Wraps a CameraManager (Daheng) as ``base`` and forwards the shared GUI
+    camera API by cam_index. Cam 0 stays on Daheng; Cam 2 (override_index=1)
+    can be switched to OpenCVDShowCamera via set_characterization_source("dmk:N")
+    or left on Daheng.
+
+    This is the native-path self.cam_mgr in the GUI — not a second Daheng
+    driver. CameraManager owns Daheng hardware; this class only routes slots.
+    """
+
     def __init__(self, base_manager, save_dir="captures"):
         self.base = base_manager
         self.save_dir = save_dir
