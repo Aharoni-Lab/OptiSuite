@@ -2735,7 +2735,7 @@ class CameraApp(QWidget):
             return
         try:
             projector_index = int(projector_index)
-        except Exception:
+        except Exception: 
             return
         window = self.projection_windows.get(projector_index)
         if window is not None:

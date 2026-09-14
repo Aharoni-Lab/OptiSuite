@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-import usaf_interface.usaf_registration.yolo_model as yolo_model
+from usaf_interface.usaf_registration import UsafRegistration
+
 from usaf_interface.analyzers.contrast_chart import ContrastChartAnalyzer, ContrastChartAnalyzerConfig
 from usaf_interface.analyzers.grid import GridAnalyzer, GridAnalyzerConfig
 from usaf_interface.analyzers.siemens import SiemensAnalyzer, SiemensAnalyzerConfig
@@ -19,6 +20,7 @@ SUPPORTED_CHART_TYPES: list[ChartType] = ["auto", "usaf", "siemens", "grid", "sl
 class TargetRouter:
     def __init__(self, config: AnalyzerConfig | None = None):
         self.config = config or AnalyzerConfig()
+        self.usaf = UsafRegistration()
 
     def _build_analyzers(self) -> dict[str, object]:
         return {
@@ -94,7 +96,7 @@ class TargetRouter:
 
         if self.config.use_detection_fallback and best_score < 0.55:
             try:
-                detections, _result, _image = yolo_model.extract_yolo_detections(image_path)
+                detections, _result, _image = self.usaf.extract_yolo_detections(image_path)
                 if len(detections) >= 10:
                     best_chart_type = "usaf"
                     best_score = max(best_score, 0.8)

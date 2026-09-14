@@ -2,18 +2,9 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Iterator
 
-import cv2
-import numpy as np
-import json
-
-import usaf_interface.usaf_registration.usaf_algo as usaf_algo
-import usaf_interface.usaf_registration.yolo_model as yolo_model
-import usaf_interface.usaf_registration.constants as usaf_const
-import usaf_interface.usaf_registration.helper as usaf_helper
-import usaf_interface.usaf_registration.classic_warp as usaf_classic_warp
+from usaf_interface.usaf_registration import UsafRegistration
 
 from usaf_interface.analyzers.base import ResolutionAnalyzer
 from usaf_interface.core.visualization import register_runtime_image
@@ -30,30 +21,30 @@ class USAFAnalyzerConfig(AnalyzerConfig):
     flip_mode: str = "auto"
     flipped_target: bool = True
     auto_adjust: bool = False
-    model_path: str = str(yolo_model.MODEL_PATH)
+    model_path: str = str(UsafRegistration.MODEL_PATH)
     imgsz: int = 2048
 
 
-
 @contextlib.contextmanager
-def _legacy_config_scope(config: USAFAnalyzerConfig) -> Iterator[None]:
+def _config_scope(reg: UsafRegistration, config: USAFAnalyzerConfig) -> Iterator[None]:
+    C = reg.C
     original = {
-        "DEBUG_MODE": usaf_const.DEBUG_MODE,
-        "PREVIEW_MODE": usaf_const.PREVIEW_MODE,
-        "YOLO_DETECT": usaf_const.YOLO_DETECT,
-        "FLIPED_TARGET": usaf_const.FLIPED_TARGET,
-        "AUTO_ADJUST": usaf_const.AUTO_ADJUST,
+        "DEBUG_MODE": C.DEBUG_MODE,
+        "PREVIEW_MODE": C.PREVIEW_MODE,
+        "YOLO_DETECT": C.YOLO_DETECT,
+        "FLIPED_TARGET": C.FLIPED_TARGET,
+        "AUTO_ADJUST": C.AUTO_ADJUST,
     }
-    usaf_const.DEBUG_MODE = config.debug_mode
-    usaf_const.PREVIEW_MODE = config.show_preview
-    usaf_const.YOLO_DETECT = config.allow_model_assist
-    usaf_const.FLIPED_TARGET = config.flipped_target
-    usaf_const.AUTO_ADJUST = config.auto_adjust
+    C.DEBUG_MODE = config.debug_mode
+    C.PREVIEW_MODE = config.show_preview
+    C.YOLO_DETECT = config.allow_model_assist
+    C.FLIPED_TARGET = config.flipped_target
+    C.AUTO_ADJUST = config.auto_adjust
     try:
         yield
     finally:
         for key, value in original.items():
-            setattr(usaf_const, key, value)
+            setattr(C, key, value)
 
 
 def _candidate_quality(scores: list[float], threshold: float) -> float:
@@ -96,6 +87,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
     def __init__(self, config: USAFAnalyzerConfig | None = None):
         super().__init__(config or USAFAnalyzerConfig())
         self.config: USAFAnalyzerConfig
+        self.usaf = UsafRegistration()
 
     def probe(self, context) -> float:
         candidates = _flip_mode_to_candidates(self.config.flip_mode)
@@ -103,10 +95,10 @@ class USAFAnalyzer(ResolutionAnalyzer):
         for _label, flipped_target in candidates:
             probe_config = replace(self.config, flipped_target=flipped_target)
             try:
-                with _legacy_config_scope(probe_config):
-                    corners = usaf_classic_warp.find_square_corners(context.gray_image.copy())
+                with _config_scope(self.usaf, probe_config):
+                    corners = self.usaf.find_square_corners(context.gray_image.copy())
                     if corners is not None:
-                        calibration = usaf_algo.coordinate_calibration(context.gray_image.copy(), corners)
+                        calibration = self.usaf.coordinate_calibration(context.gray_image.copy(), corners)
                         if calibration is not None:
                             best_probe = max(best_probe, 0.96)
                         else:
@@ -126,22 +118,10 @@ class USAFAnalyzer(ResolutionAnalyzer):
         for flip_label, flipped_target in _flip_mode_to_candidates(self.config.flip_mode):
             candidate_config = replace(self.config, flipped_target=flipped_target)
             try:
-                with _legacy_config_scope(candidate_config):
-                    # use cache
-                    # try:
-                    #     with open("usaf_cache.json", "r") as file:
-                    #         cache_payload = json.load(file)
-                    # except (FileNotFoundError, json.JSONDecodeError):
-                    #     cache_payload = None
-
-                    # if cache_payload and cache_payload[0] == context.image_path:
-                    #     usaf_payload = cache_payload[1]
-                    #     usaf_payload[3] = {int(k): v for k, v in usaf_payload[3].items()}
-                    # else:
-                    
+                with _config_scope(self.usaf, candidate_config):
                     # !!! only default 0.2 threshold work yet, need train more models !!!
-                    usaf_payload = usaf_algo.score_image_routine(context.image_path)
-                    
+                    usaf_payload = self.usaf.score_image_routine(context.image_path)
+
                     if usaf_payload is None:
                         raise RuntimeError("USAF score calculation failed.")
 
@@ -151,7 +131,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
                     elif len(usaf_payload) == 4:
                         best_focus_group, chosen_index, scanline_map, scores = usaf_payload
                     else:
-                        raise RuntimeError("Unexpected payload shape from usaf_algo.find_usaf_score.")
+                        raise RuntimeError("Unexpected payload shape from UsafRegistration.find_usaf_score.")
 
                     if not scores:
                         raise RuntimeError("USAF score calculation did not return any scores.")
@@ -162,12 +142,11 @@ class USAFAnalyzer(ResolutionAnalyzer):
                     scores_list = [item["score"] for item in scores.values()]
 
                     overlay_items: list[OverlayItem] = []
-                    corners = usaf_classic_warp.find_square_corners(context.gray_image.copy())
+                    corners = self.usaf.find_square_corners(context.gray_image.copy())
                     corners = None
                     if corners is not None:
                         screen_points = [(int(x), int(context.gray_image.shape[0] - y - 1)) for x, y in corners]
                         overlay_items.append(OverlayItem(kind="polygon", points=screen_points, color=(0, 255, 255), thickness=2))
-                        
 
                 candidate_results.append(
                     {
@@ -282,13 +261,13 @@ class USAFAnalyzer(ResolutionAnalyzer):
 
         curve: list[ContrastSample] = []
         resolved_label = f"G{best_focus_group[0]} E{best_focus_group[1]}"
-        resolved_frequency = usaf_helper.usaf_lp_per_mm(best_focus_group[0], best_focus_group[1])
-        resolved_resolution_mm = usaf_helper.usaf_resolution_mm(best_focus_group[0], best_focus_group[1])
+        resolved_frequency = self.usaf.usaf_lp_per_mm(best_focus_group[0], best_focus_group[1])
+        resolved_resolution_mm = self.usaf.usaf_resolution_mm(best_focus_group[0], best_focus_group[1])
 
         # calculate contrast and frequency for all elements and store it in a list "curve"
         for index in range(len(scores)):
-            group, element = usaf_const.score_table[index]
-            frequency = usaf_helper.usaf_lp_per_mm(group, element)
+            group, element = self.usaf.C.score_table[index]
+            frequency = self.usaf.usaf_lp_per_mm(group, element)
             contrast = float(abs(scores[index]["score"]))
             passed = contrast >= threshold
             curve.append(

@@ -7,7 +7,6 @@ from scipy.signal import savgol_filter
 import shutil
 import os
 import json
-from . import constants as C
 from .sift_warp import get_sift_reference_image, sift_homography_with_origin, _sift_ref_origin_for_target
 from .classic_warp import find_white_corner_in_region, find_target_orientation, get_adjusted_top_corners_from_enclosing_rectangle, find_square_corners
 from .elastix_warp import setup_itkelastix_ref_mapping, ref_usaf_point_to_target, fast_ref_usaf_point_to_target
@@ -31,14 +30,14 @@ from .scoring import find_best_focus_group, score_pattern_crops
 
 
 
-def map_ref_corners_classic(orientation, gray, center_x, center_y, angle, side_length):
+def map_ref_corners_classic(self, orientation, gray, center_x, center_y, angle, side_length):
     #Seconary coordinate calibration using the reference corners
     # left and right ref corner are in standard coordinates 
-    TL_dir = C.prefer_dir_table[orientation][0]
-    TR_dir = C.prefer_dir_table[orientation][1]
-    BL_dir = C.prefer_dir_table[orientation][2]
-    BR_dir = C.prefer_dir_table[orientation][3]
-    if C.FLIPED_TARGET:
+    TL_dir = self.C.prefer_dir_table[orientation][0]
+    TR_dir = self.C.prefer_dir_table[orientation][1]
+    BL_dir = self.C.prefer_dir_table[orientation][2]
+    BR_dir = self.C.prefer_dir_table[orientation][3]
+    if self.C.FLIPED_TARGET:
         TR_dir, TL_dir = TL_dir, TR_dir
         BR_dir, BL_dir = BL_dir, BR_dir
 
@@ -46,10 +45,10 @@ def map_ref_corners_classic(orientation, gray, center_x, center_y, angle, side_l
     # Classic corner calculation
     # --------------------------------------------------------------------------------------------
 
-    top_right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, C.top_right_ref_coord, 1.0/5.0, TL_dir)
-    top_left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, C.top_left_ref_coord, 1.0/5.0, TR_dir)
-    low_right_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, C.low_right_ref_coord, 1.0/5.0, BL_dir)
-    low_left_ref_corner = find_white_corner_in_region(gray, center_x, center_y, angle, side_length, C.low_left_ref_coord, 1.0/5.0, BR_dir)
+    top_right_ref_corner = self.find_white_corner_in_region(gray, center_x, center_y, angle, side_length, self.C.top_right_ref_coord, 1.0/5.0, TL_dir)
+    top_left_ref_corner = self.find_white_corner_in_region(gray, center_x, center_y, angle, side_length, self.C.top_left_ref_coord, 1.0/5.0, TR_dir)
+    low_right_ref_corner = self.find_white_corner_in_region(gray, center_x, center_y, angle, side_length, self.C.low_right_ref_coord, 1.0/5.0, BL_dir)
+    low_left_ref_corner = self.find_white_corner_in_region(gray, center_x, center_y, angle, side_length, self.C.low_left_ref_coord, 1.0/5.0, BR_dir)
 
     return top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner
 
@@ -58,49 +57,49 @@ def map_ref_corners_classic(orientation, gray, center_x, center_y, angle, side_l
 
 
 
-def map_ref_corners_sift(orientation, gray, center_x, center_y, angle, side_length):
+def map_ref_corners_sift(self, orientation, gray, center_x, center_y, angle, side_length):
     sift_angle = 0
     sift_length = 0
 
-    ref_image_sift = get_sift_reference_image()
+    ref_image_sift = self.get_sift_reference_image()
     if ref_image_sift is None:
-        if C.DEBUG_MODE:
-            print(f"Failed to load SIFT reference image: {C.SIFT_REF_IMAGE_PATH}")
-        raise RuntimeError(f"usaf_algo.coordinate_calibration: Failed to load SIFT reference image: {C.SIFT_REF_IMAGE_PATH}")
-    if C.FLIPED_TARGET:
+        if self.C.DEBUG_MODE:
+            print(f"Failed to load SIFT reference image: {self.C.SIFT_REF_IMAGE_PATH}")
+        raise RuntimeError(f"usaf_algo.coordinate_calibration: Failed to load SIFT reference image: {self.C.SIFT_REF_IMAGE_PATH}")
+    if self.C.FLIPED_TARGET:
         # Mirror the reference image to match flipped target orientation.
         ref_image_sift = cv2.flip(ref_image_sift, 1)
-    sift_origin = _sift_ref_origin_for_target()
+    sift_origin = self._sift_ref_origin_for_target()
 
     # --------------------------------------------------------------------------------------------
     # SIFT Homography
     # --------------------------------------------------------------------------------------------
 
-    C._sift_h_matrix, _ = sift_homography_with_origin(
+    self.C._sift_h_matrix, _ = self.sift_homography_with_origin(
         ref_image_sift,
         gray,
         origin1=sift_origin,
-        pixels_per_unit_x=C.SIFT_REF_PIXELS_PER_UNIT_X,
-        pixels_per_unit_y=C.SIFT_REF_PIXELS_PER_UNIT_Y,
-        ratio_test=C.SIFT_REF_RATIO_TEST,
-        ransac_reproj_threshold=C.SIFT_REF_RANSAC_REPROJ,
-        min_match_count=C.SIFT_REF_MIN_MATCH_COUNT,
-        show_plot=C.SIFT_REF_SHOW_PLOT,
+        pixels_per_unit_x=self.C.SIFT_REF_PIXELS_PER_UNIT_X,
+        pixels_per_unit_y=self.C.SIFT_REF_PIXELS_PER_UNIT_Y,
+        ratio_test=self.C.SIFT_REF_RATIO_TEST,
+        ransac_reproj_threshold=self.C.SIFT_REF_RANSAC_REPROJ,
+        min_match_count=self.C.SIFT_REF_MIN_MATCH_COUNT,
+        show_plot=self.C.SIFT_REF_SHOW_PLOT,
     )
 
     # --------------------------------------------------------------------------------------------
     # ITKElastix mapping
     # --------------------------------------------------------------------------------------------
 
-    if C.USE_ITKELASTIX_REF_CALIBRATION:
+    if self.C.USE_ITKELASTIX_REF_CALIBRATION:
         try:
-            setup_itkelastix_ref_mapping(ref_image_sift, gray, C._sift_h_matrix)
+            self.setup_itkelastix_ref_mapping(ref_image_sift, gray, self.C._sift_h_matrix)
         except Exception as e:
-            C._itk_transform_params = None
-            C._itk_moving_image = None
-            C._itk_output_dir = None
-            C._itk_roi_offset = (0, 0)
-            C._itk_point_cache = {}
+            self.C._itk_transform_params = None
+            self.C._itk_moving_image = None
+            self.C._itk_output_dir = None
+            self.C._itk_roi_offset = (0, 0)
+            self.C._itk_point_cache = {}
             print(f"ITKElastix mapping failed; using SIFT only: {e}")
 
     # --------------------------------------------------------------------------------------------
@@ -108,36 +107,36 @@ def map_ref_corners_sift(orientation, gray, center_x, center_y, angle, side_leng
     # --------------------------------------------------------------------------------------------
 
     # Use same axis/sign convention as usaf2screen:
-    # x may flip by C.FLIPED_TARGET, and y is inverted for screen coordinates.
-    flip = -1 if C.FLIPED_TARGET else 1
-    if C._itk_transform_params is not None:
+    # x may flip by self.C.FLIPED_TARGET, and y is inverted for screen coordinates.
+    flip = -1 if self.C.FLIPED_TARGET else 1
+    if self.C._itk_transform_params is not None:
         mapped = np.array(
             [
-                ref_usaf_point_to_target(C.top_right_ref_coord),
-                ref_usaf_point_to_target(C.top_left_ref_coord),
-                ref_usaf_point_to_target(C.low_right_ref_coord),
-                ref_usaf_point_to_target(C.low_left_ref_coord),
+                self.ref_usaf_point_to_target(self.C.top_right_ref_coord),
+                self.ref_usaf_point_to_target(self.C.top_left_ref_coord),
+                self.ref_usaf_point_to_target(self.C.low_right_ref_coord),
+                self.ref_usaf_point_to_target(self.C.low_left_ref_coord),
             ],
             dtype=np.float64,
         )
     else:
         ref_pts_local = np.array(
             [
-                [[flip * C.top_right_ref_coord[0], -C.top_right_ref_coord[1]]],
-                [[flip * C.top_left_ref_coord[0], -C.top_left_ref_coord[1]]],
-                [[flip * C.low_right_ref_coord[0], -C.low_right_ref_coord[1]]],
-                [[flip * C.low_left_ref_coord[0], -C.low_left_ref_coord[1]]],
+                [[flip * self.C.top_right_ref_coord[0], -self.C.top_right_ref_coord[1]]],
+                [[flip * self.C.top_left_ref_coord[0], -self.C.top_left_ref_coord[1]]],
+                [[flip * self.C.low_right_ref_coord[0], -self.C.low_right_ref_coord[1]]],
+                [[flip * self.C.low_left_ref_coord[0], -self.C.low_left_ref_coord[1]]],
             ],
             dtype=np.float32,
         )
-        mapped = cv2.perspectiveTransform(ref_pts_local, C._sift_h_matrix).reshape(-1, 2)
+        mapped = cv2.perspectiveTransform(ref_pts_local, self.C._sift_h_matrix).reshape(-1, 2)
     
     # calculatel angle relative to +ive horizontal (-pi, pi)
     sift_ref_vector = mapped[0] - mapped[2]
     sift_ref_unit_vector = sift_ref_vector / np.linalg.norm(sift_ref_vector)
     sift_angle = np.arctan2(sift_ref_unit_vector[1], sift_ref_unit_vector[0])
     sift_length = np.linalg.norm(sift_ref_vector)
-    if C.DEBUG_MODE:
+    if self.C.DEBUG_MODE:
         print(f"SIFT reference vector: {sift_ref_vector}, angle: {sift_angle}, length: {sift_length}")
 
     # --------------------------------------------------------------------------------------------
@@ -151,7 +150,7 @@ def map_ref_corners_sift(orientation, gray, center_x, center_y, angle, side_leng
     low_right_ref_corner = (float(mapped[2, 0]), float(gray.shape[0] - 1 - mapped[2, 1]))
     low_left_ref_corner = (float(mapped[3, 0]), float(gray.shape[0] - 1 - mapped[3, 1]))
 
-    if C.SIFT_REF_SHOW_PLOT:
+    if self.C.SIFT_REF_SHOW_PLOT:
         sift_vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
         labels = ["TR", "TL", "LR", "LL"]
         colors = ["magenta", "cyan", "yellow", "lime"]
@@ -219,10 +218,10 @@ def map_ref_corners_sift(orientation, gray, center_x, center_y, angle, side_leng
 
 
 
-def grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gray):
+def grid_calculation(self, top_right_ref_corner, top_left_ref_corner, orientation, gray):
     ref_vector = np.array(top_right_ref_corner) - np.array(top_left_ref_corner)
     ref_unit_vector = ref_vector / np.linalg.norm(ref_vector)
-    flip = 1 if C.FLIPED_TARGET else -1
+    flip = 1 if self.C.FLIPED_TARGET else -1
     ref_normal_vector = flip * np.array([-ref_unit_vector[1], ref_unit_vector[0]])
     dist = np.sqrt(ref_vector[0]**2 + ref_vector[1]**2)
     #recalculate angle using the right reference corner and left reference corner
@@ -238,7 +237,7 @@ def grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gra
     elif orientation == 1:                   #right case
         angle = angle
 
-    if C.DEBUG_MODE:
+    if self.C.DEBUG_MODE:
         print(f"Angle: {angle / np.pi * 180}")
 
     #recalculate center_x and center_y using the right reference corner and left reference corner
@@ -246,8 +245,8 @@ def grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gra
     #the left reference corner in the direction of the unit vector from left reference corner to right reference corner
     if dist > 0:
         # Calculate the offset distance in usaf axis but standard scale based on ratio
-        sum_length = C.top_left_ref_coord[0] + np.abs(C.top_right_ref_coord[0])
-        offset_dist_x = C.top_left_ref_coord[0] * dist / sum_length
+        sum_length = self.C.top_left_ref_coord[0] + np.abs(self.C.top_right_ref_coord[0])
+        offset_dist_x = self.C.top_left_ref_coord[0] * dist / sum_length
         offset_dist_y = 1.00 * dist * 0.5 / sum_length
         center_x = top_left_ref_corner[0] + (ref_unit_vector[0] * offset_dist_x) - (ref_normal_vector[0] * offset_dist_y)
         center_y = top_left_ref_corner[1] + (ref_unit_vector[1] * offset_dist_x) - (ref_normal_vector[1] * offset_dist_y)
@@ -267,22 +266,22 @@ def grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gra
 
 
 
-def coordinate_calibration(gray, corners):
+def coordinate_calibration(self, gray, corners):
     '''
     Calibrates the coordinate system using the corners of the square
     '''
-    C._sift_h_matrix = None
-    C._itk_transform_params = None
-    C._itk_moving_image = None
-    C._itk_output_dir = None
-    C._itk_roi_offset = (0, 0)
-    C._itk_point_cache = {}
+    self.C._sift_h_matrix = None
+    self.C._itk_transform_params = None
+    self.C._itk_moving_image = None
+    self.C._itk_output_dir = None
+    self.C._itk_roi_offset = (0, 0)
+    self.C._itk_point_cache = {}
 
     # if any corner is on the edge of the image, return None to trigger retry with next best square
-    if not C.USE_SIFT_REF_CALIBRATION:
+    if not self.C.USE_SIFT_REF_CALIBRATION:
         for corner in corners:
             if corner[0] <= 0 or corner[0] >= gray.shape[1] - 1 or corner[1] <= 0 or corner[1] >= gray.shape[0] - 1:
-                if C.DEBUG_MODE:
+                if self.C.DEBUG_MODE:
                     print("Corner on edge detected, retrying with next best square...")
                 return None
 
@@ -326,7 +325,7 @@ def coordinate_calibration(gray, corners):
         # raise ValueError("usaf_algo.coordinate_calibration: Angle too small or large, retrying with rotation...")
 
     # find orientation of the target
-    orientation = find_target_orientation(gray, center_x, center_y, unit_vector, side_length)
+    orientation = self.find_target_orientation(gray, center_x, center_y, unit_vector, side_length)
     angle = angle + orientation * np.pi / 2
 
 
@@ -344,25 +343,25 @@ def coordinate_calibration(gray, corners):
     low_right_ref_corner = None
     low_left_ref_corner = None
 
-    if not C.USE_SIFT_REF_CALIBRATION or C.PT_TRANSFORM == "auto":
-        top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner = map_ref_corners_classic(
+    if not self.C.USE_SIFT_REF_CALIBRATION or self.C.PT_TRANSFORM == "auto":
+        top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner = self.map_ref_corners_classic(
             orientation, gray, center_x, center_y, angle, side_length
         )
-    if top_right_ref_corner is not None and top_left_ref_corner is not None and C.PT_TRANSFORM == "auto":
-        _, _, classic_angle, _ = grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gray)
-        if C.DEBUG_MODE:
+    if top_right_ref_corner is not None and top_left_ref_corner is not None and self.C.PT_TRANSFORM == "auto":
+        _, _, classic_angle, _ = self.grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gray)
+        if self.C.DEBUG_MODE:
             print("Classic angle(from grid_calculation):", classic_angle)
     
-    if C.USE_SIFT_REF_CALIBRATION or C.PT_TRANSFORM == "auto":
-        top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner = map_ref_corners_sift(
+    if self.C.USE_SIFT_REF_CALIBRATION or self.C.PT_TRANSFORM == "auto":
+        top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner = self.map_ref_corners_sift(
             orientation, gray, center_x, center_y, angle, side_length
         )
-    if top_right_ref_corner is not None and top_left_ref_corner is not None and C.PT_TRANSFORM == "auto":
-        _, _, sift_angle, sift_length = grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gray)
-        pt1 = np.array(C.top_right_ref_coord)
-        pt2 = np.array(C.low_right_ref_coord)
+    if top_right_ref_corner is not None and top_left_ref_corner is not None and self.C.PT_TRANSFORM == "auto":
+        _, _, sift_angle, sift_length = self.grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gray)
+        pt1 = np.array(self.C.top_right_ref_coord)
+        pt2 = np.array(self.C.low_right_ref_coord)
         sift_length = np.linalg.norm(pt1 - pt2) * sift_length
-        if C.DEBUG_MODE:
+        if self.C.DEBUG_MODE:
             print("SIFT angle(from grid_calculation):", sift_angle)
             print("SIFT length(from grid_calculation):", sift_length)
 
@@ -370,20 +369,20 @@ def coordinate_calibration(gray, corners):
     # Calculate grid from corners
     # --------------------------------------------------------------------------------------------
 
-    if top_right_ref_corner is not None and top_left_ref_corner is not None and low_right_ref_corner is not None and low_left_ref_corner is not None and C.FOUR_KP == True:
-        adjusted_top_right, adjusted_top_left = get_adjusted_top_corners_from_enclosing_rectangle(
+    if top_right_ref_corner is not None and top_left_ref_corner is not None and low_right_ref_corner is not None and low_left_ref_corner is not None and self.C.FOUR_KP == True:
+        adjusted_top_right, adjusted_top_left = self.get_adjusted_top_corners_from_enclosing_rectangle(
             top_right_ref_corner,
             top_left_ref_corner,
             low_right_ref_corner,
             low_left_ref_corner,
         )
-        center_x, center_y, angle, side_length = grid_calculation(adjusted_top_right, adjusted_top_left, orientation, gray)
+        center_x, center_y, angle, side_length = self.grid_calculation(adjusted_top_right, adjusted_top_left, orientation, gray)
         return [center_x, center_y, angle, side_length, adjusted_top_right, adjusted_top_left, low_right_ref_corner, low_left_ref_corner, classic_angle, sift_angle, sift_length]
-    elif top_right_ref_corner is not None and top_left_ref_corner is not None and C.FOUR_KP == False:
-        center_x, center_y, angle, side_length = grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gray)
+    elif top_right_ref_corner is not None and top_left_ref_corner is not None and self.C.FOUR_KP == False:
+        center_x, center_y, angle, side_length = self.grid_calculation(top_right_ref_corner, top_left_ref_corner, orientation, gray)
         return [center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, None, None, classic_angle, sift_angle, sift_length]
-    elif (top_right_ref_corner is None or top_left_ref_corner is None) and C.PT_TRANSFORM == "auto":
-        if C.DEBUG_MODE:
+    elif (top_right_ref_corner is None or top_left_ref_corner is None) and self.C.PT_TRANSFORM == "auto":
+        if self.C.DEBUG_MODE:
             print("No valid sift reference corners found for PT_TRANSFORM='auto'")
         return [center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, None, None, classic_angle, sift_angle, sift_length]
     else:
@@ -392,20 +391,20 @@ def coordinate_calibration(gray, corners):
 
 
 
-def usaf_point_to_screen(pt, center_x, center_y, angle, side_length):
+def usaf_point_to_screen(self, pt, center_x, center_y, angle, side_length):
     """Map USAF coords to test-image screen pixels for scanlines."""
-    if C._itk_transform_params is not None and C.PT_TRANSFORM == "elastix":
-        x, y = ref_usaf_point_to_target(pt)
+    if self.C._itk_transform_params is not None and self.C.PT_TRANSFORM == "elastix":
+        x, y = self.ref_usaf_point_to_target(pt)
         return (int(round(x)), int(round(y)))
-    if C._sift_h_matrix is not None and C.PT_TRANSFORM == "sift":
-        x, y = usaf2screen_homography(pt, C._sift_h_matrix)
+    if self.C._sift_h_matrix is not None and self.C.PT_TRANSFORM == "sift":
+        x, y = self.usaf2screen_homography(pt, self.C._sift_h_matrix)
         return (int(round(x)), int(round(y)))
-    return usaf2screen_classic(pt, center_x, center_y, angle, side_length)
+    return self.usaf2screen_classic(pt, center_x, center_y, angle, side_length)
 
 
 
 
-def scanline_visualization(img, gray, center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, low_right_ref_corner=None, low_left_ref_corner=None):
+def scanline_visualization(self, img, gray, center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, low_right_ref_corner=None, low_left_ref_corner=None):
     # Display the result
     # convert the right reference corner and left reference corner from standard to screen coordinates
     top_right_ref_corner = (int(top_right_ref_corner[0]), int(gray.shape[0] - top_right_ref_corner[1] - 1))
@@ -413,7 +412,7 @@ def scanline_visualization(img, gray, center_x, center_y, angle, side_length, to
     cv2.circle(img, top_right_ref_corner, 2, (255, 0, 255), -1)  # magenta for right reference corner
     cv2.circle(img, top_left_ref_corner, 2, (255, 255, 0), -1)  # cyan for left reference corner
 
-    if C.FOUR_KP == True:
+    if self.C.FOUR_KP == True:
         low_right_ref_corner = (int(low_right_ref_corner[0]), int(gray.shape[0] - low_right_ref_corner[1] - 1))
         low_left_ref_corner = (int(low_left_ref_corner[0]), int(gray.shape[0] - low_left_ref_corner[1] - 1))
         cv2.circle(img, low_right_ref_corner, 2, (255, 0, 255), -1)  # magenta for right reference corner
@@ -424,8 +423,8 @@ def scanline_visualization(img, gray, center_x, center_y, angle, side_length, to
     left_region_size_px = int((1.0/5.0) * side_length)
     # convert the right reference corner and left reference corner from usaf to screen coordinates, then draw the region around them,
     # cast to int for cv2.rectangle
-    right_rotated_pt = usaf_point_to_screen(C.top_right_ref_coord, center_x, center_y, angle, side_length)
-    left_rotated_pt = usaf_point_to_screen(C.top_left_ref_coord, center_x, center_y, angle, side_length)
+    right_rotated_pt = self.usaf_point_to_screen(self.C.top_right_ref_coord, center_x, center_y, angle, side_length)
+    left_rotated_pt = self.usaf_point_to_screen(self.C.top_left_ref_coord, center_x, center_y, angle, side_length)
     cv2.rectangle(img, (int(right_rotated_pt[0] - right_region_size_px), int(right_rotated_pt[1] - right_region_size_px)),                  (int(right_rotated_pt[0] + right_region_size_px), int(right_rotated_pt[1] + right_region_size_px)), (255, 0, 255), 2)
     cv2.rectangle(img, (int(left_rotated_pt[0] - left_region_size_px), int(left_rotated_pt[1] - left_region_size_px)),                  (int(left_rotated_pt[0] + left_region_size_px), int(left_rotated_pt[1] + left_region_size_px)), (255, 255, 0), 2)
 
@@ -441,7 +440,7 @@ def scanline_visualization(img, gray, center_x, center_y, angle, side_length, to
 
 
 
-def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_instance = 0):
+def calculate_scanline_contrast_scores(self, curr_image, yolo_detections=None, retry_instance = 0):
     '''
     Calculate the scanline contrast scores for each group element based on the defined scanlines and the detected corners for coordinate calibration.
     If YOLO detections are provided, replace scanline endpoints that fall within YOLO bounding boxes with YOLO keypoints.
@@ -475,16 +474,16 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
     # Ensure values are between 0 and 1 (though division by max should already do this)
     normalized_gray = np.clip(normalized_gray, 0, 1)
     # Find square corners
-    corners = find_square_corners(gray)
+    corners = self.find_square_corners(gray)
 
     if initial_retry_instance == 0:
-        pt4_pattern_result = count_4pts_pattern(clean_img)
-        C.pattern_count = len(pt4_pattern_result.boxes)
-        parsed, yolo_angles, yolo_box_lengths, yolo_dir = yolo_4pt_calculation(pt4_pattern_result, clean_img)
+        pt4_pattern_result = self.count_4pts_pattern(clean_img)
+        self.C.pattern_count = len(pt4_pattern_result.boxes)
+        parsed, yolo_angles, yolo_box_lengths, yolo_dir = self.yolo_4pt_calculation(pt4_pattern_result, clean_img)
 
         # show image with annotation
-        if C.DEBUG_MODE:
-            print(f"YOLO detected {C.pattern_count} patterns. Parsed results: {parsed}")
+        if self.C.DEBUG_MODE:
+            print(f"YOLO detected {self.C.pattern_count} patterns. Parsed results: {parsed}")
             # 1. Plot the YOLO results (outputs BGR image)
             annotated = pt4_pattern_result.plot(font_size=1, line_width=1)
 
@@ -499,13 +498,13 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
             plt.tight_layout()
             plt.show()
 
-    if C.USE_SIFT_REF_CALIBRATION:
-        sift_config_index = max(min(C.pattern_count - 1, 2), 0)
-        C.SIFT_REF_IMAGE_PATH = C.SIFT_CONFIG_LIST[sift_config_index]["REF_IMAGE_PATH"]
-        C.SIFT_REF_ORIGIN = C.SIFT_CONFIG_LIST[sift_config_index]["REF_ORIGIN"]  
-        C.SIFT_REF_PIXELS_PER_UNIT_X = C.SIFT_CONFIG_LIST[sift_config_index]["REF_PIXELS_PER_UNIT_X"]  
-        C.SIFT_REF_PIXELS_PER_UNIT_Y = C.SIFT_CONFIG_LIST[sift_config_index]["REF_PIXELS_PER_UNIT_Y"]  
-        C.SIFT_ANGLE = C.SIFT_CONFIG_LIST[sift_config_index]["ANGLE"]
+    if self.C.USE_SIFT_REF_CALIBRATION:
+        sift_config_index = max(min(self.C.pattern_count - 1, 2), 0)
+        self.C.SIFT_REF_IMAGE_PATH = self.C.SIFT_CONFIG_LIST[sift_config_index]["REF_IMAGE_PATH"]
+        self.C.SIFT_REF_ORIGIN = self.C.SIFT_CONFIG_LIST[sift_config_index]["REF_ORIGIN"]  
+        self.C.SIFT_REF_PIXELS_PER_UNIT_X = self.C.SIFT_CONFIG_LIST[sift_config_index]["REF_PIXELS_PER_UNIT_X"]  
+        self.C.SIFT_REF_PIXELS_PER_UNIT_Y = self.C.SIFT_CONFIG_LIST[sift_config_index]["REF_PIXELS_PER_UNIT_Y"]  
+        self.C.SIFT_ANGLE = self.C.SIFT_CONFIG_LIST[sift_config_index]["ANGLE"]
 
 
 
@@ -516,12 +515,12 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
 
 
     # Coordinate calibration
-    C.retry_count = 0
+    self.C.retry_count = 0
     retry_condition = False
     retry_origin = False
     scores = {}
 
-    while C.retry_count < C.valid_squares.__len__():
+    while self.C.retry_count < self.C.valid_squares.__len__():
         scanlines = {}
         scores = {}  # reset scores before retrying
         img = clean_img.copy()
@@ -533,14 +532,14 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
         # --------------------------------------------------------------------------------------------
 
 
-        corners = C.valid_squares[C.retry_count].reshape(-1, 2).copy()
+        corners = self.C.valid_squares[self.C.retry_count].reshape(-1, 2).copy()
         corners[:, 1] = img.shape[0] - corners[:, 1] - 1
-        output_list = coordinate_calibration(gray, corners)
+        output_list = self.coordinate_calibration(gray, corners)
 
         if output_list is None:
-            C.retry_count = C.retry_count + 1
-            if C.DEBUG_MODE:
-                print(f"Retrying coordinate calibration with next best square... Attempt {C.retry_count}")
+            self.C.retry_count = self.C.retry_count + 1
+            if self.C.DEBUG_MODE:
+                print(f"Retrying coordinate calibration with next best square... Attempt {self.C.retry_count}")
             continue
 
         [center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner, classic_angle, sift_angle, sift_length] = output_list
@@ -552,11 +551,11 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
 
 
         # get the outer coordinate from the center coordinate
-        if C.retry_count == 1 and not retry_origin and C.RETRY_OUTER:
-            flip = -1 if C.FLIPED_TARGET else 1
+        if self.C.retry_count == 1 and not retry_origin and self.C.RETRY_OUTER:
+            flip = -1 if self.C.FLIPED_TARGET else 1
             # convert from usaf coordinate to pixel scale
             center_offset = np.array([-1.009, 7.791]) * side_length
-            center_offset = get_rotated_pt(0, 0, center_offset[0] * flip, -center_offset[1], angle)
+            center_offset = self.get_rotated_pt(0, 0, center_offset[0] * flip, -center_offset[1], angle)
             center_x = center_x + center_offset[0]
             center_y = center_y + center_offset[1]
             side_length = side_length * 3.918
@@ -569,32 +568,32 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
         # Scanline calculation and scoring
         # --------------------------------------------------------------------------------------------
         
-        if C._itk_transform_params is not None and C.PT_TRANSFORM == "elastix":
-            mapped_scanlines = fast_ref_usaf_point_to_target(C.group_positions.values(), n_workers=4)
+        if self.C._itk_transform_params is not None and self.C.PT_TRANSFORM == "elastix":
+            mapped_scanlines = self.fast_ref_usaf_point_to_target(self.C.group_positions.values(), n_workers=4)
 
         yolo_repl = False
         local_min = False
         # Iterate through the dictionary in pairs
         # range(0, len, 2) gives us 0, 2, 4...
-        for i in range(0, len(C.group_positions), 2):
+        for i in range(0, len(self.C.group_positions), 2):
             yolo_repl = False
             local_min = False
 
             # Get the raw usaf coordinates (tuples)
-            raw_a = C.group_positions[i]
-            raw_b = C.group_positions[i+1]
+            raw_a = self.C.group_positions[i]
+            raw_b = self.C.group_positions[i+1]
 
-            # Convert USAF coords to screen coordinates (uses C._sift_h_matrix when SIFT calibration ran)
-            if C._itk_transform_params is not None and C.PT_TRANSFORM == "elastix":
+            # Convert USAF coords to screen coordinates (uses self.C._sift_h_matrix when SIFT calibration ran)
+            if self.C._itk_transform_params is not None and self.C.PT_TRANSFORM == "elastix":
                 pt_a = mapped_scanlines[i]
                 pt_b = mapped_scanlines[i+1]
             else:
-                pt_a = usaf_point_to_screen(raw_a, center_x, center_y, angle, side_length)
-                pt_b = usaf_point_to_screen(raw_b, center_x, center_y, angle, side_length)
+                pt_a = self.usaf_point_to_screen(raw_a, center_x, center_y, angle, side_length)
+                pt_b = self.usaf_point_to_screen(raw_b, center_x, center_y, angle, side_length)
 
             # if the pts fall outside the image, retry with the next best square
             if (pt_a[0] < 0 or pt_a[0] >= gray.shape[1] or pt_a[1] < 0 or pt_a[1] >= gray.shape[0] or \
-            pt_b[0] < 0 or pt_b[0] >= gray.shape[1] or pt_b[1] < 0 or pt_b[1] >= gray.shape[0]) and C.RETRY_OFF_IMAGE:
+            pt_b[0] < 0 or pt_b[0] >= gray.shape[1] or pt_b[1] < 0 or pt_b[1] >= gray.shape[0]) and self.C.RETRY_OFF_IMAGE:
                 retry_condition = True
                 break
 
@@ -604,21 +603,21 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
 
             # point adjustment algorithm:
             # Adjust points until both are white
-            pt_a_adj, pt_b_adj = apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray)
+            pt_a_adj, pt_b_adj = self.apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray)
             pt_a, pt_b = pt_a_adj, pt_b_adj
 
             # ====== YOLO INTEGRATION: Check and replace points if they fall within YOLO bounding boxes ======
-            if yolo_detections is not None and len(yolo_detections) > 0 and C.YOLO_DETECT:
-                repl_a, repl_b = find_replacement_keypoints(pt_a, pt_b, yolo_detections)
+            if yolo_detections is not None and len(yolo_detections) > 0 and self.C.YOLO_DETECT:
+                repl_a, repl_b = self.find_replacement_keypoints(pt_a, pt_b, yolo_detections)
                 if repl_a is not None:
-                    pt_a, pt_b = apply_point_adjustment_algorithm(repl_a, repl_b, normalized_gray)
+                    pt_a, pt_b = self.apply_point_adjustment_algorithm(repl_a, repl_b, normalized_gray)
                     yolo_repl = True
 
             # --------------------------------------------------------------------------------------------
             # Scanline region cropping for pattern classification
             # --------------------------------------------------------------------------------------------
 
-            scanline_region_cropping(img, clean_img, pt_a, pt_b, i)
+            self.scanline_region_cropping(img, clean_img, pt_a, pt_b, i)
 
             # --------------------------------------------------------------------------------------------
             # Contrast scoring
@@ -641,9 +640,9 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
             # Gradient logic
             # --------------------------------------------------------------------------------------------
 
-            if C.GRADIENT_MIN:
-                pt_a_e, pt_b_e = extend_line(pt_a, pt_b, extend_length=0.2)
-                _, line_pixels = sample_line_profile(normalized_gray, pt_a_e, pt_b_e, sample_count=100)
+            if self.C.GRADIENT_MIN:
+                pt_a_e, pt_b_e = self.extend_line(pt_a, pt_b, extend_length=0.2)
+                _, line_pixels = self.sample_line_profile(normalized_gray, pt_a_e, pt_b_e, sample_count=100)
                 if len(line_pixels) < 3:
                     local_min_count = 0
                 else:
@@ -666,8 +665,8 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
                     local_min = local_min_count >= 2
 
                     # visualize gradient
-                    if C.GRADIENT_PLOT_ENABLE:
-                        gradient_visualization(i, smooth_pixels, filtered_min_indices, local_min_count, dy)
+                    if self.C.GRADIENT_PLOT_ENABLE:
+                        self.gradient_visualization(i, smooth_pixels, filtered_min_indices, local_min_count, dy)
 
             # --------------------------------------------------------------------------------------------
             # Score processing and visualization
@@ -703,15 +702,15 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
                 break
 
             if retry_origin == False:
-                C.retry_count = C.retry_count + 1
+                self.C.retry_count = self.C.retry_count + 1
                 retry_instance = retry_instance - 1
                 continue
 
         if retry_origin == False:
-            C.retry_count = C.retry_count + 1
+            self.C.retry_count = self.C.retry_count + 1
         
-        if C.DEBUG_MODE:
-            print(f"Found out image scanline, Retrying with next best square... Attempt {C.retry_count}")
+        if self.C.DEBUG_MODE:
+            print(f"Found out image scanline, Retrying with next best square... Attempt {self.C.retry_count}")
 
 
 
@@ -721,21 +720,21 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
 
 
 
-    if C.retry_count == C.valid_squares.__len__():
-        if C.DEBUG_MODE:
-            print(f"Failed to find valid square after {C.retry_count} attempts")
+    if self.C.retry_count == self.C.valid_squares.__len__():
+        if self.C.DEBUG_MODE:
+            print(f"Failed to find valid square after {self.C.retry_count} attempts")
         scores = {}  # reset scores
         # return none and program will handle it
         return None, None
 
     if yolo_detections is not None and len(yolo_detections) > 15:
-        if C.DEBUG_MODE:
+        if self.C.DEBUG_MODE:
             print("grid misalignment detected")
         # return none and program will handle it
         return None, None
 
-    if initial_retry_instance != 0 and not (0.9 * C.initial_angle < np.abs(angle) < 1.1 * C.initial_angle):
-        if C.DEBUG_MODE:
+    if initial_retry_instance != 0 and not (0.9 * self.C.initial_angle < np.abs(angle) < 1.1 * self.C.initial_angle):
+        if self.C.DEBUG_MODE:
             print("large angles diff quit")
         # return none and program will handle it
         return None, None
@@ -748,12 +747,12 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
 
 
 
-    C.G1 = 8 - C.pattern_count * 2 + min(C.retry_count, 2) * 2
-    if C.DEBUG_MODE:
-        print("C.G1 is: ", C.G1)
-        print("C.pattern_count is: ", C.pattern_count)
-        print("C.retry_count is: ", C.retry_count)
-    C.initialize_score_table()
+    self.C.G1 = 8 - self.C.pattern_count * 2 + min(self.C.retry_count, 2) * 2
+    if self.C.DEBUG_MODE:
+        print("self.C.G1 is: ", self.C.G1)
+        print("self.C.pattern_count is: ", self.C.pattern_count)
+        print("self.C.retry_count is: ", self.C.retry_count)
+    self.C.initialize_score_table()
 
 
 
@@ -763,8 +762,8 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
 
 
 
-    if C.PREVIEW_MODE:
-        scanline_visualization(img, gray, center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner)
+    if self.C.PREVIEW_MODE:
+        self.scanline_visualization(img, gray, center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner)
 
 
 
@@ -787,18 +786,18 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
         else:
             temp_type = "grid"
         
-        if C.SCORE_METHOD == "mean":
+        if self.C.SCORE_METHOD == "mean":
             temp_score = (vert_score + horiz_score) / 2.0
-        elif C.SCORE_METHOD == "max":
+        elif self.C.SCORE_METHOD == "max":
             temp_score = max(vert_score, horiz_score)
-        elif C.SCORE_METHOD == "min":
+        elif self.C.SCORE_METHOD == "min":
             temp_score = min(vert_score, horiz_score)
         else:
             temp_score = vert_score
         
         final_score[i] = {"score": float(temp_score), "type": temp_type}
 
-        group, element = C.score_table[i]
+        group, element = self.C.score_table[i]
         scanline_map[f"{group}:{element}"] = {
             "group": group,
             "element": element,
@@ -806,12 +805,12 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
             "horizontal": scanlines[i + len(scores) // 2],
             "score": float(temp_score),
             "type": temp_type,
-            "lp_per_mm": usaf_lp_per_mm(group, element),
-            "resolution_mm": usaf_resolution_mm(group, element),
+            "lp_per_mm": self.usaf_lp_per_mm(group, element),
+            "resolution_mm": self.usaf_resolution_mm(group, element),
         }
 
         if retry_instance == 0:
-            C.initial_angle = np.abs(angle)
+            self.C.initial_angle = np.abs(angle)
 
     return final_score, scanline_map
 
@@ -819,7 +818,7 @@ def calculate_scanline_contrast_scores(curr_image, yolo_detections=None, retry_i
 
 
 
-def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
+def find_usaf_score(self, image_path, imgsz=2048, threshold=0.3):
     '''
     Find the usaf focus score for a given image path, which is the best focus group number 
     based on the defined scanlines and the detected corners for coordinate calibration.
@@ -833,45 +832,45 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
     Returns:
         Tuple of (group_number, element_number) indicating best focus group
     '''
-    C.current_image_label = Path(image_path).stem
-    if C.CONST_LABEL:
-        C.current_image_label = "image"
+    self.C.current_image_label = Path(image_path).stem
+    if self.C.CONST_LABEL:
+        self.C.current_image_label = "image"
     curr_image = cv2.imread(image_path)
     if curr_image is None:
         raise ValueError(f"usaf_algo.find_usaf_score: Failed to read image from {image_path}")
 
-    curr_image = normalize_image_contrast(curr_image)
+    curr_image = self.normalize_image_contrast(curr_image)
     curr_image = np.clip(curr_image, 0, 255).astype(np.uint8)
 
-    if not is_image_clear(curr_image, 2.0):
+    if not self.is_image_clear(curr_image, 2.0):
         raise ValueError("usaf_algo.find_usaf_score: The image is too blurry for detection")
     
     while True:
         yolo_detections = None
-        if C.YOLO_DETECT:
-            yolo_detections, _result, _img = extract_yolo_detections(curr_image, imgsz=imgsz)
-        if C.PREVIEW_MODE and C.YOLO_DETECT:
-            visualize_detections(_img, _result, yolo_detections)
+        if self.C.YOLO_DETECT:
+            yolo_detections, _result, _img = self.extract_yolo_detections(curr_image, imgsz=imgsz)
+        if self.C.PREVIEW_MODE and self.C.YOLO_DETECT:
+            self.visualize_detections(_img, _result, yolo_detections)
         # Calculate focus scores
         scores = {}
         scanline_map = {}
         best_focus_group = {}
         chosen_index = {}
-        run_indices = [0] if C.USE_SIFT_REF_CALIBRATION or C.YOLO_DETECT else [0, 1, 2]
+        run_indices = [0] if self.C.USE_SIFT_REF_CALIBRATION or self.C.YOLO_DETECT else [0, 1, 2]
         try:
             for idx in run_indices:
-                scores[idx], scanline_map[idx] = calculate_scanline_contrast_scores(curr_image, yolo_detections, idx)
+                scores[idx], scanline_map[idx] = self.calculate_scanline_contrast_scores(curr_image, yolo_detections, idx)
                 
-                if C.YOLO_CLASSIFICATION:
-                    pattern_crop_result = score_pattern_crops(C.current_image_label)
-                    if C.ENABLE_VERIFY_PATTERN_CROP:
-                        pattern_crop_result = verify_pattern_crops(pattern_crop_result)
+                if self.C.YOLO_CLASSIFICATION:
+                    pattern_crop_result = self.score_pattern_crops(self.C.current_image_label)
+                    if self.C.ENABLE_VERIFY_PATTERN_CROP:
+                        pattern_crop_result = self.verify_pattern_crops(pattern_crop_result)
                     best_focus_group[idx] = [pattern_crop_result["group"], pattern_crop_result["element"]]
                     chosen_index[idx] = pattern_crop_result["scan_index"]
                 else:
-                    best_focus_group[idx], chosen_index[idx] = find_best_focus_group(scores[idx], threshold=threshold)
+                    best_focus_group[idx], chosen_index[idx] = self.find_best_focus_group(scores[idx], threshold=threshold)
                 
-                if C.DEBUG_MODE and scores[idx] is not None and best_focus_group[idx] is not None:
+                if self.C.DEBUG_MODE and scores[idx] is not None and best_focus_group[idx] is not None:
                     print(f"scores[{idx}]", scores[idx])
                     print(f"best_focus_group[{idx}]", best_focus_group[idx])
             break
@@ -903,7 +902,7 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
         if not isinstance(group, (list, tuple)) or len(group) < 2:
             continue
         best_focus_info.append([group, chosen_index[i], scanline_map[i], scores[i]])
-        if C.DEBUG_MODE:
+        if self.C.DEBUG_MODE:
             print("candidate best focus group", group)
 
     if not best_focus_info:
@@ -913,13 +912,13 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
     # Winner: highest group number, then highest element number.
     final_best_focus_info = max(best_focus_info, key=lambda x: (x[0][0], x[0][1]))
 
-    if final_best_focus_info[3] is not None and C.DEBUG_MODE:
+    if final_best_focus_info[3] is not None and self.C.DEBUG_MODE:
         print(f"Scores array for the best focus group in {image_path}: {final_best_focus_info[3]}")
 
     print(f"Best focus group for {image_path}: {final_best_focus_info[0][0]}, element {final_best_focus_info[0][1]}")
 
     # final clean up
-    clean_up()
+    self.clean_up()
 
     # Return legacy outputs plus processed image used during scoring.
     return final_best_focus_info[0], final_best_focus_info[1], final_best_focus_info[2], final_best_focus_info[3], curr_image
@@ -934,7 +933,7 @@ def find_usaf_score(image_path, imgsz=2048, threshold=0.3):
 
 
 
-def find_dominant_angle_window_center(classic_angle=None, sift_angle=None, yolo_angles=None, window_size_deg=30.0, step_deg=1.0):
+def find_dominant_angle_window_center(self, classic_angle=None, sift_angle=None, yolo_angles=None, window_size_deg=30.0, step_deg=1.0):
     """
     Slide a circular window over [0, 360) and find the window position that contains
     the most candidate angles. Returns the middle angle of the best center range.
@@ -984,7 +983,7 @@ def find_dominant_angle_window_center(classic_angle=None, sift_angle=None, yolo_
     return _norm_deg(centers[best_idx])
 
 
-def angle_to_dominant_bucket_index(angle_deg, dominant_angle_deg, bucket_size_deg=30.0):
+def angle_to_dominant_bucket_index(self, angle_deg, dominant_angle_deg, bucket_size_deg=30.0):
     """
     Map an angle to one of 12 buckets on [0, 360), where bucket 0 is centered at
     dominant_angle_deg and bucket index increases counter-clockwise.
@@ -1003,7 +1002,7 @@ def angle_to_dominant_bucket_index(angle_deg, dominant_angle_deg, bucket_size_de
     return bucket_idx
 
 
-def bucketize_angles_around_dominant(dominant_angle, yolo_angles=None, classic_angle=None, sift_angle=None):
+def bucketize_angles_around_dominant(self, dominant_angle, yolo_angles=None, classic_angle=None, sift_angle=None):
     """
     Return bucket index lists for yolo, classic, and sift angles using 12 dominant-
     centered buckets of size 30 degrees.
@@ -1017,19 +1016,19 @@ def bucketize_angles_around_dominant(dominant_angle, yolo_angles=None, classic_a
 
     if yolo_angles is not None:
         yolo_bucket_indices = [
-            angle_to_dominant_bucket_index(a, dominant_angle, bucket_size_deg=30.0)
+            self.angle_to_dominant_bucket_index(a, dominant_angle, bucket_size_deg=30.0)
             for a in yolo_angles
             if a is not None
         ]
 
     if classic_angle is not None:
         classic_bucket_indices = [
-            angle_to_dominant_bucket_index(classic_angle, dominant_angle, bucket_size_deg=30.0)
+            self.angle_to_dominant_bucket_index(classic_angle, dominant_angle, bucket_size_deg=30.0)
         ]
 
     if sift_angle is not None:
         sift_bucket_indices = [
-            angle_to_dominant_bucket_index(sift_angle, dominant_angle, bucket_size_deg=30.0)
+            self.angle_to_dominant_bucket_index(sift_angle, dominant_angle, bucket_size_deg=30.0)
         ]
 
     return yolo_bucket_indices, classic_bucket_indices, sift_bucket_indices
@@ -1040,16 +1039,16 @@ def bucketize_angles_around_dominant(dominant_angle, yolo_angles=None, classic_a
 
 
 
-def auto_configurator(image_path, imgsz=2048, threshold=0.3):
+def auto_configurator(self, image_path, imgsz=2048, threshold=0.3):
     final_config = None
     curr_image = cv2.imread(image_path)
     if curr_image is None:
         raise ValueError(f"usaf_algo.auto_configurator: Failed to read image from {image_path}")
 
-    curr_image = normalize_image_contrast(curr_image)
+    curr_image = self.normalize_image_contrast(curr_image)
     curr_image = np.clip(curr_image, 0, 255).astype(np.uint8)
 
-    if not is_image_clear(curr_image, 2.0):
+    if not self.is_image_clear(curr_image, 2.0):
         raise ValueError("usaf_algo.auto_configurator: The image is too blurry for detection")
 
     # --------------------------------------------------------------------------------------------
@@ -1059,15 +1058,15 @@ def auto_configurator(image_path, imgsz=2048, threshold=0.3):
     # Prepocessing:
     clean_img = curr_image.copy()
     gray = cv2.cvtColor(curr_image, cv2.COLOR_BGR2GRAY)
-    corners = find_square_corners(gray)
+    corners = self.find_square_corners(gray)
 
-    pt4_pattern_result = count_4pts_pattern(clean_img)
-    C.pattern_count = len(pt4_pattern_result.boxes)
-    parsed, yolo_angles, yolo_box_lengths, yolo_dir = yolo_4pt_calculation(pt4_pattern_result, clean_img)
+    pt4_pattern_result = self.count_4pts_pattern(clean_img)
+    self.C.pattern_count = len(pt4_pattern_result.boxes)
+    parsed, yolo_angles, yolo_box_lengths, yolo_dir = self.yolo_4pt_calculation(pt4_pattern_result, clean_img)
 
     # show image with annotation
-    if C.DEBUG_MODE:
-        print(f"YOLO detected {C.pattern_count} patterns. Parsed results: {parsed}")
+    if self.C.DEBUG_MODE:
+        print(f"YOLO detected {self.C.pattern_count} patterns. Parsed results: {parsed}")
         # 1. Plot the YOLO results (outputs BGR image)
         annotated = pt4_pattern_result.plot(font_size=1, line_width=1)
 
@@ -1082,37 +1081,37 @@ def auto_configurator(image_path, imgsz=2048, threshold=0.3):
         plt.tight_layout()
         plt.show()
 
-    sift_config_index = max(min(C.pattern_count - 1, 2), 0)
+    sift_config_index = max(min(self.C.pattern_count - 1, 2), 0)
 
     # --------------------------------------------------------------------------------------------
     # Coordinate calibration
     # --------------------------------------------------------------------------------------------
 
     while True:
-        C.SIFT_REF_IMAGE_PATH = C.SIFT_CONFIG_LIST[sift_config_index]["REF_IMAGE_PATH"]
-        C.SIFT_REF_ORIGIN = C.SIFT_CONFIG_LIST[sift_config_index]["REF_ORIGIN"]  
-        C.SIFT_REF_PIXELS_PER_UNIT_X = C.SIFT_CONFIG_LIST[sift_config_index]["REF_PIXELS_PER_UNIT_X"]  
-        C.SIFT_REF_PIXELS_PER_UNIT_Y = C.SIFT_CONFIG_LIST[sift_config_index]["REF_PIXELS_PER_UNIT_Y"]  
-        C.SIFT_ANGLE = C.SIFT_CONFIG_LIST[sift_config_index]["ANGLE"]
-        corners = C.valid_squares[0].reshape(-1, 2).copy()
+        self.C.SIFT_REF_IMAGE_PATH = self.C.SIFT_CONFIG_LIST[sift_config_index]["REF_IMAGE_PATH"]
+        self.C.SIFT_REF_ORIGIN = self.C.SIFT_CONFIG_LIST[sift_config_index]["REF_ORIGIN"]  
+        self.C.SIFT_REF_PIXELS_PER_UNIT_X = self.C.SIFT_CONFIG_LIST[sift_config_index]["REF_PIXELS_PER_UNIT_X"]  
+        self.C.SIFT_REF_PIXELS_PER_UNIT_Y = self.C.SIFT_CONFIG_LIST[sift_config_index]["REF_PIXELS_PER_UNIT_Y"]  
+        self.C.SIFT_ANGLE = self.C.SIFT_CONFIG_LIST[sift_config_index]["ANGLE"]
+        corners = self.C.valid_squares[0].reshape(-1, 2).copy()
         corners[:, 1] = clean_img.shape[0] - corners[:, 1] - 1
-        output_list = coordinate_calibration(gray, corners)
+        output_list = self.coordinate_calibration(gray, corners)
 
         if output_list is None:
             raise ValueError("usaf_algo.auto_configurator: Coordinate calibration failed.")
 
         [center_x, center_y, angle, side_length, top_right_ref_corner, top_left_ref_corner, low_right_ref_corner, low_left_ref_corner, classic_angle, sift_angle, sift_length] = output_list
 
-        fliped = -1 if C.FLIPED_TARGET else 1
+        fliped = -1 if self.C.FLIPED_TARGET else 1
         classic_angle = classic_angle + fliped * np.pi / 2 if classic_angle is not None else None
         sift_angle = sift_angle + fliped * np.pi / 2 if sift_angle is not None else None
-        if C.DEBUG_MODE:
+        if self.C.DEBUG_MODE:
             print("Classic angle(adjusted):", classic_angle)
             print("SIFT angle(adjusted):", sift_angle)
             print("SIFT length(adjusted):", sift_length)
     
         if len(yolo_box_lengths) == 3 and sift_config_index == 2 and sift_length is not None and (yolo_box_lengths[2] * 1.1 < sift_length < yolo_box_lengths[1] * 1.1):
-            if C.DEBUG_MODE:
+            if self.C.DEBUG_MODE:
                 print("SIFT and YOLO length mismatch detected, retrying with diff sift config...")
     
             sift_config_index = 3
@@ -1124,26 +1123,26 @@ def auto_configurator(image_path, imgsz=2048, threshold=0.3):
         yolo_angles = [((angle / np.pi * 180) + 360) % 360 for angle in yolo_angles] if yolo_angles is not None else None
 
         if (classic_angle is None or yolo_angles is None) and sift_angle is not None:
-            return "classic with sift", C.FLIPED_TARGET, sift_config_index
+            return "classic with sift", self.C.FLIPED_TARGET, sift_config_index
         elif sift_angle is None and classic_angle is not None:
-            return "classic", C.FLIPED_TARGET, sift_config_index
+            return "classic", self.C.FLIPED_TARGET, sift_config_index
         elif sift_angle is None and classic_angle is None and final_config is None:
-            if C.retry_flag == False:
+            if self.C.retry_flag == False:
                 final_config = "retry"
-                C.FLIPED_TARGET = not C.FLIPED_TARGET
+                self.C.FLIPED_TARGET = not self.C.FLIPED_TARGET
                 sift_config_index = 2
                 continue
             else:
-                return "classic with sift", C.FLIPED_TARGET, sift_config_index
+                return "classic with sift", self.C.FLIPED_TARGET, sift_config_index
         elif sift_angle is None and classic_angle is None:
-            return "classic with sift", C.FLIPED_TARGET, sift_config_index
+            return "classic with sift", self.C.FLIPED_TARGET, sift_config_index
 
 
 
         case_num = len(yolo_angles) if yolo_angles is not None else 0
         type_num = None
 
-        dominant_angle = find_dominant_angle_window_center(
+        dominant_angle = self.find_dominant_angle_window_center(
             classic_angle=classic_angle,
             sift_angle=sift_angle,
             yolo_angles=yolo_angles,
@@ -1151,7 +1150,7 @@ def auto_configurator(image_path, imgsz=2048, threshold=0.3):
             step_deg=1.0,
         )
 
-        yolo_bucket_indices, classic_bucket_indices, sift_bucket_indices = bucketize_angles_around_dominant(
+        yolo_bucket_indices, classic_bucket_indices, sift_bucket_indices = self.bucketize_angles_around_dominant(
             dominant_angle=dominant_angle,
             yolo_angles=yolo_angles,
             classic_angle=classic_angle,
@@ -1184,13 +1183,13 @@ def auto_configurator(image_path, imgsz=2048, threshold=0.3):
         # collapse yolo_bucket_indices such only unique indices exist
         yolo_bucket_indices = list(set(yolo_bucket_indices or []))
         for idx in yolo_bucket_indices or []:
-            bucket_score[idx][0] += 1 * C.yolo_weight[type_num - 1][case_num - 1]
+            bucket_score[idx][0] += 1 * self.C.yolo_weight[type_num - 1][case_num - 1]
             bucket_score[idx].append("yolo")
         for idx in classic_bucket_indices or []:
-            bucket_score[idx][0] += 1 * C.classic_weight
+            bucket_score[idx][0] += 1 * self.C.classic_weight
             bucket_score[idx].append("classic")
         for idx in sift_bucket_indices or []:
-            bucket_score[idx][0] += 1 * C.sift_weight
+            bucket_score[idx][0] += 1 * self.C.sift_weight
             bucket_score[idx].append("sift")
 
         # determine the dominant bucket based on the highest score
@@ -1199,9 +1198,9 @@ def auto_configurator(image_path, imgsz=2048, threshold=0.3):
         if "classic" not in bucket_score[dominant_bucket] or "sift" not in bucket_score[dominant_bucket]:
             # if any bucket that contain yolo only contain yolo for all bucket in bucket_score
             if all("classic" not in bucket and "sift" not in bucket for bucket in bucket_score if "yolo" in bucket):
-                if final_config is None and C.retry_flag == False:
+                if final_config is None and self.C.retry_flag == False:
                     final_config = "retry"
-                    C.FLIPED_TARGET = not C.FLIPED_TARGET
+                    self.C.FLIPED_TARGET = not self.C.FLIPED_TARGET
                     sift_config_index = 2
                     continue
                 else:
@@ -1211,7 +1210,7 @@ def auto_configurator(image_path, imgsz=2048, threshold=0.3):
         elif "classic" in bucket_score[dominant_bucket]:
             final_config = "classic"
 
-        return final_config, C.FLIPED_TARGET, sift_config_index
+        return final_config, self.C.FLIPED_TARGET, sift_config_index
 
             
 
@@ -1223,47 +1222,47 @@ def auto_configurator(image_path, imgsz=2048, threshold=0.3):
 
 
 
-def clean_up():
-    C.G1 = 2
-    C.initialize_score_table()
-    if C.CONST_LABEL and os.path.exists(C.CROP_DIR):
+def clean_up(self):
+    self.C.G1 = 2
+    self.C.initialize_score_table()
+    if self.C.CONST_LABEL and os.path.exists(self.C.CROP_DIR):
         # delete pattern crop 
-        shutil.rmtree(C.CROP_DIR)
+        shutil.rmtree(self.C.CROP_DIR)
 
 
-def load_config(config):
-    C.PT_TRANSFORM = config[0]
-    C.USE_SIFT_REF_CALIBRATION = True if C.PT_TRANSFORM == "classic with sift" or C.PT_TRANSFORM == "sift" or C.PT_TRANSFORM == "elastix" or C.PT_TRANSFORM == "auto" else False 
-    C.USE_ITKELASTIX_REF_CALIBRATION = True if C.PT_TRANSFORM == "elastix" else False 
-    C.FLIPED_TARGET = config[1]
-    C.SIFT_CONFIG_LIST[2] = C.SIFT_CONFIG_LIST[config[2]]
+def load_config(self, config):
+    self.C.PT_TRANSFORM = config[0]
+    self.C.USE_SIFT_REF_CALIBRATION = True if self.C.PT_TRANSFORM == "classic with sift" or self.C.PT_TRANSFORM == "sift" or self.C.PT_TRANSFORM == "elastix" or self.C.PT_TRANSFORM == "auto" else False 
+    self.C.USE_ITKELASTIX_REF_CALIBRATION = True if self.C.PT_TRANSFORM == "elastix" else False 
+    self.C.FLIPED_TARGET = config[1]
+    self.C.SIFT_CONFIG_LIST[2] = self.C.SIFT_CONFIG_LIST[config[2]]
 
 
 
-def score_image_routine(image_path):
+def score_image_routine(self, image_path):
     default_config = None
     usaf_result = None
-    C.retry_flag = False
+    self.C.retry_flag = False
     try:
-        if C.PT_TRANSFORM == "auto":
-            default_config = [C.PT_TRANSFORM, C.FLIPED_TARGET, 1]
-            img_configuration = auto_configurator(image_path, threshold=C.SCORE_THRESHOLD)
-            if C.DEBUG_MODE or True:
+        if self.C.PT_TRANSFORM == "auto":
+            default_config = [self.C.PT_TRANSFORM, self.C.FLIPED_TARGET, 1]
+            img_configuration = self.auto_configurator(image_path, threshold=self.C.SCORE_THRESHOLD)
+            if self.C.DEBUG_MODE or True:
                 print("Auto Config: ", img_configuration)
-            load_config(img_configuration)
-            usaf_result = find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
-            load_config(default_config)
+            self.load_config(img_configuration)
+            usaf_result = self.find_usaf_score(image_path, threshold=self.C.SCORE_THRESHOLD)
+            self.load_config(default_config)
         else:
             default_config = None
-            usaf_result = find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
+            usaf_result = self.find_usaf_score(image_path, threshold=self.C.SCORE_THRESHOLD)
         
     except FileNotFoundError as e:
         print(f"File not found error: {image_path}. {e}, Retry fliped.")
         if default_config is not None:
             default_config[1] = not default_config[1]
         else:
-            C.FLIPED_TARGET = not C.FLIPED_TARGET
-        C.retry_flag = True
+            self.C.FLIPED_TARGET = not self.C.FLIPED_TARGET
+        self.C.retry_flag = True
     except Exception as e:
         if "classic_warp.find_square_corners: No valid square detected in the image" in str(e):
             print(f"No valid square detected in {image_path}. Skipping this image.")
@@ -1282,26 +1281,26 @@ def score_image_routine(image_path):
             if default_config is not None:
                 default_config[1] = not default_config[1]
             else:
-                C.FLIPED_TARGET = not C.FLIPED_TARGET
-            C.retry_flag = True
+                self.C.FLIPED_TARGET = not self.C.FLIPED_TARGET
+            self.C.retry_flag = True
         elif "usaf_algo.auto_configurator: Coordinate calibration failed." in str(e):
             print(f"Coordinate calibration failed for {image_path}. Retrying with flipped target.")
             default_config[1] = not default_config[1]
-            C.retry_flag = True
+            self.C.retry_flag = True
         else:
             print(f"Unknown error: {e}")
             raise e
     
     # final clean up
-    clean_up()
+    self.clean_up()
     if default_config is not None:
-        load_config(default_config)
-    if not C.retry_flag:
+        self.load_config(default_config)
+    if not self.C.retry_flag:
         usaf_result = list(usaf_result) if usaf_result is not None else None
         if usaf_result is not None and len(usaf_result) > 4:
             usaf_result.pop(4)
         cache_payload = image_path, usaf_result
-        with open(C.LOG_PATH / f"usaf_log_{Path(image_path).stem}.json", "w") as file:
+        with open(self.C.LOG_PATH / f"usaf_log_{Path(image_path).stem}.json", "w") as file:
             json.dump(cache_payload, file, indent=4)
         return usaf_result
 
@@ -1309,17 +1308,17 @@ def score_image_routine(image_path):
     usaf_result = None
     
     try:
-        if C.PT_TRANSFORM == "auto":
-            default_config = [C.PT_TRANSFORM, C.FLIPED_TARGET, 1]
-            img_configuration = auto_configurator(image_path, threshold=C.SCORE_THRESHOLD)
-            if C.DEBUG_MODE or True:
+        if self.C.PT_TRANSFORM == "auto":
+            default_config = [self.C.PT_TRANSFORM, self.C.FLIPED_TARGET, 1]
+            img_configuration = self.auto_configurator(image_path, threshold=self.C.SCORE_THRESHOLD)
+            if self.C.DEBUG_MODE or True:
                 print("Auto Config: ", img_configuration)
-            load_config(img_configuration)
-            usaf_result = find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
-            load_config(default_config)
+            self.load_config(img_configuration)
+            usaf_result = self.find_usaf_score(image_path, threshold=self.C.SCORE_THRESHOLD)
+            self.load_config(default_config)
         else:
             default_config = None
-            usaf_result = find_usaf_score(image_path, threshold=C.SCORE_THRESHOLD)
+            usaf_result = self.find_usaf_score(image_path, threshold=self.C.SCORE_THRESHOLD)
         
     except FileNotFoundError as e:
         print(f"File not found error: {image_path}. {e}, skipping this image.")
@@ -1344,20 +1343,20 @@ def score_image_routine(image_path):
             raise e
 
     # final clean up
-    clean_up()
+    self.clean_up()
     if default_config is not None:
-        load_config(default_config)
+        self.load_config(default_config)
 
     usaf_result = list(usaf_result) if usaf_result is not None else None
     if usaf_result is not None and len(usaf_result) > 4:
         usaf_result.pop(4)
     cache_payload = image_path, usaf_result
-    with open(C.LOG_PATH / f"usaf_log_{Path(image_path).stem}.json", "w") as file:
+    with open(self.C.LOG_PATH / f"usaf_log_{Path(image_path).stem}.json", "w") as file:
         json.dump(cache_payload, file, indent=4)
     return usaf_result
 
 
 
 
-# for image_path in C.images:
+# for image_path in self.C.images:
 #     score_image_routine(image_path)

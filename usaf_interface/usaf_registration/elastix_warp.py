@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import importlib
-from . import constants as C
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .transforms import usaf2screen_homography, fast_usaf2screen_homography, ref_to_screen_homography_matrix
@@ -20,7 +19,7 @@ except ImportError:
 
 
 
-def normalize_for_registration(image):
+def normalize_for_registration(self, image):
     image = image.astype(np.float32)
     min_val = float(np.min(image))
     max_val = float(np.max(image))
@@ -33,7 +32,7 @@ def normalize_for_registration(image):
 
 
 
-def _run_transformix_batch(local_points, work_dir):
+def _run_transformix_batch(self, local_points, work_dir):
     """Write a batch of local-space points, run transformix once, return list of local-space output points."""
     input_path = Path(work_dir) / "inputpoints.txt"
     output_path = Path(work_dir) / "outputpoints.txt"
@@ -43,12 +42,12 @@ def _run_transformix_batch(local_points, work_dir):
     if output_path.exists():
         output_path.unlink()
 
-    transformix = itk.TransformixFilter.New(C._itk_moving_image)
+    transformix = itk.TransformixFilter.New(self.C._itk_moving_image)
     transformix.SetFixedPointSetFileName(str(input_path))
-    transformix.SetTransformParameterObject(C._itk_transform_params)
+    transformix.SetTransformParameterObject(self.C._itk_transform_params)
     transformix.SetOutputDirectory(str(work_dir))
     if hasattr(transformix, "SetLogToConsole"):
-        transformix.SetLogToConsole(C.ITKELASTIX_LOG_TO_CONSOLE)
+        transformix.SetLogToConsole(self.C.ITKELASTIX_LOG_TO_CONSOLE)
     transformix.UpdateLargestPossibleRegion()
 
     with open(output_path, "r", encoding="utf-8") as f:
@@ -62,7 +61,7 @@ def _run_transformix_batch(local_points, work_dir):
     return results
 
 
-def fast_transformix_point(points, n_workers=4):
+def fast_transformix_point(self, points, n_workers=4):
     """Transform a list of points through ITKElastix in parallel.
 
     Points are split into ``n_workers`` batches; each batch is submitted to a
@@ -71,12 +70,12 @@ def fast_transformix_point(points, n_workers=4):
     present in the global cache are returned immediately without touching
     the engine.
     """
-    if C._itk_transform_params is None:
+    if self.C._itk_transform_params is None:
         raise RuntimeError("elastix_warp.fast_transformix_point: ITKElastix registration has not been performed yet.")
     if not points:
         return []
 
-    ox, oy = C._itk_roi_offset
+    ox, oy = self.C._itk_roi_offset
 
     # ── split into cached / uncached ──────────────────────────────────────────
     output = [None] * len(points)
@@ -85,8 +84,8 @@ def fast_transformix_point(points, n_workers=4):
 
     for i, pt in enumerate(points):
         key = (round(float(pt[0]), 4), round(float(pt[1]), 4))
-        if key in C._itk_point_cache:
-            output[i] = C._itk_point_cache[key]
+        if key in self.C._itk_point_cache:
+            output[i] = self.C._itk_point_cache[key]
         else:
             uncached_idx.append(i)
             uncached_local.append((float(pt[0]) - ox, float(pt[1]) - oy))
@@ -106,7 +105,7 @@ def fast_transformix_point(points, n_workers=4):
 
     def process_chunk(args):
         orig_indices, local_pts, work_dir = args
-        local_results = _run_transformix_batch(local_pts, work_dir)
+        local_results = self._run_transformix_batch(local_pts, work_dir)
         return orig_indices, local_pts, local_results
 
     chunk_args = [(idx_list, loc_list, wd) for (idx_list, loc_list), wd in zip(chunks, work_dirs)]
@@ -119,7 +118,7 @@ def fast_transformix_point(points, n_workers=4):
                 result = (rx + ox, ry + oy)
                 orig_pt = points[orig_i]
                 key = (round(float(orig_pt[0]), 4), round(float(orig_pt[1]), 4))
-                C._itk_point_cache[key] = result
+                self.C._itk_point_cache[key] = result
                 output[orig_i] = result
 
     return output
@@ -136,29 +135,29 @@ def fast_transformix_point(points, n_workers=4):
 
 
 
-def transformix_point(point):
-    if C._itk_transform_params is None:
+def transformix_point(self, point):
+    if self.C._itk_transform_params is None:
         raise RuntimeError("elastix_warp.transformix_point: ITKElastix registration has not been performed yet.")
 
     key = (round(float(point[0]), 4), round(float(point[1]), 4))
-    if key in C._itk_point_cache:
-        return C._itk_point_cache[key]
+    if key in self.C._itk_point_cache:
+        return self.C._itk_point_cache[key]
 
-    ox, oy = C._itk_roi_offset
+    ox, oy = self.C._itk_roi_offset
     local_x = float(point[0]) - ox
     local_y = float(point[1]) - oy
-    input_path = Path(C._itk_output_dir) / "inputpoints.txt"
-    output_path = Path(C._itk_output_dir) / "outputpoints.txt"
+    input_path = Path(self.C._itk_output_dir) / "inputpoints.txt"
+    output_path = Path(self.C._itk_output_dir) / "outputpoints.txt"
     input_path.write_text(f"point\n1\n{local_x} {local_y}\n", encoding="utf-8")
     if output_path.exists():
         output_path.unlink()
 
-    transformix = itk.TransformixFilter.New(C._itk_moving_image)
+    transformix = itk.TransformixFilter.New(self.C._itk_moving_image)
     transformix.SetFixedPointSetFileName(str(input_path))
-    transformix.SetTransformParameterObject(C._itk_transform_params)
-    transformix.SetOutputDirectory(str(C._itk_output_dir))
+    transformix.SetTransformParameterObject(self.C._itk_transform_params)
+    transformix.SetOutputDirectory(str(self.C._itk_output_dir))
     if hasattr(transformix, "SetLogToConsole"):
-        transformix.SetLogToConsole(C.ITKELASTIX_LOG_TO_CONSOLE)
+        transformix.SetLogToConsole(self.C.ITKELASTIX_LOG_TO_CONSOLE)
     transformix.UpdateLargestPossibleRegion()
 
     with open(output_path, "r", encoding="utf-8") as f:
@@ -166,16 +165,16 @@ def transformix_point(point):
     output_part = line.split("OutputPoint = [", 1)[1].split("]", 1)[0]
     x, y = [float(value) for value in output_part.split()[:2]]
     result = (x + ox, y + oy)
-    C._itk_point_cache[key] = result
+    self.C._itk_point_cache[key] = result
     return result
 
 
-def ref_usaf_point_to_target(pt):
-    rough_x, rough_y = usaf2screen_homography(pt, C._sift_h_matrix)
-    return transformix_point((rough_x, rough_y))
+def ref_usaf_point_to_target(self, pt):
+    rough_x, rough_y = self.usaf2screen_homography(pt, self.C._sift_h_matrix)
+    return self.transformix_point((rough_x, rough_y))
 
 
-def fast_ref_usaf_point_to_target(pts, n_workers=4):
+def fast_ref_usaf_point_to_target(self, pts, n_workers=4):
     """Batched version of ref_usaf_point_to_target.
 
     Maps a list of USAF-coordinate points to target-image coordinates by
@@ -194,13 +193,13 @@ def fast_ref_usaf_point_to_target(pts, n_workers=4):
     pts = list(pts)
     if not pts:
         return []
-    rough_pts = fast_usaf2screen_homography(pts, C._sift_h_matrix)
-    return fast_transformix_point(rough_pts, n_workers=n_workers)
+    rough_pts = self.fast_usaf2screen_homography(pts, self.C._sift_h_matrix)
+    return self.fast_transformix_point(rough_pts, n_workers=n_workers)
 
 
-def show_itkelastix_preview(target_gray, sift_warped_ref, fixed_roi, registered_target_roi, roi_rect):
+def show_itkelastix_preview(self, target_gray, sift_warped_ref, fixed_roi, registered_target_roi, roi_rect):
     def overlay(a, b):
-        return np.dstack((normalize_for_registration(a), normalize_for_registration(b), normalize_for_registration(b)))
+        return np.dstack((self.normalize_for_registration(a), self.normalize_for_registration(b), self.normalize_for_registration(b)))
 
     x0, y0, w, h = roi_rect
     plt.figure("ITKElastix Mapping Preview", figsize=(13, 8))
@@ -227,9 +226,9 @@ def show_itkelastix_preview(target_gray, sift_warped_ref, fixed_roi, registered_
     ax4.set_title("SIFT circles, ITKElastix x")
     ax4.axis("off")
 
-    for label, coord in zip(["TR", "TL", "LR", "LL"], [C.top_right_ref_coord, C.top_left_ref_coord, C.low_right_ref_coord, C.low_left_ref_coord]):
-        sx, sy = usaf2screen_homography(coord, C._sift_h_matrix)
-        ix, iy = ref_usaf_point_to_target(coord)
+    for label, coord in zip(["TR", "TL", "LR", "LL"], [self.C.top_right_ref_coord, self.C.top_left_ref_coord, self.C.low_right_ref_coord, self.C.low_left_ref_coord]):
+        sx, sy = self.usaf2screen_homography(coord, self.C._sift_h_matrix)
+        ix, iy = self.ref_usaf_point_to_target(coord)
         ax4.scatter([sx], [sy], s=45, c="yellow", marker="o")
         ax4.scatter([ix], [iy], s=55, c="lime", marker="x")
         ax4.text(ix + 5, iy - 5, label, color="lime", fontsize=9)
@@ -238,55 +237,55 @@ def show_itkelastix_preview(target_gray, sift_warped_ref, fixed_roi, registered_
     plt.show(block=True)
 
 
-def setup_itkelastix_ref_mapping(ref_image, target_gray, h_matrix):
+def setup_itkelastix_ref_mapping(self, ref_image, target_gray, h_matrix):
     if itk is None:
         raise RuntimeError("elastix_warp.setup_itkelastix_ref_mapping: Install ITKElastix with: pip install itk-elastix")
 
     ref_gray = cv2.cvtColor(ref_image, cv2.COLOR_BGR2GRAY) if ref_image.ndim == 3 else ref_image.copy()
-    h_ref_to_target = ref_to_screen_homography_matrix(h_matrix)
+    h_ref_to_target = self.ref_to_screen_homography_matrix(h_matrix)
     sift_warped_ref = cv2.warpPerspective(ref_gray, h_ref_to_target, (target_gray.shape[1], target_gray.shape[0]))
 
     ys, xs = np.nonzero(sift_warped_ref)
     if len(xs) == 0:
         raise RuntimeError("elastix_warp.setup_itkelastix_ref_mapping: SIFT-warped reference is empty")
-    x0 = max(0, int(xs.min()) - C.ITKELASTIX_ROI_MARGIN)
-    y0 = max(0, int(ys.min()) - C.ITKELASTIX_ROI_MARGIN)
-    x1 = min(target_gray.shape[1], int(xs.max()) + C.ITKELASTIX_ROI_MARGIN + 1)
-    y1 = min(target_gray.shape[0], int(ys.max()) + C.ITKELASTIX_ROI_MARGIN + 1)
+    x0 = max(0, int(xs.min()) - self.C.ITKELASTIX_ROI_MARGIN)
+    y0 = max(0, int(ys.min()) - self.C.ITKELASTIX_ROI_MARGIN)
+    x1 = min(target_gray.shape[1], int(xs.max()) + self.C.ITKELASTIX_ROI_MARGIN + 1)
+    y1 = min(target_gray.shape[0], int(ys.max()) + self.C.ITKELASTIX_ROI_MARGIN + 1)
 
     fixed_roi = sift_warped_ref[y0:y1, x0:x1]  # fixed points are rough SIFT target-space points
     moving_roi = target_gray[y0:y1, x0:x1]     # transformix maps fixed points into this target image
-    fixed_image = itk.image_from_array(normalize_for_registration(fixed_roi))
-    moving_image = itk.image_from_array(normalize_for_registration(moving_roi))
+    fixed_image = itk.image_from_array(self.normalize_for_registration(fixed_roi))
+    moving_image = itk.image_from_array(self.normalize_for_registration(moving_roi))
 
     params = itk.ParameterObject.New()
-    parameter_map = params.GetDefaultParameterMap(C.ITKELASTIX_PARAMETER_MAP)
+    parameter_map = params.GetDefaultParameterMap(self.C.ITKELASTIX_PARAMETER_MAP)
     parameter_map["Metric"] = ["AdvancedMattesMutualInformation"]
     parameter_map["NumberOfHistogramBins"] = ["32"]
-    parameter_map["NumberOfResolutions"] = [str(C.ITKELASTIX_NUMBER_OF_RESOLUTIONS)]
-    parameter_map["MaximumNumberOfIterations"] = [str(C.ITKELASTIX_MAX_ITERATIONS)]
-    if C.ITKELASTIX_PARAMETER_MAP == "bspline":
-        parameter_map["FinalGridSpacingInPhysicalUnits"] = [str(C.ITKELASTIX_FINAL_GRID_SPACING)]
+    parameter_map["NumberOfResolutions"] = [str(self.C.ITKELASTIX_NUMBER_OF_RESOLUTIONS)]
+    parameter_map["MaximumNumberOfIterations"] = [str(self.C.ITKELASTIX_MAX_ITERATIONS)]
+    if self.C.ITKELASTIX_PARAMETER_MAP == "bspline":
+        parameter_map["FinalGridSpacingInPhysicalUnits"] = [str(self.C.ITKELASTIX_FINAL_GRID_SPACING)]
         parameter_map["GridSpacingSchedule"] = [
-            str(float(2 ** (C.ITKELASTIX_NUMBER_OF_RESOLUTIONS - idx - 1)))
-            for idx in range(C.ITKELASTIX_NUMBER_OF_RESOLUTIONS)
+            str(float(2 ** (self.C.ITKELASTIX_NUMBER_OF_RESOLUTIONS - idx - 1)))
+            for idx in range(self.C.ITKELASTIX_NUMBER_OF_RESOLUTIONS)
         ]
     params.AddParameterMap(parameter_map)
     registered, transform_params = itk.elastix_registration_method(
         fixed_image,
         moving_image,
         parameter_object=params,
-        log_to_console=C.ITKELASTIX_LOG_TO_CONSOLE,
+        log_to_console=self.C.ITKELASTIX_LOG_TO_CONSOLE,
     )
 
-    C._itk_transform_params = transform_params
-    C._itk_moving_image = moving_image
-    C._itk_output_dir = tempfile.mkdtemp(prefix="itkelastix_usaf_")
-    C._itk_roi_offset = (x0, y0)
-    C._itk_point_cache = {}
+    self.C._itk_transform_params = transform_params
+    self.C._itk_moving_image = moving_image
+    self.C._itk_output_dir = tempfile.mkdtemp(prefix="itkelastix_usaf_")
+    self.C._itk_roi_offset = (x0, y0)
+    self.C._itk_point_cache = {}
 
-    if C.ITKELASTIX_SHOW_PLOT:
-        show_itkelastix_preview(
+    if self.C.ITKELASTIX_SHOW_PLOT:
+        self.show_itkelastix_preview(
             target_gray,
             sift_warped_ref,
             fixed_roi,

@@ -1,12 +1,11 @@
 
 import numpy as np
-from . import constants as C
 
 
 
 
 
-def find_replacement_keypoints(pt_a, pt_b, yolo_detections):
+def find_replacement_keypoints(self, pt_a, pt_b, yolo_detections):
     '''
     Check if a point falls within any YOLO bounding box and return replacement keypoints if found.
     If a match is found, remove the detection from the list.
@@ -55,7 +54,7 @@ def find_replacement_keypoints(pt_a, pt_b, yolo_detections):
     return None, None
 
 
-def apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray, increment=None, max_cum=None):
+def apply_point_adjustment_algorithm(self, pt_a, pt_b, normalized_gray, increment=None, max_cum=None):
     '''
     Apply point adjustment algorithm to move points toward white regions.
     
@@ -79,9 +78,9 @@ def apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray, increment=None
         max_cum = 0.8 * initial_d
     
     cum = 0
-    threshold = C.ADJUST_THRESH
+    threshold = self.C.ADJUST_THRESH
     
-    while cum < max_cum and C.AUTO_ADJUST:
+    while cum < max_cum and self.C.AUTO_ADJUST:
         x1 = int(round(pt_a[0]))
         y1 = int(round(pt_a[1]))
         x2 = int(round(pt_b[0]))
@@ -112,7 +111,7 @@ def apply_point_adjustment_algorithm(pt_a, pt_b, normalized_gray, increment=None
 
 
 
-def extend_line(pt_a: tuple[int, int], pt_b: tuple[int, int], extend_length: float = 1.0) -> tuple[tuple[int, int], tuple[int, int]]:
+def extend_line(self, pt_a: tuple[int, int], pt_b: tuple[int, int], extend_length: float = 1.0) -> tuple[tuple[int, int], tuple[int, int]]:
     """
     Extends the line segment AB in both directions by a specified number of pixels.
     """

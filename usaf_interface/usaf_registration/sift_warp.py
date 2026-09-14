@@ -1,24 +1,23 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from . import constants as C
 
 
 
 
-def get_sift_reference_image():
-    return cv2.imread(C.SIFT_REF_IMAGE_PATH)
+def get_sift_reference_image(self):
+    return cv2.imread(self.C.SIFT_REF_IMAGE_PATH)
 
 
 
 
-def _sift_ref_origin_for_target():
-    """Origin on the SIFT reference image, mirrored when C.FLIPED_TARGET (matches coordinate_calibration)."""
-    origin = C.SIFT_REF_ORIGIN
-    if C.FLIPED_TARGET:
-        ref_image = get_sift_reference_image()
+def _sift_ref_origin_for_target(self):
+    """Origin on the SIFT reference image, mirrored when self.C.FLIPED_TARGET (matches coordinate_calibration)."""
+    origin = self.C.SIFT_REF_ORIGIN
+    if self.C.FLIPED_TARGET:
+        ref_image = self.get_sift_reference_image()
         if ref_image is not None:
-            origin = (ref_image.shape[1] - 1 - C.SIFT_REF_ORIGIN[0], C.SIFT_REF_ORIGIN[1])
+            origin = (ref_image.shape[1] - 1 - self.C.SIFT_REF_ORIGIN[0], self.C.SIFT_REF_ORIGIN[1])
     return origin
 
 
@@ -27,6 +26,7 @@ def _sift_ref_origin_for_target():
 
 
 def sift_homography_with_origin(
+    self,
     image1,
     image2,
     origin1=(0.0, 0.0),
@@ -96,7 +96,7 @@ def sift_homography_with_origin(
     if H is None or inlier_mask is None:
         raise RuntimeError("sift_warp.sift_homography_with_origin: Failed to estimate homography from SIFT correspondences")
 
-    angle_deg = C.SIFT_ANGLE if C.SIFT_ANGLE is not None else 0.0
+    angle_deg = self.C.SIFT_ANGLE if self.C.SIFT_ANGLE is not None else 0.0
     if angle_deg != 0.0:
         theta = np.deg2rad(angle_deg)
         cos_t = np.cos(theta)

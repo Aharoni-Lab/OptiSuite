@@ -3,10 +3,9 @@ import cv2
 from ultralytics import YOLO
 import numpy as np
 import matplotlib.pyplot as plt
-from . import constants as C
 from .transforms import yolo2screen
 
-_MODEL_CACHE = {}
+
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "models/best23.pt"
 NUM_MODEL_PATH = BASE_DIR / "models/best_num_classify.pt"
@@ -24,9 +23,9 @@ SINGLE_SCANLINE_MODEL_PATH = BASE_DIR / "models/single_pattern_scanline_v2.pt"
 
 
 
-def classify_resolution(img):
+def classify_resolution(self, img):
     img = cv2.resize(img, (256, 256))
-    model = get_yolo_model(RES_MODEL_PATH)
+    model = self.get_yolo_model(RES_MODEL_PATH)
     results = model(img, verbose=False)
     result = results[0]
     if result.probs is None:
@@ -35,7 +34,7 @@ def classify_resolution(img):
     return result.names[result.probs.top1], float(result.probs.top1conf.item())
 
 
-def count_4pts_pattern(img):
+def count_4pts_pattern(self, img):
     # Safety Check 1: Make sure the image actually exists
     if img is None:
         raise ValueError("yolo_model.count_4pts_pattern: Input image is None")
@@ -96,8 +95,8 @@ def count_4pts_pattern(img):
 
 
 
-def yolo_4pt_calculation(pt4_pattern_result, img):
-    """ Caution contains side effect of changing C.FLIPED_TARGET """
+def yolo_4pt_calculation(self, pt4_pattern_result, img):
+    """ Caution contains side effect of changing self.C.FLIPED_TARGET """
     
     # extract the detected keypoints from the YOLO result
     if pt4_pattern_result is None:
@@ -106,7 +105,7 @@ def yolo_4pt_calculation(pt4_pattern_result, img):
     if pt4_pattern_result.boxes is None or len(pt4_pattern_result.boxes) == 0:
         return []
     
-    fliped = -1 if C.FLIPED_TARGET else 1
+    fliped = -1 if self.C.FLIPED_TARGET else 1
     canonical_kps = np.array(
         [
             [1.0 * fliped, 0.0 * fliped],
@@ -154,7 +153,7 @@ def yolo_4pt_calculation(pt4_pattern_result, img):
     yolo_dir = None
     for det_idx, box in enumerate(boxes_xyxy):
         box = [(box[0], box[1]), (box[2], box[3])]
-        [x1, y1], [x2, y2] = yolo2screen(box, img)
+        [x1, y1], [x2, y2] = self.yolo2screen(box, img)
         box_length = np.linalg.norm(np.array((x2, y2)) - np.array((x1, y1)))
         if box_length != 0:
             box_lengths.append(box_length)
@@ -171,7 +170,7 @@ def yolo_4pt_calculation(pt4_pattern_result, img):
             for kp_idx, (kx, ky) in enumerate(keypoints_xy[det_idx]):
                 if np.isnan(kx) or np.isnan(ky):
                     continue
-                kx, ky = yolo2screen([(kx, ky)], img)[0]
+                kx, ky = self.yolo2screen([(kx, ky)], img)[0]
                 kp_conf = None
                 if keypoints_conf is not None and det_idx < len(keypoints_conf) and kp_idx < len(keypoints_conf[det_idx]):
                     kp_conf = float(keypoints_conf[det_idx][kp_idx])
@@ -216,10 +215,10 @@ def yolo_4pt_calculation(pt4_pattern_result, img):
             total_conf = sum(kp["conf"] for kp in ordered_kps if kp["conf"] is not None)
             directions.append([bool(is_clockwise), total_conf])
 
-            if not C.retry_flag:
+            if not self.C.retry_flag:
                 # Canonical ordered square points for kp0..kp3.
-                C.FLIPED_TARGET = yolo_dir
-                fliped = -1 if C.FLIPED_TARGET else 1
+                self.C.FLIPED_TARGET = yolo_dir
+                fliped = -1 if self.C.FLIPED_TARGET else 1
                 canonical_kps = np.array(
                     [
                         [1.0 * fliped, 0.0 * fliped],
@@ -280,7 +279,7 @@ def yolo_4pt_calculation(pt4_pattern_result, img):
 
     # Sort boxes by length, largest first
     box_lengths = sorted(box_lengths, reverse=True)
-    if C.DEBUG_MODE:
+    if self.C.DEBUG_MODE:
         print(f"Sorted yolo angles: {yolo_angles}")
         print(f"Sorted box lengths: {box_lengths}")
         print(f"Direction flags (clockwise=True): {directions}")
@@ -292,10 +291,10 @@ def yolo_4pt_calculation(pt4_pattern_result, img):
         # take the highest confidence direction
         yolo_dir = max(directions, key=lambda x: x[1])[0]
 
-    if yolo_dir is not None and not C.retry_flag:
-        C.FLIPED_TARGET = yolo_dir
+    if yolo_dir is not None and not self.C.retry_flag:
+        self.C.FLIPED_TARGET = yolo_dir
 
-    if C.DEBUG_MODE and img is not None:
+    if self.C.DEBUG_MODE and img is not None:
         vis = img.copy()
         color_map = [(0, 255, 0), (0, 255, 255), (255, 0, 255), (255, 255, 0)]
 
@@ -344,14 +343,14 @@ def yolo_4pt_calculation(pt4_pattern_result, img):
 
 
 
-def get_yolo_model(model_path):
+def get_yolo_model(self, model_path):
     model_path = str(model_path)
-    if model_path not in _MODEL_CACHE:
-        _MODEL_CACHE[model_path] = YOLO(str(model_path))
-    return _MODEL_CACHE[model_path]
+    if model_path not in self.C._MODEL_CACHE:
+        self.C._MODEL_CACHE[model_path] = YOLO(str(model_path))
+    return self.C._MODEL_CACHE[model_path]
 
 
-def extract_yolo_detections(curr_image, model_path = MODEL_PATH, imgsz=2048):
+def extract_yolo_detections(self, curr_image, model_path = MODEL_PATH, imgsz=2048):
     """
     Extract YOLO detections including bounding boxes and keypoints for each detected object.
 
@@ -366,7 +365,7 @@ def extract_yolo_detections(curr_image, model_path = MODEL_PATH, imgsz=2048):
         - result: YOLO result object
         - img: Original image
     """
-    model = get_yolo_model(model_path)
+    model = self.get_yolo_model(model_path)
     if isinstance(curr_image, (str, Path)):
         img = cv2.imread(str(curr_image))
         if img is None:
@@ -447,7 +446,7 @@ def extract_yolo_detections(curr_image, model_path = MODEL_PATH, imgsz=2048):
     return detections, result, img
 
 
-def visualize_detections(img, result = None, detections = None):
+def visualize_detections(self, img, result = None, detections = None):
     """
     Visualize YOLO detections with bounding boxes and keypoints.
     """
@@ -482,7 +481,7 @@ def visualize_detections(img, result = None, detections = None):
     return img_vis
 
 
-def detect_single_scanline_keypoints(image, imgsz=256, conf=0.10, iou=0.5):
+def detect_single_scanline_keypoints(self, image, imgsz=256, conf=0.10, iou=0.5):
     """
     Run SINGLE_SCANLINE_MODEL_PATH (keypoint model) on an image and return detected keypoints.
 
@@ -495,7 +494,7 @@ def detect_single_scanline_keypoints(image, imgsz=256, conf=0.10, iou=0.5):
     Returns:
         List of (x, y) integer keypoint coordinates.
     """
-    model = get_yolo_model(SINGLE_SCANLINE_MODEL_PATH)
+    model = self.get_yolo_model(SINGLE_SCANLINE_MODEL_PATH)
 
     if isinstance(image, (str, Path)):
         img = cv2.imread(str(image))
@@ -524,7 +523,7 @@ def detect_single_scanline_keypoints(image, imgsz=256, conf=0.10, iou=0.5):
             kp1, kp2 = (int(round(float(kp1[0]))), int(round(float(kp1[1])))), (int(round(float(kp2[0]))), int(round(float(kp2[1]))))
             keypoints.append((kp1, kp2))
 
-    if C.DEBUG_MODE and False:
+    if self.C.DEBUG_MODE and False:
         img_vis = img.copy()
         for p1, p2 in keypoints:
             cv2.circle(img_vis, p1, 4, (0, 0, 255), -1)

@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import random
-from . import constants as C
 from .transforms import get_rotated_pt
 
 
@@ -13,7 +12,7 @@ from .transforms import get_rotated_pt
 
 
 
-def make_dummy_valid_square(gray):
+def make_dummy_valid_square(self, gray):
     """
     Build a centered diamond-shaped contour so SIFT calibration still gets one
     attempt when no physical square was detected.
@@ -35,7 +34,7 @@ def make_dummy_valid_square(gray):
     )
 
 
-def is_valid_square(approx, gray, white_threshold=250, angle_tolerance=5, side_ratio_tolerance=1.2):
+def is_valid_square(self, approx, gray, white_threshold=250, angle_tolerance=5, side_ratio_tolerance=1.2):
     '''
     Check if the approximated polygon is a valid square with:
     - Ratio between max and min side length between 1 and 1.5
@@ -109,12 +108,12 @@ def is_valid_square(approx, gray, white_threshold=250, angle_tolerance=5, side_r
 
 
 
-def find_square_corners(gray):
+def find_square_corners(self, gray):
     '''
     find the square in the usaf target for initial coordinate calibration, 
     return the corners in standard coordinates (x, y)
     '''
-    C.valid_squares = []  # Reset the list for each new image
+    self.C.valid_squares = []  # Reset the list for each new image
 
     # RGB color of gray
     img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
@@ -171,7 +170,7 @@ def find_square_corners(gray):
             approx_polys.append(approx_orig)
 
             # Look for 4-sided polygons that form valid squares
-            if len(approx) == 4 and is_valid_square(approx, thresh):
+            if len(approx) == 4 and self.is_valid_square(approx, thresh):
                 area_orig = area_scaled / (scale * scale)
                 square_candidates.append((area_orig, approx_orig))
 
@@ -192,14 +191,14 @@ def find_square_corners(gray):
         if not duplicate:
             deduped_candidates.append((area_orig, approx_orig))
 
-    C.valid_squares = [approx for _, approx in deduped_candidates]
-    if len(C.valid_squares) == 0 and C.USE_SIFT_REF_CALIBRATION:
-        C.valid_squares = [make_dummy_valid_square(gray)]
-        if C.DEBUG_MODE:
+    self.C.valid_squares = [approx for _, approx in deduped_candidates]
+    if len(self.C.valid_squares) == 0 and self.C.USE_SIFT_REF_CALIBRATION:
+        self.C.valid_squares = [self.make_dummy_valid_square(gray)]
+        if self.C.DEBUG_MODE:
             print("No valid square detected; using dummy square for SIFT calibration.")
-    best_square_corners = C.valid_squares[0] if len(C.valid_squares) > 0 else None
+    best_square_corners = self.C.valid_squares[0] if len(self.C.valid_squares) > 0 else None
 
-    if C.DEBUG_MODE:
+    if self.C.DEBUG_MODE:
         # Show approxPolyDP output (polygonal approximation of contours).
         approx_img = img.copy()
         for approx in approx_polys:
@@ -224,12 +223,12 @@ def find_square_corners(gray):
         plt.tight_layout()
         plt.show(block=True)
 
-    if C.DEBUG_MODE:
+    if self.C.DEBUG_MODE:
         # Visualize all detected valid squares and highlight the best one.
         detected_img = img.copy()
-        if len(C.valid_squares) > 0:
-            cv2.drawContours(detected_img, C.valid_squares, -1, (0, 255, 255), 2)  # yellow: all detected squares
-            for idx, square in enumerate(C.valid_squares):
+        if len(self.C.valid_squares) > 0:
+            cv2.drawContours(detected_img, self.C.valid_squares, -1, (0, 255, 255), 2)  # yellow: all detected squares
+            for idx, square in enumerate(self.C.valid_squares):
                 center = np.mean(square.reshape(-1, 2), axis=0).astype(int) + random.randint(-10, 10)
                 cv2.putText(detected_img, str(idx), tuple(center), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 200, 0), 2)
         if best_square_corners is not None:
@@ -257,7 +256,7 @@ def find_square_corners(gray):
         # Create a copy because the valid squares list is by ref
         corners = best_square_corners.reshape(-1, 2).copy()
 
-        if C.DEBUG_MODE:
+        if self.C.DEBUG_MODE:
             print("Detected Corners:\n", corners)
             # Draw for visual confirmation
             for (x, y) in corners:
@@ -272,7 +271,7 @@ def find_square_corners(gray):
         corners[:, 1] = img.shape[0] - corners[:, 1] - 1
         return corners
     else:
-        if C.DEBUG_MODE:
+        if self.C.DEBUG_MODE:
             print("Square not detected. Showing thresholded image for debugging...")
             plt.figure("Debug Thresh")
             plt.imshow(thresh, cmap='gray')
@@ -287,7 +286,7 @@ def find_square_corners(gray):
 
 
 
-def bright_pixels_as_corners(region, threshold=128):
+def bright_pixels_as_corners(self, region, threshold=128):
     """
     Same layout as cv2.goodFeaturesToTrack: (N, 1, 2) float32 with region-local (x, y),
     one entry per pixel whose grayscale is >= threshold. Returns None if no pixels match.
@@ -302,7 +301,7 @@ def bright_pixels_as_corners(region, threshold=128):
     return pts
 
 
-def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, region_center, region_size, prefer_dir = 0):
+def find_white_corner_in_region(self,gray, center_x, center_y, angle, side_length, region_center, region_size, prefer_dir = 0):
     """
     Find the location of a white corner on black background within a square region.
     The region is centered at region_center in usaf coordinate
@@ -316,8 +315,8 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     # Convert region center from usaf coordinates to screen coordinates
     region_center_scaled = (region_center[0] * side_length, region_center[1] * side_length)
     # translate and rotate to get screen coordinates of the region center
-    flip = -1 if C.FLIPED_TARGET else 1
-    region_center_img = get_rotated_pt(center_x, center_y, flip * region_center_scaled[0], -region_center_scaled[1], angle)
+    flip = -1 if self.C.FLIPED_TARGET else 1
+    region_center_img = self.get_rotated_pt(center_x, center_y, flip * region_center_scaled[0], -region_center_scaled[1], angle)
     #calculate the region size in pixels
     region_size_px = max(region_size * side_length, 13)
 
@@ -328,7 +327,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     y2 = int(region_center_img[1] + region_size_px)
     
     # if the region is out of image return none
-    if x2 >= gray.shape[1] or x1 < 0 or y2 >= gray.shape[0] or y1 < 0 and C.CROPED_WINDOW_RETRY:
+    if x2 >= gray.shape[1] or x1 < 0 or y2 >= gray.shape[0] or y1 < 0 and self.C.CROPED_WINDOW_RETRY:
         return None
     # Clip to image bounds
     x1 = max(0, x1)
@@ -341,13 +340,13 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
     if region.size == 0:
         return None
     
-    if C.CORNER_METHOD == "threshold":
-        corners_shi_tomasi = bright_pixels_as_corners(region)
+    if self.C.CORNER_METHOD == "threshold":
+        corners_shi_tomasi = self.bright_pixels_as_corners(region)
     else:
         # Apply Shi-Tomasi corner detection on white pixels
         corners_shi_tomasi = cv2.goodFeaturesToTrack(region.astype(np.uint8), 20, 0.001, 1)
         # Subpixel refinement if needed
-        if region.shape[0] > 30 and region.shape[1] > 30 and C.SUBPIXEL:             # If the region is small, skip subpixel refinement
+        if region.shape[0] > 30 and region.shape[1] > 30 and self.C.SUBPIXEL:             # If the region is small, skip subpixel refinement
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001)
             cv2.cornerSubPix(region.astype(np.uint8), corners_shi_tomasi, (10, 10), (-1, -1), criteria)
 
@@ -371,7 +370,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
             search_idx = np.argmax(corner_x)
         corner_local = corners_shi_tomasi[search_idx, 0]
 
-        if C.DEBUG_MODE:
+        if self.C.DEBUG_MODE:
             print("prefer_dir: ", prefer_dir)
             # Create a BGR version of the crop for color drawing
             debug_img = cv2.cvtColor(region, cv2.COLOR_GRAY2BGR)
@@ -399,7 +398,7 @@ def find_white_corner_in_region(gray, center_x, center_y, angle, side_length, re
 
 
 
-def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
+def find_target_orientation(self, gray, center_x, center_y, unit_vector, side_length):
     '''
     calculate the orientation of the target by comparing the average of the scanline element
     '''
@@ -453,7 +452,7 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
     scanline_end[:, 1] = gray.shape[0] - scanline_end[:, 1] - 1
     scanline_end = scanline_end.astype(int)
 
-    if C.DEBUG_MODE:
+    if self.C.DEBUG_MODE:
         # Convert grayscale to BGR so we can draw in color
         img_copy = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) 
 
@@ -485,13 +484,13 @@ def find_target_orientation(gray, center_x, center_y, unit_vector, side_length):
 
     # find the index of the minimum value
     min_index = np.argmin(average)
-    if C.DEBUG_MODE:
+    if self.C.DEBUG_MODE:
         print(f"Minimum index: {min_index}")
     # return the corresponding orientation
     return min_index
 
 
-def get_adjusted_top_corners_from_enclosing_rectangle(top_right_corner, top_left_corner, low_right_corner, low_left_corner):
+def get_adjusted_top_corners_from_enclosing_rectangle(self, top_right_corner, top_left_corner, low_right_corner, low_left_corner):
     """
     Use all four detected reference corners to build a minimum-area enclosing rectangle,
     then select the two rectangle corners closest to the original top-right/top-left corners.

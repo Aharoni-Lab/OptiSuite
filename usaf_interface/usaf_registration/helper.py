@@ -3,11 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 from pathlib import Path
-from . import constants as C
 
 
 
-def sample_line_profile(gray, pt_a, pt_b, sample_count=200):
+def sample_line_profile(self, gray, pt_a, pt_b, sample_count=200):
     """
     Samples a line profile with sub-pixel accuracy and guaranteed ordering.
     """
@@ -32,9 +31,9 @@ def sample_line_profile(gray, pt_a, pt_b, sample_count=200):
 
 
 
-def is_image_clear(curr_image, threshold=3.0):
+def is_image_clear(self, curr_image, threshold=3.0):
     if curr_image is None or curr_image.size == 0:
-        if C.DEBUG_MODE:
+        if self.C.DEBUG_MODE:
             print("Input image is None or empty.")
         return 0.0
 
@@ -47,12 +46,12 @@ def is_image_clear(curr_image, threshold=3.0):
     denoised = cv2.bilateralFilter(gray, 5, 75, 75)
     laplacian_mtt = cv2.Laplacian(denoised, cv2.CV_64F)
     score = laplacian_mtt.var()
-    if C.DEBUG_MODE:
+    if self.C.DEBUG_MODE:
         print("blurry score: ", score)
     return score >= threshold
 
 
-def normalize_image_contrast(image, normalize_range=(0, 255)):
+def normalize_image_contrast(self, image, normalize_range=(0, 255)):
     """Normalize all pixels globally to the specified range.
 
     Args:
@@ -78,15 +77,15 @@ def normalize_image_contrast(image, normalize_range=(0, 255)):
 
 
 
-def gradient_visualization(i, smooth_pixels, filtered_min_indices, local_min_count, dy):
+def gradient_visualization(self, i, smooth_pixels, filtered_min_indices, local_min_count, dy):
     scan_idx = i // 2
-    unique_count = len(C.score_table)
+    unique_count = len(self.C.score_table)
     base_idx = scan_idx % unique_count
     orientation = "vertical" if scan_idx < unique_count else "horizontal"
-    group, element = C.score_table[base_idx]
-    group_match = C.GRADIENT_PLOT_GROUP is None or group == C.GRADIENT_PLOT_GROUP
-    element_match = C.GRADIENT_PLOT_ELEMENT is None or element == C.GRADIENT_PLOT_ELEMENT
-    orient_match = C.GRADIENT_PLOT_ORIENTATION in ("both", orientation)
+    group, element = self.C.score_table[base_idx]
+    group_match = self.C.GRADIENT_PLOT_GROUP is None or group == self.C.GRADIENT_PLOT_GROUP
+    element_match = self.C.GRADIENT_PLOT_ELEMENT is None or element == self.C.GRADIENT_PLOT_ELEMENT
+    orient_match = self.C.GRADIENT_PLOT_ORIENTATION in ("both", orientation)
 
     if group_match and element_match and orient_match:
         print(
@@ -129,11 +128,11 @@ def gradient_visualization(i, smooth_pixels, filtered_min_indices, local_min_cou
 
 
 
-def usaf_lp_per_mm(group: int, element: int) -> float:
+def usaf_lp_per_mm(self, group: int, element: int) -> float:
     return float(2 ** (group + (element - 1) / 6.0))
 
-def usaf_resolution_mm(group: int, element: int) -> float:
-    return float(1.0 / (2.0 * usaf_lp_per_mm(group, element)))
+def usaf_resolution_mm(self, group: int, element: int) -> float:
+    return float(1.0 / (2.0 * self.usaf_lp_per_mm(group, element)))
 
 
 
