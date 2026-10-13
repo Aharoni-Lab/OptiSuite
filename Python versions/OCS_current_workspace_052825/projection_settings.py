@@ -42,6 +42,9 @@ class ProjectionSettingsDialog(QDialog):
         self.solid_intensity_label.setFixedWidth(44)
         self.solid_live_running = False
         self.solid_active_display = None
+        self._saved = False
+        self._close_restored = False
+        self._initial_solid_projection = self._capture_parent_solid_projection()
         self.solid_start_btn = QPushButton("Start Solid Projection")
         self.solid_stop_btn = QPushButton("Stop")
         self.solid_stop_btn.setEnabled(False)
@@ -222,6 +225,31 @@ class ProjectionSettingsDialog(QDialog):
             return QColor(0, value, 0)
         return QColor(0, 0, value)
 
+    def _capture_parent_solid_projection(self):
+        parent = self.parent()
+        windows = getattr(parent, "projection_windows", {}) if parent is not None else {}
+        state = []
+        for display_index, window in windows.items():
+            color = getattr(window, "_solid_color", None)
+            if color is not None and window.isVisible():
+                state.append((display_index, QColor(color)))
+        return state
+
+    def _restore_parent_solid_projection(self):
+        if self._close_restored:
+            return
+        self._close_restored = True
+        parent = self.parent()
+        if parent is None:
+            return
+        if not self._initial_solid_projection:
+            if hasattr(parent, "_stop_live_solid_projection"):
+                parent._stop_live_solid_projection(None)
+            return
+        if hasattr(parent, "_show_live_solid_projection"):
+            for display_index, color in self._initial_solid_projection:
+                parent._show_live_solid_projection(display_index, color)
+
     def _start_solid_projection(self):
         self.solid_live_running = True
         self.solid_active_display = self.solid_display.currentData()
@@ -251,15 +279,19 @@ class ProjectionSettingsDialog(QDialog):
         parent._show_live_solid_projection(current_display, self._solid_projection_color())
 
     def accept(self):
+        self._saved = True
         self._stop_solid_projection()
         super().accept()
 
     def reject(self):
         self._stop_solid_projection()
+        self._restore_parent_solid_projection()
         super().reject()
 
     def closeEvent(self, event):
         self._stop_solid_projection()
+        if not self._saved:
+            self._restore_parent_solid_projection()
         event.accept()
 
 

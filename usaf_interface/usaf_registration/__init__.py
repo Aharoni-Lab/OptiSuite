@@ -72,6 +72,8 @@ class UsafRegistration:
     from .usaf_algo import auto_configurator
     from .usaf_algo import clean_up
     from .usaf_algo import load_config
+    
+    # main function
     from .usaf_algo import score_image_routine
 
     from .yolo_model import classify_resolution
@@ -81,7 +83,7 @@ class UsafRegistration:
     from .yolo_model import extract_yolo_detections
     from .yolo_model import visualize_detections
     from .yolo_model import detect_single_scanline_keypoints
-    
+
     from .yolo_model import BASE_DIR
     from .yolo_model import MODEL_PATH
     from .yolo_model import NUM_MODEL_PATH

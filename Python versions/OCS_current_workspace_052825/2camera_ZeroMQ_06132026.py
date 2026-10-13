@@ -32,6 +32,7 @@ from zmq_pull_listener import ZMQPullListener
 from autofocus_routine import AutofocusRoutine
 from stage_seq_editor import StageSequenceEditorDialog
 from projection_settings import ProjectionSettingsDialog, ProjectionWindow
+from configuration_dialog import ConfigurationDialog
 from auto_solid_project import AutoSolidIntensityController
 from empty_cam_mgr import EmptyCameraManager
 from power_meter import PowerMeterBus, PowerMeterWorker, PowerMeterWindow, PowerTraceWidget, format_power_watts
@@ -300,6 +301,7 @@ class CameraApp(QWidget):
         self.projection_settings = {}
         self.projection_windows = {}
         self.projection_sequence_running = False
+        self.custom_stage_sequence = None
 
         # save directory for the screenshots
         self.save_dir = r"C:\Users\stimscope1\Documents\OptiSuite\screenshots"
@@ -1038,6 +1040,7 @@ class CameraApp(QWidget):
         # ---- Stage Routine Controls ----
         setStageSequence_btn = QPushButton("Set Stage Sequence")
         setProjectionSettings_btn = QPushButton("Set Projection Settings")
+        configuration_btn = QPushButton("Configuration")
         autoSolidProjection_btn = QPushButton("Auto Solid Projection")
         startRoutine_btn = QPushButton("Start Characterization")
         resumeRoutine_btn = QPushButton("Resume")
@@ -1045,6 +1048,7 @@ class CameraApp(QWidget):
         for sequence_btn in (
             setStageSequence_btn,
             setProjectionSettings_btn,
+            configuration_btn,
             autoSolidProjection_btn,
             startRoutine_btn,
             resumeRoutine_btn,
@@ -1073,6 +1077,7 @@ class CameraApp(QWidget):
         startRoutine_btn.clicked.connect(self.start_stage_routine)
         setStageSequence_btn.clicked.connect(self.open_stage_sequence_editor)
         setProjectionSettings_btn.clicked.connect(self.open_projection_settings_editor)
+        configuration_btn.clicked.connect(self.open_configuration_dialog)
         autoSolidProjection_btn.clicked.connect(lambda: self.start_auto_solid_projection(cam_index=0))
         resumeRoutine_btn.clicked.connect(self.resume_stage_routine)
         resumePauseMode_check.stateChanged.connect(lambda _=None: self._refresh_resume_button_state())
@@ -1089,10 +1094,11 @@ class CameraApp(QWidget):
         stage_sequence_buttons.setVerticalSpacing(4)
         stage_sequence_buttons.addWidget(setStageSequence_btn, 0, 0)
         stage_sequence_buttons.addWidget(setProjectionSettings_btn, 0, 1)
-        stage_sequence_buttons.addWidget(autoSolidProjection_btn, 0, 2)
+        stage_sequence_buttons.addWidget(configuration_btn, 0, 2)
         stage_sequence_buttons.addWidget(startRoutine_btn, 1, 0)
         stage_sequence_buttons.addWidget(resumeRoutine_btn, 1, 1)
-        stage_sequence_buttons.addWidget(resumePauseMode_check, 1, 2)
+        stage_sequence_buttons.addWidget(autoSolidProjection_btn, 1, 2)
+        stage_sequence_buttons.addWidget(resumePauseMode_check, 2, 0)
         stage_sequence_buttons.setColumnStretch(0, 1)
         stage_sequence_buttons.setColumnStretch(1, 1)
         stage_sequence_buttons.setColumnStretch(2, 1)
@@ -1113,6 +1119,7 @@ class CameraApp(QWidget):
         self.resumeRoutine_btn = resumeRoutine_btn
         self.setStageSequence_btn = setStageSequence_btn
         self.setProjectionSettings_btn = setProjectionSettings_btn
+        self.configuration_btn = configuration_btn
         self.autoSolidProjection_btn = autoSolidProjection_btn
         self.startRoutine_btn = startRoutine_btn
         self.resumePauseMode_check = resumePauseMode_check
@@ -2560,6 +2567,10 @@ class CameraApp(QWidget):
             return self.start_autofocus(cam_index=0, on_finished=self.stage_routine.StepCompleted, no_ui=True)
         elif prop == "auto solid projection":
             return self.start_auto_solid_projection(cam_index=0, on_finished=self.stage_routine.StepCompleted)
+        elif prop in {"project red", "project blue", "project green"}:
+            projector_index = self._solid_display_index()
+            self._apply_stage_projection_color(prop.rsplit(" ", 1)[-1], projector_index)
+            return False
         else:
             return False
 
@@ -2643,6 +2654,15 @@ class CameraApp(QWidget):
             if screen != primary:
                 return index
         return 0 if screens else None
+
+    def _apply_stage_projection_color(self, color_name, projector_index):
+        """Apply a solid projection color from a stage sequence stop."""
+        settings = dict(getattr(self, "projection_settings", {}) or {})
+        settings["solid_color"] = str(color_name).strip().lower()
+        settings["solid_display"] = projector_index
+        settings["solid_intensity"] = settings.get("solid_intensity", 100)
+        self.projection_settings = settings
+        self._show_live_solid_projection(projector_index, self._solid_color_from_settings(settings))
 
     def _apply_auto_solid_intensity(self, intensity):
         """Show the saved solid color at intensity without opening the dialog."""
@@ -2811,6 +2831,35 @@ class CameraApp(QWidget):
 
 
     #013026 add this for importing stage routine
+    def _load_default_stage_sequence(self, path):
+        """Load default stage stops from config.json."""
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                payload = json.load(file)
+            if isinstance(payload, dict):
+                self.custom_stage_sequence = payload.get("default_routine")
+        except Exception as e:
+            print(f"[StageSequence] failed to load default routine from {path}: {e}")
+        return None
+
+    def _current_configuration_payload(self):
+        """Build the current app configuration for saving."""
+        payload = {}
+        payload["default_routine"] = self.custom_stage_sequence or []
+        return payload
+
+    def open_configuration_dialog(self):
+        """Open JSON configuration editor and reload default routine after save."""
+        config_path = ROOT_DIR / "config.json"
+        dialog = ConfigurationDialog(config_path, self._current_configuration_payload(), self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        if dialog.load_config:
+            self._load_default_stage_sequence(dialog.config_path)
+            self.append_local_log(f"[Configuration] loaded {dialog.config_path};")
+        else:
+            self.append_local_log(f"[Configuration] saved {dialog.config_path}")
+
     def open_stage_sequence_editor(self):
         """Open the custom stage sequence editor and save its stops."""
         dialog = StageSequenceEditorDialog(getattr(self, "custom_stage_sequence", None), self)

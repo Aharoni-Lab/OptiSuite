@@ -1,5 +1,6 @@
 # stage_routine.py
 # used in 2camera_ZeroMQ_06132026.py
+import json
 
 class StageRoutine:
     def __init__(self, send_move_callback, log_callback=None):
@@ -183,6 +184,22 @@ class StageRoutine:
             self.RunToSlide,
         ]
         self.current_step = 0
+
+    def BuildDefaultRoutine(self, path):
+        """Load a JSON stage sequence and build it as the current routine.
+
+        Accepted JSON formats:
+        - a dict containing "default_routine" key with a list of stops: [[x, y, z, property, projector], ...]
+        """
+        with open(path, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+
+        if isinstance(payload, dict):
+            stops = payload.get("default_routine")
+        else:
+            raise ValueError("Stage routine JSON must contain a dict with 'default_routine' key.")
+
+        self.SetCustomStops(stops)
 
     def SetCustomStops(self, stops):
         normalized_stops = []
