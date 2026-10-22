@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -168,46 +169,46 @@ class UsafConfig:
         # scanline definition in usaf coordinate
         # Define points as (local_x, local_y) relative to the center of the square, in units of side_length
         # Every two points (0&1, 2&3, etc.) will form one line segment for scoring
-        self.g2_x = -3.2
-        self.g3_x = 2.5
-        self.g4_x = -0.56
-        self.g5_x = 0.87
-        self.g6_x = 0.112
+        self._g2_x = -3.2
+        self._g3_x = 2.5
+        self._g4_x = -0.56
+        self._g5_x = 0.87
+        self._g6_x = 0.112
 
-        self.g6y_scale = 1.027
-        self.g5y_scale = 1.023
-        self.g4y_scale = 1.026
-        self.g3y_scale = 1.03
-        self.g2y_scale = 1.03
+        self._g6y_scale = 1.027
+        self._g5y_scale = 1.023
+        self._g4y_scale = 1.026
+        self._g3y_scale = 1.03
+        self._g2y_scale = 1.03
 
-        self.g6x_scale = 0.922
-        self.g5x_scale = 1.00
-        self.g4x_scale = 1.13
-        self.g3x_scale = 1.015
-        self.g2x_scale = 1.06
+        self._g6x_scale = 0.922
+        self._g5x_scale = 1.00
+        self._g4x_scale = 1.13
+        self._g3x_scale = 1.015
+        self._g2x_scale = 1.06
 
-        self.g7x_offset = -0.01
-        self.g7y_offset = -0.08
-        self.g7y_scale = 1.019
+        self._g7x_offset = -0.01
+        self._g7y_offset = -0.08
+        self._g7y_scale = 1.019
 
-        g2_x = self.g2_x
-        g3_x = self.g3_x
-        g4_x = self.g4_x
-        g5_x = self.g5_x
-        g6_x = self.g6_x
-        g2x_scale = self.g2x_scale
-        g3x_scale = self.g3x_scale
-        g4x_scale = self.g4x_scale
-        g5x_scale = self.g5x_scale
-        g6x_scale = self.g6x_scale
-        g2y_scale = self.g2y_scale
-        g3y_scale = self.g3y_scale
-        g4y_scale = self.g4y_scale
-        g5y_scale = self.g5y_scale
-        g6y_scale = self.g6y_scale
-        g7x_offset = self.g7x_offset
-        g7y_offset = self.g7y_offset
-        g7y_scale = self.g7y_scale
+        g2_x = self._g2_x
+        g3_x = self._g3_x
+        g4_x = self._g4_x
+        g5_x = self._g5_x
+        g6_x = self._g6_x
+        g2x_scale = self._g2x_scale
+        g3x_scale = self._g3x_scale
+        g4x_scale = self._g4x_scale
+        g5x_scale = self._g5x_scale
+        g6x_scale = self._g6x_scale
+        g2y_scale = self._g2y_scale
+        g3y_scale = self._g3y_scale
+        g4y_scale = self._g4y_scale
+        g5y_scale = self._g5y_scale
+        g6y_scale = self._g6y_scale
+        g7x_offset = self._g7x_offset
+        g7y_offset = self._g7y_offset
+        g7y_scale = self._g7y_scale
 
         self.group_positions = {
 
@@ -343,6 +344,103 @@ class UsafConfig:
             [0.3, 0.3, 0.3],
             [0.3, 0.3, 0.3],
         ]
+
+    def initialize_from_dict(self, payload: dict):
+        """Overlay this config with settings from a JSON file.
+
+        The file may be a flat object of UsafConfig fields, or an object with
+        a "usaf_config" object. Unknown keys are ignored.
+        """
+
+        for key, value in payload.items():
+            # do not change BASE_DIR !!!
+            if hasattr(self, key) and key != "BASE_DIR":
+                setattr(self, key, self._json_value(key, value))
+
+        # Unconditional setup
+        self.USE_SIFT_REF_CALIBRATION = self.PT_TRANSFORM in (
+            "classic with sift", "sift", "elastix", "auto"
+        )
+        self.USE_ITKELASTIX_REF_CALIBRATION = self.PT_TRANSFORM == "elastix"
+        self.initialize_score_table()
+        self.LOG_PATH.mkdir(parents=True, exist_ok=True)
+
+        if "PREVIEW_MODE" in payload and "PATTERN_CLASSIFICATION_SHOW_PLOT" not in payload:
+            self.PATTERN_CLASSIFICATION_SHOW_PLOT = self.PREVIEW_MODE
+        if "DEBUG_MODE" in payload and "SIFT_REF_SHOW_PLOT" not in payload:
+            self.SIFT_REF_SHOW_PLOT = self.DEBUG_MODE
+        if "DEBUG_MODE" in payload and "ITKELASTIX_SHOW_PLOT" not in payload:
+            self.ITKELASTIX_SHOW_PLOT = self.DEBUG_MODE
+        if "SIFT_CONFIG_LIST" in payload and "SIFT_REF_IMAGE_PATH" not in payload:
+            selected = self.SIFT_CONFIG_LIST[2]
+            self.SIFT_REF_IMAGE_PATH = selected["REF_IMAGE_PATH"]
+            self.SIFT_REF_ORIGIN = tuple(selected["REF_ORIGIN"])
+            self.SIFT_REF_PIXELS_PER_UNIT_X = selected["REF_PIXELS_PER_UNIT_X"]
+            self.SIFT_REF_PIXELS_PER_UNIT_Y = selected["REF_PIXELS_PER_UNIT_Y"]
+            self.SIFT_ANGLE = selected["ANGLE"]
+        return self
+
+    def _json_value(self, key, value):
+        if key in {"CROP_DIR", "LOG_PATH"} and isinstance(value, str):
+            return Path(value)
+        if key == "group_positions" and isinstance(value, dict):
+            return {int(k): tuple(v) if isinstance(v, list) else v for k, v in value.items()}
+        if key == "SIFT_CONFIG_LIST" and isinstance(value, list):
+            configs = []
+            for item in value:
+                if isinstance(item, dict) and isinstance(item.get("REF_ORIGIN"), list):
+                    item = dict(item)
+                    item["REF_ORIGIN"] = tuple(item["REF_ORIGIN"])
+                configs.append(item)
+            return configs
+        if isinstance(value, list) and (key.endswith("_coord") or key.endswith("_ORIGIN") or key.endswith("_offset")):
+            return tuple(value)
+        return value
+
+    def export_to_dict(self):
+        """Return JSON-safe settings that initialize_from_dict can load back."""
+        skip = {
+            "BASE_DIR",
+            "score_table",
+            "retry_flag",
+            "valid_squares",
+            "retry_count",
+            "pattern_count",
+            "current_image_label",
+            "initial_angle",
+            "top_left_ref_coord",
+            "top_right_ref_coord",
+            "bottom_left_ref_coord",
+            "bottom_right_ref_coord",
+            "group_positions",
+            "prefer_dir_table",
+            "max_state_table",
+            "min_state_table",
+            "mean_state_table",
+            "sift_weight",
+            "classic_weight",
+            "yolo_weight",
+        }
+        payload = {}
+        for key, value in self.__dict__.items():
+            if key.startswith("_") or key in skip:
+                continue
+            payload[key] = self._export_value(value)
+        return payload
+
+    def _export_value(self, value):
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, tuple):
+            return [self._export_value(item) for item in value]
+        if isinstance(value, list):
+            return [self._export_value(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                str(key) if isinstance(key, int) else key: self._export_value(item)
+                for key, item in value.items()
+            }
+        return value
 
     def get_image_paths(self, folder_path, recursive=False):
         image_extensions = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}

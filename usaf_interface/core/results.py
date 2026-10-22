@@ -50,6 +50,7 @@ class AnalyzerConfig:
     allow_model_assist: bool = False
     flip_mode: FlipMode = "fliped"
     metadata: dict[str, Any] = field(default_factory=dict)
+    usaf_config_path: Path = None
 
 
 @dataclass(slots=True)

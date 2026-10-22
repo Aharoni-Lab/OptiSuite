@@ -18,11 +18,13 @@ class ConfigurationDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Configuration")
         self.resize(420, 220)
-        self.config_path = Path(config_path)
+        self.config_path = Path(config_path) if config_path is not None else None
+        self.save_path = None
         self.current_config = current_config if current_config is not None else {}
-        self.load_path_selected = Path(config_path)
-        self.save_folder_selected = Path(config_path).parent
+        self.load_path_selected = Path(config_path) if config_path is not None else Path(__file__).resolve()
+        self.save_folder_selected = Path(config_path).parent if config_path is not None else Path(__file__).resolve().parent
         self.load_config = False
+        self.save_config = False
 
         self.load_status = QLabel(f"Load file: {self.load_path_selected}")
         self.load_status.setWordWrap(True)
@@ -93,7 +95,8 @@ class ConfigurationDialog(QDialog):
                     index += 1
             with open(path, "w", encoding="utf-8") as file:
                 json.dump(self.current_config, file, indent=4)
-            self.config_path = path
+            self.save_config = True
+            self.save_path = path
             self.accept()
         except Exception as exc:
             QMessageBox.warning(self, "Save failed", str(exc))

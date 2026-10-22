@@ -1,0 +1,133 @@
+{
+    "default_routine": [],
+    "resolution": {
+        "usaf_target": {
+            "DEBUG_MODE": false,
+            "PREVIEW_MODE": false,
+            "FLIPED_TARGET": true,
+            "G1": 2,
+            "SCORE_THRESHOLD": 0.2,
+            "SCORE_METHOD": "min",
+            "PT_TRANSFORM": "auto",
+            "OPTIONAL_SETTING": false,
+            "GRADIENT_MIN": false,
+            "GRADIENT_PLOT_ENABLE": false,
+            "GRADIENT_PLOT_GROUP": 3,
+            "GRADIENT_PLOT_ELEMENT": 4,
+            "GRADIENT_PLOT_ORIENTATION": "both",
+            "YOLO_DETECT": false,
+            "YOLO_CLASSIFICATION": true,
+            "PATTERN_CLASSIFICATION_SHOW_PLOT": false,
+            "PATTERN_CLASSIFICATION_ROWS_PER_PAGE": 6,
+            "VERIFICATION_STRATEGY": "best",
+            "ENABLE_VERIFY_PATTERN_CROP": true,
+            "DIAG_AUGUMENTATION": false,
+            "VERIFICATION_DEPTH": 5,
+            "VERIFICATION_HEIGHT": 0,
+            "CROP_DIR": "pattern_crop",
+            "CONST_LABEL": true,
+            "SUBPIXEL": true,
+            "RETRY_OUTER": false,
+            "RETRY_OFF_IMAGE": false,
+            "AUTO_ADJUST": false,
+            "ADJUST_THRESH": 0.8,
+            "FOUR_KP": false,
+            "CORNER_METHOD": "threshold",
+            "CROPED_WINDOW_RETRY": false,
+            "FOCUS_GROUP_LAST_ABOVE_THRESHOLD": false,
+            "SIFT_CONFIG_LIST": [
+                {
+                    "REF_IMAGE_PATH": "C:\\Users\\stimscope1\\Documents\\OptiSuite\\usaf_interface\\usaf_registration/test_img/image_g67only.png",
+                    "REF_ORIGIN": [
+                        425.0,
+                        170.0
+                    ],
+                    "REF_PIXELS_PER_UNIT_X": 91.0,
+                    "REF_PIXELS_PER_UNIT_Y": 91.0,
+                    "ANGLE": -0.6
+                },
+                {
+                    "REF_IMAGE_PATH": "C:\\Users\\stimscope1\\Documents\\OptiSuite\\usaf_interface\\usaf_registration/test_img/SIFT_ref_image.png",
+                    "REF_ORIGIN": [
+                        195.0,
+                        66.5
+                    ],
+                    "REF_PIXELS_PER_UNIT_X": 44.3,
+                    "REF_PIXELS_PER_UNIT_Y": 43.0,
+                    "ANGLE": 0.0
+                },
+                {
+                    "REF_IMAGE_PATH": "C:\\Users\\stimscope1\\Documents\\OptiSuite\\usaf_interface\\usaf_registration/test_img/SIFT_ref_image.png",
+                    "REF_ORIGIN": [
+                        195.0,
+                        66.5
+                    ],
+                    "REF_PIXELS_PER_UNIT_X": 44.3,
+                    "REF_PIXELS_PER_UNIT_Y": 43.0,
+                    "ANGLE": 0.0
+                },
+                {
+                    "REF_IMAGE_PATH": "C:\\Users\\stimscope1\\Documents\\OptiSuite\\usaf_interface\\usaf_registration/test_img/new_SIFT_ref_image_bordered.png",
+                    "REF_ORIGIN": [
+                        1013.0,
+                        343.5
+                    ],
+                    "REF_PIXELS_PER_UNIT_X": 226.1,
+                    "REF_PIXELS_PER_UNIT_Y": 223.0,
+                    "ANGLE": -0.235
+                }
+            ],
+            "USE_SIFT_REF_CALIBRATION": true,
+            "SIFT_REF_IMAGE_PATH": "C:\\Users\\stimscope1\\Documents\\OptiSuite\\usaf_interface\\usaf_registration/test_img/SIFT_ref_image.png",
+            "SIFT_REF_ORIGIN": [
+                195.0,
+                66.5
+            ],
+            "SIFT_REF_PIXELS_PER_UNIT_X": 44.3,
+            "SIFT_REF_PIXELS_PER_UNIT_Y": 43.0,
+            "SIFT_ANGLE": 0.0,
+            "SIFT_REF_RATIO_TEST": 0.75,
+            "SIFT_REF_RANSAC_REPROJ": 3.0,
+            "SIFT_REF_MIN_MATCH_COUNT": 8,
+            "SIFT_REF_SHOW_PLOT": false,
+            "USE_ITKELASTIX_REF_CALIBRATION": false,
+            "ITKELASTIX_PARAMETER_MAP": "bspline",
+            "ITKELASTIX_ROI_MARGIN": 80,
+            "ITKELASTIX_FINAL_GRID_SPACING": 10.0,
+            "ITKELASTIX_NUMBER_OF_RESOLUTIONS": 5,
+            "ITKELASTIX_MAX_ITERATIONS": 512,
+            "ITKELASTIX_SHOW_PLOT": false,
+            "ITKELASTIX_LOG_TO_CONSOLE": true,
+            "LOG_PATH": "C:\\Users\\stimscope1\\Documents\\OptiSuite\\logs",
+            "images": [
+                "test_img/test_image_new.png",
+                "test_img/test_image_g4e4.png",
+                "test_img/test_image_g5e4.png",
+                "test_img/af_Z59_370_183653_20260227_183653.png",
+                "test_img/test_image_g3e6.png",
+                "test_img/test_image_g6e6.png",
+                "test_img/af_z59_880_cam1_VEN-505-36U3M-M01_20260227_163955.png",
+                "test_img/image_g67only.png",
+                "test_img/image.png",
+                "test_img/Image0001.bmp",
+                "test_img/Screenshot_2026-05-06_085659.png",
+                "test_img/image_new_test.png",
+                "C:\\Users\\USER\\Documents\\Research\\auto_label\\training_set\\images\\screenshot_cam1_VEN-505-36U3M-M01_20260710_180143 - Copy.png"
+            ],
+            "low_left_ref_coord": [
+                2.39,
+                -5.89
+            ],
+            "low_right_ref_coord": [
+                -3.57,
+                -5.88
+            ]
+        }
+    },
+    "camera": [
+        {
+            "exposure": 33523.0,
+            "gain": 20.0
+        }
+    ]
+}

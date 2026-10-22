@@ -32,6 +32,7 @@ class TargetRouter:
                     use_detection_fallback=self.config.use_detection_fallback,
                     allow_model_assist=self.config.allow_model_assist,
                     flip_mode=self.config.flip_mode,
+                    usaf_config_path=self.config.usaf_config_path,
                 )
             ),
             "siemens": SiemensAnalyzer(

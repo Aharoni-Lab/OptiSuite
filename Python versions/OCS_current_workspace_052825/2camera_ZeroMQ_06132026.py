@@ -1,3 +1,4 @@
+import importlib.util
 import sys
 import os
 import socket
@@ -37,6 +38,15 @@ from auto_solid_project import AutoSolidIntensityController
 from empty_cam_mgr import EmptyCameraManager
 from power_meter import PowerMeterBus, PowerMeterWorker, PowerMeterWindow, PowerTraceWidget, format_power_watts
 from spectro_meter import SpectrometerBus, SpectrometerWorker, SpectrometerWindow, SpectrumTraceWidget
+
+# load the usaf constants as standalone module to avoid library conflict of yolo with other libraries
+_usaf_constants_spec = importlib.util.spec_from_file_location(
+    "usaf_constants",
+    ROOT_DIR / "usaf_interface" / "usaf_registration" / "constants.py",
+)
+_usaf_constants = importlib.util.module_from_spec(_usaf_constants_spec)
+_usaf_constants_spec.loader.exec_module(_usaf_constants)
+UsafConfig = _usaf_constants.UsafConfig
 
 #main pytHON gui FOR CAM, STAGE CONNECTION
 
@@ -138,7 +148,6 @@ class CameraApp(QWidget):
         try:
             ok, applied = manager.set_exposure(0, MICROSCOPE_DEFAULT_EXPOSURE_US)
             print(f"[Camera] Microscope default exposure set to {applied:.2f} us (ok={ok})")
-            print("-------------1-------------------")
         except Exception as e:
             print(f"[Camera] Could not set microscope default exposure: {e}")
 
@@ -150,7 +159,6 @@ class CameraApp(QWidget):
 
                 manager = PycroManagerCameraManager(save_dir=self.save_dir)
                 self._apply_microscope_default_exposure(manager)
-                print("-------------2-------------------")
                 return manager
             except Exception as e:
                 msg = f"Pycro-Manager camera unavailable: {e}"
@@ -167,7 +175,6 @@ class CameraApp(QWidget):
                     print(f"[Backend] Characterization camera fallback to Daheng/current: {e}")
                     self.characterization_camera_source = "daheng"
             self._apply_microscope_default_exposure(router)
-            print("-------------3-------------------")
             return router
         except Exception as e:
             msg = f"Native camera unavailable: {e}"
@@ -191,6 +198,9 @@ class CameraApp(QWidget):
         super().__init__()
         self.setWindowTitle("OptiSuite GUI interface")
         # We set a fixed size later after building the layout.
+
+        # config path
+        self.config_path = None
 
         # ZMQ Setup
         self.zmq_thread = None
@@ -1688,12 +1698,15 @@ class CameraApp(QWidget):
     # Camera Exposure and Gain Functions
     #---------------------------------------------------------------------------------------------------------------------------------
 
-    def apply_exposure(self, cam_index, widget: QDoubleSpinBox):
+    def apply_exposure(self, cam_index, widget: QDoubleSpinBox, config_exposure: float = None):
         """Apply the exposure value from the UI to the selected camera."""
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log(f"[Camera] cam={cam_index+1} not available")
             return
-        desired = float(widget.value())
+        if config_exposure is not None:
+            desired = config_exposure
+        else:
+            desired = float(widget.value())
         ok, applied = self.cam_mgr.set_exposure(cam_index, desired)
         # reflect clamping / rejection in UI without crashing
         widget.blockSignals(True)
@@ -1702,12 +1715,15 @@ class CameraApp(QWidget):
         if not ok:
             print(f"[UI] Exposure rejected cam{cam_index}, kept {applied}")
 
-    def apply_gain(self, cam_index, widget: QDoubleSpinBox):
+    def apply_gain(self, cam_index, widget: QDoubleSpinBox, config_gain: float = None):
         """Apply the gain value from the UI to the selected camera."""
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log(f"[Camera] cam={cam_index+1} not available")
             return
-        desired = float(widget.value())
+        if config_gain is not None:
+            desired = config_gain
+        else:
+            desired = float(widget.value())
         ok, applied = self.cam_mgr.set_gain(cam_index, desired)
         widget.blockSignals(True)
         widget.setValue(float(applied))
@@ -2210,7 +2226,8 @@ class CameraApp(QWidget):
 
 
 
-
+    def _load_default_usaf_config(self, config_path: Path):
+        self.config_path = config_path
 
     def start_autofocus(self, cam_index: int = 0, on_finished=None, no_ui=False):
         """Run autofocus in a worker thread and open the USAF result UI."""
@@ -2262,10 +2279,14 @@ class CameraApp(QWidget):
                 resolution_cmd = [sys.executable, "-m", "usaf_interface.resolution_app", str(best_img_path)]
                 if no_ui:
                     resolution_cmd.append("--no-ui")
+                if self.config_path is not None:
+                    resolution_cmd.append("--usaf-config-path")
+                    resolution_cmd.append(str(self.config_path))
                 subprocess.Popen(
                     resolution_cmd,
                     cwd=str(ROOT_DIR),
                 )
+                
                 self.ui_bus.log.emit(f"[AF] launched USAF UI for {best_img_path}")
 
             except Exception as e:
@@ -2846,19 +2867,70 @@ class CameraApp(QWidget):
         """Build the current app configuration for saving."""
         payload = {}
         payload["default_routine"] = self.custom_stage_sequence or []
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as file:
+                current_config = json.load(file)
+            if isinstance(current_config, dict):
+                payload["resolution"] = current_config.get("resolution", {})
+        except Exception as e:
+            print(f"[Configuration] failed to load current configuration from {self.config_path}: {e}")
+            payload["resolution"] = {}
+            payload["resolution"]["usaf_target"] = UsafConfig().export_to_dict()
+
+        payload["camera"] = [
+            {
+                "exposure": float(self.camera_control_widgets[cam_index]["exposure_input"].value()) if cam_index < self.cam_mgr.num_cameras else None,
+                "gain": float(self.camera_control_widgets[cam_index]["gain_input"].value()) if cam_index < self.cam_mgr.num_cameras else None,
+            }
+            for cam_index in range(self.cam_mgr.num_cameras)
+        ]
+
         return payload
 
     def open_configuration_dialog(self):
         """Open JSON configuration editor and reload default routine after save."""
-        config_path = ROOT_DIR / "config.json"
-        dialog = ConfigurationDialog(config_path, self._current_configuration_payload(), self)
+        dialog = ConfigurationDialog(self.config_path, self._current_configuration_payload(), self)
         if dialog.exec_() != QDialog.Accepted:
             return
         if dialog.load_config:
-            self._load_default_stage_sequence(dialog.config_path)
-            self.append_local_log(f"[Configuration] loaded {dialog.config_path};")
-        else:
-            self.append_local_log(f"[Configuration] saved {dialog.config_path}")
+            self.config_path = dialog.config_path
+            self._load_default_cam_config(self.config_path)
+            self._load_default_usaf_config(self.config_path)
+            self._load_default_stage_sequence(self.config_path)
+            self.append_local_log(f"[Configuration] loaded {self.config_path};")
+        elif dialog.save_config:
+            self.append_local_log(f"[Configuration] saved {dialog.save_path}")
+
+
+
+    def _load_default_cam_config(self, path):
+        """Load default camera configuration from config.json."""
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                payload = json.load(file)
+            if isinstance(payload, dict):
+                cam_config = payload.get("camera", [])
+                valid_cam_config = min(len(cam_config), self.cam_mgr.num_cameras)
+                for cam_index in range(valid_cam_config):
+                    exposure = cam_config[cam_index].get("exposure", None)
+                    gain = cam_config[cam_index].get("gain", None)
+                    if exposure is not None:
+                        self.apply_exposure(cam_index, self.camera_control_widgets[cam_index]["exposure_input"], exposure)
+                    if gain is not None:
+                        self.apply_gain(cam_index, self.camera_control_widgets[cam_index]["gain_input"], gain)
+        except Exception as e:
+            print(f"[Camera] failed to load camera configuration from {path}: {e}")
+
+
+
+
+
+
+
+
+
+
+
 
     def open_stage_sequence_editor(self):
         """Open the custom stage sequence editor and save its stops."""

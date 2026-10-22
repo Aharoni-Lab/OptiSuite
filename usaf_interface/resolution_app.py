@@ -36,7 +36,7 @@ HORIZONTAL_PROFILE_COLOR_BGR = (229, 136, 30)
 
 
 class ResolutionApp:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, usaf_config_path: Path | None = None):
         self.root = root
         self.root.title("Multi-target Resolution App")
         self.root.geometry("1280x840")
@@ -49,6 +49,7 @@ class ResolutionApp:
         self.current_overlay_image: Image.Image | None = None
         self.current_plot_image: Image.Image | None = None
 
+        self.usaf_config_path_var = tk.StringVar(value=str(usaf_config_path) if usaf_config_path else "")
         self.override_var = tk.StringVar(value="usaf")
         self.threshold_var = tk.DoubleVar(value=0.2)
         self.preview_var = tk.BooleanVar(value=False)
@@ -393,6 +394,7 @@ class ResolutionApp:
                 use_detection_fallback=self.fallback_var.get(),
                 allow_model_assist=self.model_assist_var.get(),
                 flip_mode=self.flip_mode_var.get(),
+                usaf_config_path=Path(self.usaf_config_path_var.get()) if self.usaf_config_path_var != "" else None,
             )
         )
 
@@ -987,6 +989,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("image_paths", nargs="*")
     parser.add_argument("--no-ui", action="store_true")
+    parser.add_argument("--usaf-config-path", type=Path, default=None)
     args = parser.parse_args()
 
     if args.no_ui and not args.image_paths:
@@ -997,7 +1000,7 @@ def main() -> None:
     if args.no_ui:
         root.withdraw()
 
-    app = ResolutionApp(root)
+    app = ResolutionApp(root, args.usaf_config_path)
     if args.image_paths:
         if args.no_ui:
             app._add_items(args.image_paths)

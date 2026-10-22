@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 from dataclasses import dataclass, replace
 from typing import Iterator
+import json
 
 from usaf_interface.usaf_registration import UsafRegistration
 
@@ -23,6 +25,7 @@ class USAFAnalyzerConfig(AnalyzerConfig):
     auto_adjust: bool = False
     model_path: str = str(UsafRegistration.MODEL_PATH)
     imgsz: int = 2048
+    usaf_config_path: Path = None
 
 
 @contextlib.contextmanager
@@ -88,6 +91,20 @@ class USAFAnalyzer(ResolutionAnalyzer):
         super().__init__(config or USAFAnalyzerConfig())
         self.config: USAFAnalyzerConfig
         self.usaf = UsafRegistration()
+        self.initialize_usaf_config()
+
+    def initialize_usaf_config(self):
+        if self.config.usaf_config_path is None:
+            return
+
+        with open(self.config.usaf_config_path, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+
+        if not isinstance(payload, dict) or not isinstance(payload["resolution"], dict) or not isinstance(payload["resolution"]["usaf_target"], dict):
+            raise ValueError("Invalid JSON payload")
+
+        payload = payload["resolution"]["usaf_target"]
+        self.usaf.C.initialize_from_dict(payload)
 
     def probe(self, context) -> float:
         candidates = _flip_mode_to_candidates(self.config.flip_mode)
