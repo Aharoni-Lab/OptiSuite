@@ -1,0 +1,946 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scanline adjustment: on vs off, SIFT and SIFT+elastix</title>
+<style>
+  body {
+    font-family: Georgia, "Times New Roman", serif; font-size: 14px; color: #1a1a1a;
+    background: #ffffff; max-width: 1150px; margin: 0 auto; padding: 24px 20px 80px; line-height: 1.5;
+  }
+  h1 { font-size: 20px; font-weight: normal; border-bottom: 2px solid #1a1a1a; padding-bottom: 8px; }
+  .subtitle { color: #555; font-size: 13px; margin-bottom: 20px; font-family: "Courier New", monospace; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.03em; color: #333; margin-top: 28px; }
+  table.stats { border-collapse: collapse; margin-bottom: 8px; font-family: "Courier New", monospace; font-size: 13px; }
+  table.stats td { padding: 3px 14px 3px 0; }
+  table.stats td.label { color: #555; }
+  table.stats td.val { font-weight: bold; text-align: right; }
+  .imgsection { border-top: 1px solid #ccc; padding-top: 18px; margin-top: 22px; }
+  .imghead h3 { font-size: 15px; margin: 0 0 6px; font-family: "Courier New", monospace; word-break: break-all; }
+  .tags { margin-bottom: 8px; }
+  .tag {
+    display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+    background: #eee; color: #444; border: 1px solid #ccc; border-radius: 3px; padding: 2px 7px; margin-right: 5px;
+  }
+  .meta { color: #999; font-size: 12px; }
+  table.imgstats { font-size: 12px; color: #444; font-family: "Courier New", monospace; margin-bottom: 10px; }
+  table.imgstats td { padding-right: 24px; }
+  .panels { display: flex; gap: 14px; flex-wrap: wrap; }
+  .panelbox { flex: 1 1 480px; border: 1px solid #ccc; padding: 8px; }
+  .panelcap { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 4px; }
+  .panelimg { width: 100%; display: block; }
+  .failbox { border: 1px solid #c62828; background: #fdf1f1; padding: 10px 12px; font-size: 13px; color: #c62828; font-family: "Courier New", monospace; }
+  footer { margin-top: 40px; font-size: 11px; color: #999; border-top: 1px solid #ddd; padding-top: 10px; }
+</style>
+</head>
+<body>
+
+<h1>Scanline adjustment: on vs. off, for SIFT and SIFT+elastix</h1>
+<div class="subtitle">dataset: usaf test images.v1i.coco &middot; n=44</div>
+<p style="font-size:13px;color:#444;max-width:900px;">
+Thick red = unadjusted scanline (raw registration output). Thick green = after
+apply_point_adjustment_algorithm, which shrinks the scanline inward until both endpoints
+land on bright pixels (up to 80% of its original length). Shown for both SIFT-only and
+SIFT+elastix projection, so the adjustment's effect is visible on top of each registration
+method separately. <b>AUTO_ADJUST defaults to False in production</b> -- this is forced on
+here specifically to visualize what it would do, not what runs by default.
+</p>
+
+<h2>Summary</h2>
+<table class="stats">
+  <tr><td class="label">Total images</td><td class="val">44</td></tr>
+  <tr><td class="label">SIFT succeeded</td><td class="val">44 / 44</td></tr>
+  <tr><td class="label">Both SIFT and SIFT+elastix succeeded</td><td class="val">44 / 44</td></tr>
+  <tr><td class="label">SIFT: avg adjustment movement</td><td class="val">10.0px</td></tr>
+  <tr><td class="label">SIFT+elastix: avg adjustment movement</td><td class="val">10.0px</td></tr>
+</table>
+
+<h2>Per-image comparison (largest SIFT adjustment movement first)</h2>
+<section class="imgsection">
+    <div class="imghead">
+      <h3>1. af_Z62_470_163157_20260421_163157.png</h3>
+      <div class="tags"><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>34.31px</b> (max 163.88px)</td>
+          <td>SIFT+elastix: avg move <b>32.52px</b> (max 146.16px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/040_af_Z62_470_163157_20260421_163157_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/040_af_Z62_470_163157_20260421_163157_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>2. af_Z60_970_163151_20260421_163151.png</h3>
+      <div class="tags"><span class="tag">flipped</span><span class="tag">rotated</span><span class="tag">obscured</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>32.78px</b> (max 154.95px)</td>
+          <td>SIFT+elastix: avg move <b>33.66px</b> (max 166.79px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/017_af_Z60_970_163151_20260421_163151_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/017_af_Z60_970_163151_20260421_163151_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>3. af_Z62_070_163217_20260421_163217.png</h3>
+      <div class="tags"><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>32.23px</b> (max 146.82px)</td>
+          <td>SIFT+elastix: avg move <b>32.93px</b> (max 160.74px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/031_af_Z62_070_163217_20260421_163217_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/031_af_Z62_070_163217_20260421_163217_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>4. af_Z61_870_163215_20260421_163215.png</h3>
+      <div class="tags"><span class="tag">flipped</span><span class="tag">rotated</span><span class="tag">obscured</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>27.96px</b> (max 162.05px)</td>
+          <td>SIFT+elastix: avg move <b>29.23px</b> (max 160.97px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/022_af_Z61_870_163215_20260421_163215_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/022_af_Z61_870_163215_20260421_163215_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>5. af_Z57_870_163024_20260421_163024.png</h3>
+      <div class="tags"><span class="tag">flipped</span><span class="tag">rotated</span><span class="tag">obscured</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>26.69px</b> (max 168.34px)</td>
+          <td>SIFT+elastix: avg move <b>27.57px</b> (max 151.21px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/036_af_Z57_870_163024_20260421_163024_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/036_af_Z57_870_163024_20260421_163024_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>6. af_Z58_470_163142_20260421_163142.png</h3>
+      <div class="tags"><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>26.46px</b> (max 163.88px)</td>
+          <td>SIFT+elastix: avg move <b>25.71px</b> (max 148.11px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/007_af_Z58_470_163142_20260421_163142_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/007_af_Z58_470_163142_20260421_163142_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>7. Image0001.bmp</h3>
+      <div class="tags"><span class="tag">group 4 content</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>26.26px</b> (max 206.0px)</td>
+          <td>SIFT+elastix: avg move <b>24.13px</b> (max 187.53px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/041_Image0001_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/041_Image0001_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>8. af_Z58_470_163142_20260421_163142.png</h3>
+      <div class="tags"><span class="tag">flipped</span><span class="tag">rotated</span><span class="tag">obscured</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>25.95px</b> (max 150.48px)</td>
+          <td>SIFT+elastix: avg move <b>26.17px</b> (max 162.59px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/018_af_Z58_470_163142_20260421_163142_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/018_af_Z58_470_163142_20260421_163142_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>9. sift_ref_combo_tiltdir196_blurmotion_noise_bigref.png</h3>
+      <div class="tags"><span class="tag">blurry</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>21.85px</b> (max 78.03px)</td>
+          <td>SIFT+elastix: avg move <b>20.48px</b> (max 77.21px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/043_sift_ref_combo_tiltdir196_blurmotion_noise_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/043_sift_ref_combo_tiltdir196_blurmotion_noise_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>10. sift_ref_combo_tiltdir114_blurdefocus_noise_lightuneven_bigref.png</h3>
+      <div class="tags"><span class="tag">blurry</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>20.82px</b> (max 62.01px)</td>
+          <td>SIFT+elastix: avg move <b>18.47px</b> (max 67.2px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/025_sift_ref_combo_tiltdir114_blurdefocus_noise_lightuneven_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/025_sift_ref_combo_tiltdir114_blurdefocus_noise_lightuneven_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>11. sift_ref_combo_tiltdir290_scale0-75_blurmotion_bigref.png</h3>
+      <div class="tags"><span class="tag">blurry</span><span class="tag">keystoning</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>20.26px</b> (max 66.03px)</td>
+          <td>SIFT+elastix: avg move <b>16.28px</b> (max 64.45px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/009_sift_ref_combo_tiltdir290_scale0-75_blurmotion_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/009_sift_ref_combo_tiltdir290_scale0-75_blurmotion_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>12. af_Z61_470_163050_20260421_163050.png</h3>
+      <div class="tags"><span class="tag">flipped</span><span class="tag">rotated</span><span class="tag">obscured</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>19.57px</b> (max 128.95px)</td>
+          <td>SIFT+elastix: avg move <b>18.71px</b> (max 158.14px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/026_af_Z61_470_163050_20260421_163050_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/026_af_Z61_470_163050_20260421_163050_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>13. sift_ref_blurgaussian_bigref.png</h3>
+      <div class="tags"><span class="tag">blurry</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>19.14px</b> (max 62.0px)</td>
+          <td>SIFT+elastix: avg move <b>18.56px</b> (max 61.19px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/028_sift_ref_blurgaussian_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/028_sift_ref_blurgaussian_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>14. af_Z61_670_175208_20260227_175208.png</h3>
+      <div class="tags"><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>7.15px</b> (max 31.76px)</td>
+          <td>SIFT+elastix: avg move <b>6.66px</b> (max 32.23px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/023_af_Z61_670_175208_20260227_175208_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/023_af_Z61_670_175208_20260227_175208_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>15. sift_ref_rot15_bigref.png</h3>
+      <div class="tags"><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>6.98px</b> (max 32.02px)</td>
+          <td>SIFT+elastix: avg move <b>6.09px</b> (max 37.82px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/020_sift_ref_rot15_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/020_sift_ref_rot15_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>16. sift_ref_combo_pad_tiltdir56_rot14_blurgaussian_lightuneven_noise_bigref.png</h3>
+      <div class="tags"><span class="tag">obscured</span><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>6.94px</b> (max 22.8px)</td>
+          <td>SIFT+elastix: avg move <b>6.77px</b> (max 22.41px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/037_sift_ref_combo_pad_tiltdir56_rot14_blurgaussian_lightuneven_noise_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/037_sift_ref_combo_pad_tiltdir56_rot14_blurgaussian_lightuneven_noise_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>17. sift_ref_baseline_bigref.png</h3>
+      <div class="tags"><span class="meta">no tags</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>6.82px</b> (max 32.0px)</td>
+          <td>SIFT+elastix: avg move <b>6.62px</b> (max 39.99px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/016_sift_ref_baseline_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/016_sift_ref_baseline_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>18. sift_ref_noisegaussian_bigref.png</h3>
+      <div class="tags"><span class="meta">no tags</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>6.8px</b> (max 32.0px)</td>
+          <td>SIFT+elastix: avg move <b>5.76px</b> (max 32.2px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/039_sift_ref_noisegaussian_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/039_sift_ref_noisegaussian_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>19. af_cmdZ62_280_measZ62_280_cam1_VEN-505-36U3M-M01_20260227_173252.png</h3>
+      <div class="tags"><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>5.87px</b> (max 26.42px)</td>
+          <td>SIFT+elastix: avg move <b>6.74px</b> (max 27.55px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/030_af_cmdZ62_280_measZ62_280_cam1_VEN-505-36U3M-M01_20260227_173252_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/030_af_cmdZ62_280_measZ62_280_cam1_VEN-505-36U3M-M01_20260227_173252_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>20. af_z57_880_cam1_VEN-505-36U3M-M01_20260227_163952.png</h3>
+      <div class="tags"><span class="tag">flipped</span><span class="tag">rotated</span><span class="tag">obscured</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>5.56px</b> (max 27.29px)</td>
+          <td>SIFT+elastix: avg move <b>6.66px</b> (max 27.28px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/027_af_z57_880_cam1_VEN-505-36U3M-M01_20260227_163952_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/027_af_z57_880_cam1_VEN-505-36U3M-M01_20260227_163952_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>21. af_cmdZ62_280_measZ62_280_cam1_VEN-505-36U3M-M01_20260227_173252.png</h3>
+      <div class="tags"><span class="tag">flipped</span><span class="tag">rotated</span><span class="tag">obscured</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>5.54px</b> (max 26.42px)</td>
+          <td>SIFT+elastix: avg move <b>7.18px</b> (max 26.43px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/013_af_cmdZ62_280_measZ62_280_cam1_VEN-505-36U3M-M01_20260227_173252_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/013_af_cmdZ62_280_measZ62_280_cam1_VEN-505-36U3M-M01_20260227_173252_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>22. image.png</h3>
+      <div class="tags"><span class="tag">group 4 content</span><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>4.98px</b> (max 20.1px)</td>
+          <td>SIFT+elastix: avg move <b>5.27px</b> (max 23.1px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/024_image_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/024_image_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>23. sift_ref_scale0-7_canvas2500_bigref.png</h3>
+      <div class="tags"><span class="meta">no tags</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>4.95px</b> (max 22.0px)</td>
+          <td>SIFT+elastix: avg move <b>4.59px</b> (max 22.72px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/038_sift_ref_scale0-7_canvas2500_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/038_sift_ref_scale0-7_canvas2500_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>24. af_z59_530_cam1_VEN-505-36U3M-M01_20260227_164033.png</h3>
+      <div class="tags"><span class="tag">flipped</span><span class="tag">rotated</span><span class="tag">obscured</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>4.82px</b> (max 27.29px)</td>
+          <td>SIFT+elastix: avg move <b>5.72px</b> (max 28.15px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/032_af_z59_530_cam1_VEN-505-36U3M-M01_20260227_164033_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/032_af_z59_530_cam1_VEN-505-36U3M-M01_20260227_164033_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>25. sift_ref_combo_tiltdir285_rot6_blurdefocus_lightuneven_noise_smallref.png</h3>
+      <div class="tags"><span class="tag">keystoning</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>4.23px</b> (max 14.14px)</td>
+          <td>SIFT+elastix: avg move <b>4.36px</b> (max 15.04px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/015_sift_ref_combo_tiltdir285_rot6_blurdefocus_lightuneven_noise_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/015_sift_ref_combo_tiltdir285_rot6_blurdefocus_lightuneven_noise_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>26. sift_ref_combo_pad_tiltdir134_rot9_noise_bigref.png</h3>
+      <div class="tags"><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>4.02px</b> (max 17.12px)</td>
+          <td>SIFT+elastix: avg move <b>3.75px</b> (max 17.39px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/029_sift_ref_combo_pad_tiltdir134_rot9_noise_bigref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/029_sift_ref_combo_pad_tiltdir134_rot9_noise_bigref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>27. svgcomposite_combo_tiltdir74_rot8_blurdefocus.png</h3>
+      <div class="tags"><span class="tag">added background</span><span class="tag">keystoning</span><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>3.19px</b> (max 9.06px)</td>
+          <td>SIFT+elastix: avg move <b>3.64px</b> (max 10.49px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/014_svgcomposite_combo_tiltdir74_rot8_blurdefocus_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/014_svgcomposite_combo_tiltdir74_rot8_blurdefocus_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>28. sift_ref_combo_rot22_blurgaussian_noise_lightuneven_smallref.png</h3>
+      <div class="tags"><span class="tag">rotated</span><span class="tag">obscured</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>3.03px</b> (max 9.85px)</td>
+          <td>SIFT+elastix: avg move <b>3.41px</b> (max 10.1px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/011_sift_ref_combo_rot22_blurgaussian_noise_lightuneven_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/011_sift_ref_combo_rot22_blurgaussian_noise_lightuneven_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>29. svgcomposite_combo_tiltdir344_blurmotion_lightuneven.png</h3>
+      <div class="tags"><span class="tag">keystoning</span><span class="tag">added background</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>2.85px</b> (max 11.0px)</td>
+          <td>SIFT+elastix: avg move <b>3.29px</b> (max 10.68px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/033_svgcomposite_combo_tiltdir344_blurmotion_lightuneven_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/033_svgcomposite_combo_tiltdir344_blurmotion_lightuneven_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>30. svgcomposite_combo_rot25_blurdefocus_noise_lightuneven.png</h3>
+      <div class="tags"><span class="tag">rotated</span><span class="tag">added background</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>2.69px</b> (max 9.85px)</td>
+          <td>SIFT+elastix: avg move <b>3.42px</b> (max 10.3px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/034_svgcomposite_combo_rot25_blurdefocus_noise_lightuneven_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/034_svgcomposite_combo_rot25_blurdefocus_noise_lightuneven_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>31. sift_ref_combo_pad_tiltdir215_blurdefocus_smallref.png</h3>
+      <div class="tags"><span class="tag">keystoning</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>2.59px</b> (max 9.0px)</td>
+          <td>SIFT+elastix: avg move <b>2.99px</b> (max 9.09px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/035_sift_ref_combo_pad_tiltdir215_blurdefocus_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/035_sift_ref_combo_pad_tiltdir215_blurdefocus_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>32. svgcomposite_combo_tiltdir102_rot10_blurgaussian_noise.png</h3>
+      <div class="tags"><span class="tag">added background</span><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>2.31px</b> (max 8.08px)</td>
+          <td>SIFT+elastix: avg move <b>2.87px</b> (max 9.3px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/010_svgcomposite_combo_tiltdir102_rot10_blurgaussian_noise_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/010_svgcomposite_combo_tiltdir102_rot10_blurgaussian_noise_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>33. sift_ref_combo_pad_tiltdir342_blurgaussian_lightuneven_smallref.png</h3>
+      <div class="tags"><span class="tag">keystoning</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>2.03px</b> (max 7.0px)</td>
+          <td>SIFT+elastix: avg move <b>2.56px</b> (max 7.42px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/001_sift_ref_combo_pad_tiltdir342_blurgaussian_lightuneven_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/001_sift_ref_combo_pad_tiltdir342_blurgaussian_lightuneven_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>34. sift_ref_combo_tiltdir52_rot8_lightuneven_smallref.png</h3>
+      <div class="tags"><span class="tag">keystoning</span><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>2.02px</b> (max 9.22px)</td>
+          <td>SIFT+elastix: avg move <b>2.33px</b> (max 10.72px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/012_sift_ref_combo_tiltdir52_rot8_lightuneven_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/012_sift_ref_combo_tiltdir52_rot8_lightuneven_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>35. sift_ref_tilt_dir0_15deg_smallref.png</h3>
+      <div class="tags"><span class="tag">keystoning</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>1.85px</b> (max 9.0px)</td>
+          <td>SIFT+elastix: avg move <b>2.36px</b> (max 9.54px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/002_sift_ref_tilt_dir0_15deg_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/002_sift_ref_tilt_dir0_15deg_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>36. sift_ref_baseline_smallref.png</h3>
+      <div class="tags"><span class="meta">no tags</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>1.74px</b> (max 7.0px)</td>
+          <td>SIFT+elastix: avg move <b>2.29px</b> (max 7.85px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/000_sift_ref_baseline_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/000_sift_ref_baseline_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>37. svgcomposite_combo_tiltdir355_noise_lightuneven.png</h3>
+      <div class="tags"><span class="tag">added background</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>1.74px</b> (max 9.0px)</td>
+          <td>SIFT+elastix: avg move <b>2.25px</b> (max 9.34px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/004_svgcomposite_combo_tiltdir355_noise_lightuneven_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/004_svgcomposite_combo_tiltdir355_noise_lightuneven_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>38. image_misalign.png</h3>
+      <div class="tags"><span class="tag">group 4 content</span><span class="tag">rotated</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>1.63px</b> (max 8.94px)</td>
+          <td>SIFT+elastix: avg move <b>1.91px</b> (max 7.89px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/008_image_misalign_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/008_image_misalign_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>39. sift_ref_lightuneven_smallref.png</h3>
+      <div class="tags"><span class="meta">no tags</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>1.48px</b> (max 7.0px)</td>
+          <td>SIFT+elastix: avg move <b>1.98px</b> (max 7.01px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/042_sift_ref_lightuneven_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/042_sift_ref_lightuneven_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>40. sift_ref_scale0-65_canvas420_smallref.png</h3>
+      <div class="tags"><span class="meta">no tags</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>1.12px</b> (max 5.0px)</td>
+          <td>SIFT+elastix: avg move <b>1.75px</b> (max 5.61px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/021_sift_ref_scale0-65_canvas420_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/021_sift_ref_scale0-65_canvas420_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>41. sift_ref_scale0-5_canvas500_smallref.png</h3>
+      <div class="tags"><span class="meta">no tags</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>0.8px</b> (max 4.0px)</td>
+          <td>SIFT+elastix: avg move <b>1.42px</b> (max 4.53px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/019_sift_ref_scale0-5_canvas500_smallref_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/019_sift_ref_scale0-5_canvas500_smallref_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>42. test-targets-3a-1-copy-2.jpg</h3>
+      <div class="tags"><span class="tag">external source</span><span class="tag">keystoning</span><span class="tag">blurry</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>0.16px</b> (max 4.47px)</td>
+          <td>SIFT+elastix: avg move <b>1.21px</b> (max 6.42px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/006_test-targets-3a-1-copy-2_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/006_test-targets-3a-1-copy-2_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>43. test-targets-3a-copy.jpg</h3>
+      <div class="tags"><span class="tag">external source</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>0.0px</b> (max 0.0px)</td>
+          <td>SIFT+elastix: avg move <b>0.15px</b> (max 0.86px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/003_test-targets-3a-copy_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/003_test-targets-3a-copy_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section><section class="imgsection">
+    <div class="imghead">
+      <h3>44. test-targets-3b-1-copy.jpg</h3>
+      <div class="tags"><span class="tag">external source</span><span class="tag">keystoning</span></div>
+      <table class="imgstats">
+        <tr>
+          <td>SIFT: avg move <b>0.0px</b> (max 0.0px)</td>
+          <td>SIFT+elastix: avg move <b>0.8px</b> (max 0.83px)</td>
+        </tr>
+      </table>
+    </div>
+    <div class="panels">
+      <div class="panelbox">
+        <div class="panelcap">SIFT: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/005_test-targets-3b-1-copy_sift_adjust_compare.png" loading="lazy">
+      </div>
+      <div class="panelbox">
+        <div class="panelcap">SIFT+elastix: unadjusted (red) vs adjusted (green)</div>
+        <img class="panelimg" src="annotated/005_test-targets-3b-1-copy_elastix_adjust_compare.png" loading="lazy">
+      </div>
+    </div></section>
+
+<footer>
+  Red = unadjusted, green = adjusted. Line thickness 4px for visibility.
+</footer>
+
+</body>
+</html>
