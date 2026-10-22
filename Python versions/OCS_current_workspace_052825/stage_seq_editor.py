@@ -29,7 +29,7 @@ class StageSequenceEditorDialog(QDialog):
         add_btn.setFixedWidth(36)
         remove_btn.setFixedWidth(36)
 
-        add_btn.clicked.connect(lambda: self.add_stop())
+        add_btn.clicked.connect(self.add_copy_of_current_stop)
         remove_btn.clicked.connect(self.remove_selected_stop)
         save_btn.clicked.connect(self.accept)
         cancel_btn.clicked.connect(self.reject)
@@ -161,6 +161,20 @@ class StageSequenceEditorDialog(QDialog):
         self.stop_list.setCurrentItem(item)
         self._refresh_projector_state(row_widget)
         self._refresh_first_stop_constraint()
+
+    def add_copy_of_current_stop(self):
+        row = self.stop_list.currentRow()
+        widget = self.stop_list.itemWidget(self.stop_list.item(row)) if row >= 0 else None
+        if widget is None:
+            self.add_stop()
+            return
+        self.add_stop(
+            widget.nominal_x,
+            widget.nominal_y,
+            float(widget.z_spin.value()),
+            widget.property_combo.currentText(),
+            widget.projector_combo.currentData(),
+        )
 
     def remove_selected_stop(self):
         row = self.stop_list.currentRow()
