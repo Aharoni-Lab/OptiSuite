@@ -1,5 +1,27 @@
 {
-    "default_routine": [],
+    "default_routine": [
+        [
+            0.0,
+            0.0,
+            80.0,
+            "Start",
+            0
+        ],
+        [
+            22.052,
+            0.0,
+            80.0,
+            "powermeter",
+            0
+        ],
+        [
+            22.052,
+            0.0,
+            80.0,
+            "imaging",
+            0
+        ]
+    ],
     "resolution": {
         "usaf_target": {
             "DEBUG_MODE": false,
@@ -127,7 +149,7 @@
     "camera": [
         {
             "exposure": 33333.0,
-            "gain": 24.0
+            "gain": 20.0
         }
     ]
 }

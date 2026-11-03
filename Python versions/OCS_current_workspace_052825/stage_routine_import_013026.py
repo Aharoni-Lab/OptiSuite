@@ -3,13 +3,15 @@
 import json
 
 class StageRoutine:
-    def __init__(self, send_move_callback, log_callback=None):
+    def __init__(self, send_move_callback, log_callback=None, finished_callback=None):
         """
         send_move_callback(x, y, z): function to send a move command (e.g., via ZMQ)
         log_callback(str): optional function to log messages to GUI
+        finished_callback(): called when the routine reaches its last step
         """
         self.send_move = send_move_callback
         self.log = log_callback if log_callback else print
+        self.finished_callback = finished_callback
 
         # -----------------------------
         # Optional stage travel safety limits (soft clamp)
@@ -303,6 +305,8 @@ class StageRoutine:
             self.log("[StageRoutine] Routine finished.")
             self.running = False
             self.awaiting_step_completion = False
+            if self.finished_callback:
+                self.finished_callback()
             return
 
         step_fn = self.steps[self.current_step]

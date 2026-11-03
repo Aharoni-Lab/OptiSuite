@@ -38,6 +38,19 @@ from auto_solid_project import AutoSolidIntensityController
 from empty_cam_mgr import EmptyCameraManager
 from power_meter import PowerMeterBus, PowerMeterWorker, PowerMeterWindow, PowerTraceWidget, format_power_watts
 from spectro_meter import SpectrometerBus, SpectrometerWorker, SpectrometerWindow, SpectrumTraceWidget
+from constants import BACKEND_NATIVE, BACKEND_PYCRO, BACKEND_LABELS, MICROSCOPE_DEFAULT_EXPOSURE_US, PROJECTION_PATTERN_INTERVAL_MS
+
+from autofocus_mixin import AutofocusMixin
+from camera_focus_scoring_mixin import CameraFocusScoringMixin
+from configuration_mixin import ConfigurationMixin
+from power_meter_mixin import PowerMeterMixin
+from projection_mixin import ProjectionMixin
+from spectrometer_mixin import SpectrometerMixin
+from camera_preview_mixin import CameraPreviewMixin
+from constants import StageEventBus, UiBus
+
+
+
 
 # load the usaf constants as standalone module to avoid library conflict of yolo with other libraries
 _usaf_constants_spec = importlib.util.spec_from_file_location(
@@ -50,24 +63,7 @@ UsafConfig = _usaf_constants.UsafConfig
 
 #main pytHON gui FOR CAM, STAGE CONNECTION
 
-BACKEND_NATIVE = "native"
-BACKEND_PYCRO = "pycro"
-BACKEND_LABELS = {
-    BACKEND_NATIVE: "OptiSuite native",
-    BACKEND_PYCRO: "Pycro-Manager",
-}
-MICROSCOPE_DEFAULT_EXPOSURE_US = 33333.33
-PROJECTION_PATTERN_INTERVAL_MS = 1000
 
-class StageEventBus(QObject):
-    message = pyqtSignal(str)
-
-
-class UiBus(QObject):
-    log = pyqtSignal(str)
-    autofocus_finished = pyqtSignal()
-    auto_solid_apply = pyqtSignal(int)
-    auto_solid_finished = pyqtSignal()
 
 
 
@@ -127,7 +123,15 @@ def make_gauge_icon(size: int = 72) -> QIcon:
 
 #import the camera functinality from another file
 # -------- Main GUI Application -------- #
-class CameraApp(QWidget):
+# always place Qobject last in the inheritance list, 
+# or the inheritance will not work since mixin references Qobject methods
+class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, PowerMeterMixin, ProjectionMixin, SpectrometerMixin, CameraPreviewMixin, QWidget):
+    
+    
+    
+    
+    
+    
     #---------------------------------------------------------------------------------------------------------------------------------
     # Configuration Functions
     #---------------------------------------------------------------------------------------------------------------------------------
@@ -245,6 +249,7 @@ class CameraApp(QWidget):
         # stage event bus for the stage event signals
         self.stage_event_bus = StageEventBus()
         self.stage_event_bus.message.connect(self.on_stage_event)
+        self.stage_event_bus.stage_routine_finished.connect(self._on_stage_routine_finished)
 
         #---------------------------------------------------------------------------------------------------------------------------------
         # Preview Status/UI
@@ -276,6 +281,7 @@ class CameraApp(QWidget):
         self.ui_bus.autofocus_finished.connect(self._on_autofocus_finished)
         self.ui_bus.auto_solid_apply.connect(self._on_auto_solid_apply)
         self.ui_bus.auto_solid_finished.connect(self._on_auto_solid_finished)
+        self.ui_bus.power_meter_finished.connect(self._on_power_meter_finished)
 
         # autofocus related variables
         # autofocus cancel flag
@@ -298,6 +304,7 @@ class CameraApp(QWidget):
         self.power_meter_bus.error.connect(self._on_power_meter_error)
         self.power_meter_thread = None
         self.power_meter_window = None
+        self.power_meter_finished_callback = None
 
         # spectrometer variables
         self.spectrometer_bus = SpectrometerBus()
@@ -571,7 +578,7 @@ class CameraApp(QWidget):
             power_btn.setIcon(make_gauge_icon(72))
             power_btn.setIconSize(power_btn.size() * 0.65)
             power_btn.setToolTip("Power Meter")
-            power_btn.clicked.connect(self.open_power_meter_plot)
+            power_btn.clicked.connect(lambda: self.open_power_meter_plot())
 
             t_btn = QPushButton("T")
             t_btn.setFixedSize(34, 34)
@@ -1204,7 +1211,8 @@ class CameraApp(QWidget):
         #013026 add this for stageRoutine
         self.stage_routine = StageRoutine(
             send_move_callback=self.send_stage_move,
-            log_callback=print  # for now, just print to console
+            log_callback=print,  # for now, just print to console
+            finished_callback=lambda: self.stage_event_bus.stage_routine_finished.emit(),
         )
 
 
@@ -1463,236 +1471,7 @@ class CameraApp(QWidget):
             cwd=str(base),
         )
 
-    #---------------------------------------------------------------------------------------------------------------------------------
-    # Camera Preview Mouse Events and Zooming Functions
-    #---------------------------------------------------------------------------------------------------------------------------------
-
-    def eventFilter(self, obj, event):
-        """Handle camera preview mouse events for zooming and panning."""
-        # Mouse-wheel zoom + cursor tracking on each preview label
-        cam_index = obj.property("cam_index") if hasattr(obj, "property") else None
-        if cam_index is None:
-            return super().eventFilter(obj, event)
-
-        cam_index = int(cam_index)
-        if cam_index >= self.cam_mgr.num_cameras:
-            return False
-
-        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-            self.last_mouse_pos[cam_index] = event.pos()
-            if float(self.view_states[cam_index]["zoom"]) > 1.000001:
-                self.pan_active[cam_index] = True
-                self.pan_last_pos[cam_index] = event.pos()
-                obj.setCursor(Qt.ClosedHandCursor)
-                return True
-            obj.setCursor(Qt.OpenHandCursor)
-            return False
-
-        if event.type() == QEvent.MouseMove:
-            self.last_mouse_pos[cam_index] = event.pos()
-            if self.pan_active[cam_index]:
-                self.pan_camera_view(cam_index, event.pos())
-                return True
-            if float(self.view_states[cam_index]["zoom"]) > 1.000001:
-                obj.setCursor(Qt.OpenHandCursor)
-            else:
-                obj.unsetCursor()
-            return False
-
-        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
-            self.pan_active[cam_index] = False
-            self.pan_last_pos[cam_index] = None
-            if float(self.view_states[cam_index]["zoom"]) > 1.000001:
-                obj.setCursor(Qt.OpenHandCursor)
-            else:
-                obj.unsetCursor()
-            return True
-
-        if event.type() == QEvent.Leave:
-            if not self.pan_active[cam_index]:
-                obj.unsetCursor()
-            return False
-
-        if event.type() == QEvent.Wheel:
-            dy = event.angleDelta().y()
-            if dy == 0:
-                return True
-
-            steps = dy / 120.0
-            factor = float(1.25 ** steps)
-            self.zoom_at_label_pos(cam_index, factor, event.pos())
-            if float(self.view_states[cam_index]["zoom"]) > 1.000001:
-                obj.setCursor(Qt.OpenHandCursor)
-            else:
-                obj.unsetCursor()
-            return True
-
-        return super().eventFilter(obj, event)
-
-    def pan_camera_view(self, cam_index, label_pos):
-        """Pan a zoomed camera preview based on mouse movement."""
-        prev = self.pan_last_pos[cam_index]
-        if prev is None or label_pos is None:
-            self.pan_last_pos[cam_index] = label_pos
-            return
-
-        state = self.view_states[cam_index]
-        z = float(state["zoom"])
-        if z <= 1.000001:
-            self.pan_last_pos[cam_index] = label_pos
-            return
-
-        label = self.cam_labels[cam_index]
-        pm_rect = self._get_pixmap_rect_in_label(label)
-        if pm_rect is None:
-            self.pan_last_pos[cam_index] = label_pos
-            return
-        _off_x, _off_y, pm_w, pm_h = pm_rect
-        if pm_w <= 0 or pm_h <= 0:
-            self.pan_last_pos[cam_index] = label_pos
-            return
-
-        dx = float(label_pos.x() - prev.x())
-        dy = float(label_pos.y() - prev.y())
-        view_w = 1.0 / z
-        view_h = 1.0 / z
-
-        cx = float(state["cx"]) - dx / float(pm_w) * view_w
-        cy = float(state["cy"]) - dy / float(pm_h) * view_h
-        half_w = view_w / 2.0
-        half_h = view_h / 2.0
-        state["cx"] = max(half_w, min(1.0 - half_w, cx))
-        state["cy"] = max(half_h, min(1.0 - half_h, cy))
-        self.pan_last_pos[cam_index] = label_pos
-
-    def adjust_zoom(self, cam_index, multiplier):
-        """
-        Zoom a camera preview around the last known mouse position.
-        use for zoom button where no mouse position is provided
-        """
-        self.zoom_at_label_pos(cam_index, float(multiplier), self.last_mouse_pos[cam_index])
-
-    def reset_zoom(self, cam_index):
-        """Reset one camera preview to full-frame 1x zoom."""
-        self.view_states[cam_index] = {"zoom": 1.0, "cx": 0.5, "cy": 0.5}
-        self._update_zoom_label(cam_index)
-
-    def _update_zoom_label(self, cam_index):
-        """Update the text label that shows the current preview zoom level."""
-        lbl = self.zoom_labels[cam_index]
-        if not lbl:
-            return
-        z = float(self.view_states[cam_index]["zoom"])
-        if abs(z - 1.0) < 1e-6:
-            lbl.setText("1.0x")
-        else:
-            lbl.setText(f"{z:.2f}x")
-
-    def _get_pixmap_rect_in_label(self, label: QLabel):
-        """Return the displayed pixmap rectangle inside a preview label."""
-        pm = label.pixmap()
-        if pm is None:
-            return None
-        pm_w = pm.width()
-        pm_h = pm.height()
-        if pm_w <= 0 or pm_h <= 0:
-            return None
-        off_x = int((label.width() - pm_w) / 2)
-        off_y = int((label.height() - pm_h) / 2)
-        return off_x, off_y, pm_w, pm_h
-
-    def zoom_at_label_pos(self, cam_index, factor, label_pos):
-        """Zoom toward a point in the preview while keeping that point anchored."""
-        state = self.view_states[cam_index]
-        z_old = float(state["zoom"])
-        z_new = max(1.0, z_old * float(factor))
-
-        # Remove fixed 8x cap, but avoid degenerate crops by enforcing a minimum crop size.
-        wh = self.last_frame_sizes[cam_index]
-        if wh is not None:
-            w, h = wh
-            min_crop = 20
-            max_zoom = max(1.0, min(w / float(min_crop), h / float(min_crop)))
-            if z_new > max_zoom:
-                z_new = max_zoom
-
-        label = self.cam_labels[cam_index]
-        pm_rect = self._get_pixmap_rect_in_label(label)
-
-        # If we don't have a pixmap yet (or cursor not provided), zoom around center.
-        if pm_rect is None or label_pos is None:
-            u_view = 0.5
-            v_view = 0.5
-        else:
-            off_x, off_y, pm_w, pm_h = pm_rect
-            x = float(label_pos.x()) - off_x
-            y = float(label_pos.y()) - off_y
-            if x < 0 or y < 0 or x >= pm_w or y >= pm_h:
-                u_view = 0.5
-                v_view = 0.5
-            else:
-                u_view = x / float(pm_w)
-                v_view = y / float(pm_h)
-
-        # Compute the source normalized coordinate currently under cursor
-        cx = float(state["cx"])
-        cy = float(state["cy"])
-        w_old = 1.0 / z_old
-        h_old = 1.0 / z_old
-        px = cx + (u_view - 0.5) * w_old
-        py = cy + (v_view - 0.5) * h_old
-
-        # Choose new center so px/py stays under cursor in new zoom
-        w_new = 1.0 / z_new
-        h_new = 1.0 / z_new
-        cx_new = px - (u_view - 0.5) * w_new
-        cy_new = py - (v_view - 0.5) * h_new
-
-        # Clamp center so view window stays within bounds
-        half_w = w_new / 2.0
-        half_h = h_new / 2.0
-        cx_new = max(half_w, min(1.0 - half_w, cx_new))
-        cy_new = max(half_h, min(1.0 - half_h, cy_new))
-
-        state["zoom"] = z_new
-        state["cx"] = cx_new
-        state["cy"] = cy_new
-        self._update_zoom_label(cam_index)
-
-    def apply_zoom(self, frame, cam_index):
-        """Crop and resize a frame according to the stored software zoom state."""
-        if frame is None:
-            return frame
-
-        state = self.view_states[cam_index]
-        z = float(state["zoom"])
-        if z <= 1.000001:
-            return frame
-
-        h, w = frame.shape[:2]
-        min_crop = 20
-        max_zoom = max(1.0, min(w / float(min_crop), h / float(min_crop)))
-        if z > max_zoom:
-            z = max_zoom
-            state["zoom"] = z
-            self._update_zoom_label(cam_index)
-
-        crop_w = max(min_crop, int(round(w / z)))
-        crop_h = max(min_crop, int(round(h / z)))
-
-        cx = float(state["cx"]) * w
-        cy = float(state["cy"]) * h
-        x1 = int(round(cx - crop_w / 2.0))
-        y1 = int(round(cy - crop_h / 2.0))
-        x1 = max(0, min(w - crop_w, x1))
-        y1 = max(0, min(h - crop_h, y1))
-        x2 = x1 + crop_w
-        y2 = y1 + crop_h
-
-        cropped = frame[y1:y2, x1:x2]
-        if cropped.size == 0:
-            return frame
-        return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
+ 
 
     #---------------------------------------------------------------------------------------------------------------------------------
     # Camera Exposure and Gain Functions
@@ -1797,7 +1576,6 @@ class CameraApp(QWidget):
             if not self._handle_completed_stage_stop_actions():
                 self.stage_routine.StepCompleted()
 
-            self.resolution_app_after_routine()
 
     def _now_hhmmss(self):
         """Return the current local time formatted for UI log lines."""
@@ -2129,372 +1907,6 @@ class CameraApp(QWidget):
         self.stage_log.appendPlainText(txt)
         self.stage_status.setText(f"{self._stage_status_prefix()}: {txt}")
 
-    #---------------------------------------------------------------------------------------------------------------------------------
-    # Camera Focus Scoring Functions
-    #---------------------------------------------------------------------------------------------------------------------------------
-
-    def _center_crop_fraction(self, gray: np.ndarray, fraction: float) -> np.ndarray:
-        """Return the centered crop used for focus scoring."""
-        f = float(fraction)
-        if f >= 1.0:
-            return gray
-        h, w = gray.shape[:2]
-        ch = max(1, int(round(h * f)))
-        cw = max(1, int(round(w * f)))
-        y0 = (h - ch) // 2
-        x0 = (w - cw) // 2
-        return gray[y0 : y0 + ch, x0 : x0 + cw]
-
-    def _downscale_max_size(self, gray: np.ndarray, max_size: int) -> np.ndarray:
-        """Downscale an image so focus scoring stays fast."""
-        m = int(max_size)
-        if m <= 0:
-            return gray
-        h, w = gray.shape[:2]
-        longest = max(h, w)
-        if longest <= m:
-            return gray
-        scale = m / float(longest)
-        new_w = max(1, int(round(w * scale)))
-        new_h = max(1, int(round(h * scale)))
-        return cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
-    def compute_focus_score_from_frame(
-        self, frame_bgr: np.ndarray, metric: af.MetricName = "laplacian_var", roi: float = 0.8, max_size: int = 1024
-    ) -> float:
-        """Compute a focus score from a BGR camera frame."""
-        gray_u8 = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        gray = gray_u8.astype(np.float32) / 255.0
-        gray = self._downscale_max_size(gray, max_size=max_size)
-        gray = self._center_crop_fraction(gray, fraction=roi)
-        return float(af.focus_score(gray, metric=metric))
-
-    def score_current_frame(self):
-        """Sample one camera repeatedly and log focus-score statistics."""
-        cam_index = int(self.score_cam_select.currentIndex())
-        if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
-            self.append_local_log("[Score] no camera available")
-            return
-        n = int(self.score_n.value())
-        metric: af.MetricName = "laplacian_var"
-        roi = 0.8
-        max_size = 1024
-
-        scores = []
-        for i in range(n):
-            frame = self.cam_mgr.get_frame(cam_index)
-            if frame is None:
-                self.append_local_log(f"[Score] cam={cam_index+1} no frame")
-                return
-            s = self.compute_focus_score_from_frame(frame, metric=metric, roi=roi, max_size=max_size)
-            scores.append(s)
-            time.sleep(0.02)
-
-        arr = np.array(scores, dtype=np.float64)
-        mean = float(arr.mean())
-        std = float(arr.std(ddof=0)) if len(arr) > 1 else 0.0
-        self.append_local_log(
-            f"[Score] cam={cam_index+1} metric={metric} (higher=sharper) n={n} mean={mean:.6g} std={std:.6g} min={arr.min():.6g} max={arr.max():.6g}"
-        )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def _load_default_usaf_config(self, config_path: Path):
-        self.config_path = config_path
-
-    def start_autofocus(self, cam_index: int = 0, on_finished=None, no_ui=False):
-        """Run autofocus in a worker thread and open the USAF result UI."""
-        if not (self.zmq_thread and self.zmq_thread.running):
-            self.append_local_log("[AF] Not connected.")
-            return False
-        if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
-            self.append_local_log("[AF] No camera available.")
-            return False
-        if self.af_thread and self.af_thread.is_alive():
-            self.append_local_log("[AF] Already running.")
-            return False
-        if self.auto_solid_thread and self.auto_solid_thread.is_alive():
-            self.append_local_log("[AF] wait for auto solid projection to finish")
-            return False
-
-        self.autofocus_finished_callback = on_finished
-        self.af_cancel.clear()
-        self.autofocus_btn.setEnabled(False)
-        self.cancel_af_btn.setEnabled(True)
-        if hasattr(self, "resumeRoutine_btn"):
-            self.resumeRoutine_btn.setEnabled(False)
-
-        # Pause preview to avoid camera contention while taking screenshots.
-        self.timer.stop()
-        self.preview_status.setText("Preview paused (autofocus running).")
-        self.preview_status.show()
-
-        def _runner():
-            try:
-                routine = AutofocusRoutine(
-                    cam_index=cam_index,
-                    get_position_xyz=self.stage_get_position_xyz,
-                    move_to_xyz_and_wait=self.stage_move_to_xyz_and_wait,
-                    take_screenshot=lambda ci, out_dir, prefix, warmup_frames: self.cam_mgr.take_screenshot(
-                        ci, save_dir=out_dir, prefix=prefix, warmup_frames=warmup_frames, simple_name=True
-                    ),
-                    log=lambda s: self.ui_bus.log.emit(s),
-                    base_dir=self.cam_mgr.save_dir,
-                    metric="laplacian_var",
-                    roi=0.8,
-                    max_size=1024,
-                    cancel_event=self.af_cancel,
-                )
-                best_z, _pts, best_img_path = routine.run()
-                self.autofocus_best_image_paths.append(str(best_img_path))
-                self.ui_bus.log.emit(f"[AF] done best_z={best_z:.3f}")
-
-                resolution_cmd = [sys.executable, "-m", "usaf_interface.resolution_app", str(best_img_path)]
-                if no_ui:
-                    resolution_cmd.append("--no-ui")
-                if self.config_path is not None:
-                    resolution_cmd.append("--usaf-config-path")
-                    resolution_cmd.append(str(self.config_path))
-                subprocess.Popen(
-                    resolution_cmd,
-                    cwd=str(ROOT_DIR),
-                )
-                
-                self.ui_bus.log.emit(f"[AF] launched USAF UI for {best_img_path}")
-
-            except Exception as e:
-                self.ui_bus.log.emit(f"[AF] error: {e}")
-            finally:
-                self.ui_bus.autofocus_finished.emit()
-
-        self.af_thread = threading.Thread(target=_runner, daemon=True)
-        self.af_thread.start()
-        return True
-
-
-    def cancel_autofocus(self):
-        """Request cancellation of the running autofocus routine."""
-        if not (self.af_thread and self.af_thread.is_alive()):
-            return
-        self.af_cancel.set()
-        try:
-            if self.zmq_thread and self.zmq_thread.running:
-                self.zmq_thread.send_message(json.dumps({"command": "StopRun"}))
-        except Exception:
-            pass
-        self.append_local_log("[AF] cancel requested (sent StopRun)")
-
-    def _on_autofocus_finished(self):
-        """Restore preview and button state after autofocus exits."""
-        # Resume preview
-        try:
-            self.timer.start(30)
-        except Exception:
-            pass
-        self.autofocus_btn.setEnabled(self.cam_mgr.num_cameras > 0)
-        self.cancel_af_btn.setEnabled(False)
-        self._refresh_resume_button_state()
-        self.preview_status.hide()
-        callback = getattr(self, "autofocus_finished_callback", None)
-        self.autofocus_finished_callback = None
-        if callback:
-            callback()
-
-
-
-
-
-
-
-
-
-
-
-
-
-    #------------------------------------------------------------------------------------------------------------------
-    #power meter
-    #------------------------------------------------------------------------------------------------------------------
-    def open_power_meter_plot(self):
-        """Open the power meter plot window and start streaming samples."""
-        if self.power_meter_window is not None:
-            self.power_meter_window.show()
-            self.power_meter_window.raise_()
-            self.power_meter_window.activateWindow()
-            if not (self.power_meter_thread and self.power_meter_thread.is_alive()):
-                self.start_power_meter_stream()
-            return
-
-        self.power_meter_window = PowerMeterWindow(
-            start_callback=self.start_power_meter_stream,
-            stop_callback=self.stop_power_meter_stream,
-        )
-        self.power_meter_window.closed.connect(self._on_power_meter_window_closed)
-        self.power_meter_window.show()
-        self.start_power_meter_stream()
-
-    def start_power_meter_stream(self):
-        """Start the background power meter worker."""
-        if self.power_meter_thread and self.power_meter_thread.is_alive():
-            self._on_power_meter_status("Power meter stream already running.")
-            return
-
-        if hasattr(self, "power_meter_btn"):
-            self.power_meter_btn.setEnabled(False)
-
-        self.power_meter_thread = PowerMeterWorker(self.power_meter_bus, sample_interval_s=0.2)
-        self.power_meter_thread.start()
-        if self.power_meter_window is not None:
-            self.power_meter_window.set_stream_running(True)
-
-    def stop_power_meter_stream(self):
-        """Stop the background power meter worker and update controls."""
-        if self.power_meter_thread:
-            self.power_meter_thread.stop()
-            self.power_meter_thread = None
-        if hasattr(self, "power_meter_btn"):
-            self.power_meter_btn.setEnabled(True)
-        if self.power_meter_window is not None:
-            self.power_meter_window.set_stream_running(False)
-
-    def _on_power_meter_sample(self, elapsed_s: float, power_w: float):
-        """Forward a power meter sample to the plot window."""
-        if self.power_meter_window is not None:
-            self.power_meter_window.add_sample(elapsed_s, power_w)
-
-    def _on_power_meter_status(self, text: str):
-        """Display power meter status in the plot window and main log."""
-        if self.power_meter_window is not None:
-            self.power_meter_window.set_status(text)
-        self.append_local_log(f"[PowerMeter] {text}")
-        if text.startswith("Connected:") and self.power_meter_window is not None:
-            self.power_meter_window.set_stream_running(True)
-        if text == "Power meter disconnected." and hasattr(self, "power_meter_btn"):
-            self.power_meter_btn.setEnabled(True)
-            if self.power_meter_window is not None:
-                self.power_meter_window.set_stream_running(False)
-
-    def _on_power_meter_error(self, text: str):
-        """Display a power meter error and re-enable related controls."""
-        if self.power_meter_window is not None:
-            self.power_meter_window.set_status(text)
-            self.power_meter_window.set_stream_running(False)
-        self.append_local_log(f"[PowerMeter] {text}")
-        if hasattr(self, "power_meter_btn"):
-            self.power_meter_btn.setEnabled(True)
-
-    def _on_power_meter_window_closed(self):
-        """Clear the stored power meter window reference after close."""
-        self.power_meter_window = None
-
-    #------------------------------------------------------------------------------------------------------------------
-    #spectrometer
-    #------------------------------------------------------------------------------------------------------------------
-    def open_spectrometer_plot(self):
-        """Open the spectrometer plot window and start streaming spectra."""
-        if self.spectrometer_window is not None:
-            self.spectrometer_window.show()
-            self.spectrometer_window.raise_()
-            self.spectrometer_window.activateWindow()
-            if not (self.spectrometer_thread and self.spectrometer_thread.is_alive()):
-                self.start_spectrometer_stream()
-            return
-
-        self.spectrometer_window = SpectrometerWindow(
-            start_callback=self.start_spectrometer_stream,
-            stop_callback=self.stop_spectrometer_stream,
-        )
-        self.spectrometer_window.closed.connect(self._on_spectrometer_window_closed)
-        self.spectrometer_window.show()
-        self.start_spectrometer_stream()
-
-    def start_spectrometer_stream(self):
-        """Start the background spectrometer worker."""
-        if self.spectrometer_thread and self.spectrometer_thread.is_alive():
-            self._on_spectrometer_status("Spectrometer stream already running.")
-            return
-
-        if hasattr(self, "spectrometer_btn"):
-            self.spectrometer_btn.setEnabled(False)
-
-        self.spectrometer_thread = SpectrometerWorker(
-            self.spectrometer_bus,
-            integration_time_s=10.0e-3,
-            plot_interval_s=0.2,
-        )
-        self.spectrometer_thread.start()
-        if self.spectrometer_window is not None:
-            self.spectrometer_window.set_stream_running(True)
-
-    def stop_spectrometer_stream(self):
-        """Stop the background spectrometer worker and update controls."""
-        if self.spectrometer_thread:
-            self.spectrometer_thread.stop()
-            self.spectrometer_thread = None
-        if hasattr(self, "spectrometer_btn"):
-            self.spectrometer_btn.setEnabled(True)
-        if self.spectrometer_window is not None:
-            self.spectrometer_window.set_stream_running(False)
-
-    def _on_spectrometer_spectrum(self, wavelengths, intensities):
-        """Forward a spectrum to the spectrometer plot window."""
-        if self.spectrometer_window is not None:
-            self.spectrometer_window.set_spectrum(wavelengths, intensities)
-
-    def _on_spectrometer_status(self, text: str):
-        """Display spectrometer status in the plot window and main log."""
-        if self.spectrometer_window is not None:
-            self.spectrometer_window.set_status(text)
-        self.append_local_log(f"[Spectrometer] {text}")
-        if text.startswith("Connected:") and self.spectrometer_window is not None:
-            self.spectrometer_window.set_stream_running(True)
-        if text == "Spectrometer disconnected." and hasattr(self, "spectrometer_btn"):
-            self.spectrometer_btn.setEnabled(True)
-            if self.spectrometer_window is not None:
-                self.spectrometer_window.set_stream_running(False)
-
-    def _on_spectrometer_error(self, text: str):
-        """Display a spectrometer error and re-enable related controls."""
-        if self.spectrometer_window is not None:
-            self.spectrometer_window.set_status(text)
-            self.spectrometer_window.set_stream_running(False)
-        self.append_local_log(f"[Spectrometer] {text}")
-        if hasattr(self, "spectrometer_btn"):
-            self.spectrometer_btn.setEnabled(True)
-
-    def _on_spectrometer_window_closed(self):
-        """Clear the stored spectrometer window reference after close."""
-        self.spectrometer_window = None
-
-
-
 
 
 
@@ -2539,6 +1951,12 @@ class CameraApp(QWidget):
 
         json_msg = json.dumps(msg)
         self.zmq_thread.send_message(json_msg)
+
+    def _on_stage_routine_finished(self):
+        """Run end-of-routine actions after the stage sequence completes."""
+        self.append_local_log("[StageRoutine] Routine finished.")
+        self.resolution_app_after_routine()
+        self.power_meter_after_routine()
 
     def resolution_app_after_routine(self):
         """launch a final multi-image USAF run if finished."""
@@ -2592,6 +2010,9 @@ class CameraApp(QWidget):
             projector_index = self._solid_display_index()
             self._apply_stage_projection_color(prop.rsplit(" ", 1)[-1], projector_index)
             return False
+        elif prop == "powermeter":
+            self.open_power_meter_plot(show_window=False, on_finished=self.stage_routine.StepCompleted)
+            return self.power_meter_window.power_meter_measure()
         else:
             return False
 
@@ -2602,334 +2023,9 @@ class CameraApp(QWidget):
 
 
 
-
     #------------------------------------------------------------------------------------------------------------------
-    #projection
+    #stage sequence editor functions
     #------------------------------------------------------------------------------------------------------------------
-    def _projection_patterns_for_projector(self, projector_index):
-        """Return the saved projection role and image list for a display."""
-        if projector_index is None:
-            return None, []
-        try:
-            projector_index = int(projector_index)
-        except Exception:
-            return None, []
-
-        settings = getattr(self, "projection_settings", {}) or {}
-        matches = (
-            ("microscope", settings.get("microscope_display"), settings.get("microscope_patterns", [])),
-            ("plate", settings.get("plate_display"), settings.get("plate_patterns", [])),
-        )
-        for role, display_index, patterns in matches:
-            try:
-                display_index = int(display_index)
-            except Exception:
-                continue
-            if display_index == projector_index:
-                return role, list(patterns or [])
-        return None, []
-
-    def _solid_color_from_settings(self, settings):
-        """Build a solid-projection QColor from saved intensity and channel."""
-        settings = settings or {}
-        intensity = max(0, min(100, int(settings.get("solid_intensity", 100))))
-        value = int(round(255 * intensity / 100.0))
-        color_name = str(settings.get("solid_color") or "red").strip().lower()
-        if color_name == "green":
-            return QColor(0, value, 0)
-        if color_name == "blue":
-            return QColor(0, 0, value)
-        return QColor(value, 0, 0)
-
-    def _show_live_solid_projection(self, projector_index, color: QColor):
-        """Show a solid color on the selected projector display."""
-        screens = QApplication.screens()
-        try:
-            projector_index = int(projector_index)
-        except Exception:
-            self.append_local_log("[Projection] solid color projection has no valid display selected")
-            return False
-        if projector_index < 0 or projector_index >= len(screens):
-            self.append_local_log(f"[Projection] Display {projector_index + 1} is not available for solid color projection")
-            return False
-
-        window = self.projection_windows.get(projector_index)
-        if window is None:
-            window = ProjectionWindow()
-            self.projection_windows[projector_index] = window
-        window.show_on_screen(screens[projector_index])
-        window.display_solid_color(color)
-        return True
-
-    def _solid_display_index(self):
-        """Return the saved or first external display index for solid projection."""
-        settings = getattr(self, "projection_settings", {}) or {}
-        for key in ("solid_display", "microscope_display", "plate_display"):
-            try:
-                return int(settings[key])
-            except Exception:
-                continue
-        screens = QApplication.screens()
-        primary = QApplication.primaryScreen()
-        for index, screen in enumerate(screens):
-            if screen != primary:
-                return index
-        return 0 if screens else None
-
-    def _apply_stage_projection_color(self, color_name, projector_index):
-        """Apply a solid projection color from a stage sequence stop."""
-        settings = dict(getattr(self, "projection_settings", {}) or {})
-        settings["solid_color"] = str(color_name).strip().lower()
-        settings["solid_display"] = projector_index
-        settings["solid_intensity"] = settings.get("solid_intensity", 100)
-        self.projection_settings = settings
-        self._show_live_solid_projection(projector_index, self._solid_color_from_settings(settings))
-
-    def _apply_auto_solid_intensity(self, intensity):
-        """Show the saved solid color at intensity without opening the dialog."""
-        settings = dict(getattr(self, "projection_settings", {}) or {})
-        settings["solid_intensity"] = int(intensity)
-        settings["solid_color"] = settings.get("solid_color") or "red"
-        settings["solid_display"] = self._solid_display_index()
-        self.projection_settings = settings
-        return self._show_live_solid_projection(
-            settings.get("solid_display"),
-            self._solid_color_from_settings(settings),
-        )
-
-    def _set_auto_solid_intensity(self, intensity):
-        """Ask the GUI thread to update the projector, then wait until it is applied."""
-        self.auto_solid_applied.clear()
-        self.ui_bus.auto_solid_apply.emit(int(intensity))
-        self.auto_solid_applied.wait(2.0)
-
-    def _on_auto_solid_apply(self, intensity):
-        """Apply solid projection on the GUI thread."""
-        try:
-            self._apply_auto_solid_intensity(intensity)
-        finally:
-            self.auto_solid_applied.set()
-
-    def start_auto_solid_projection(self, cam_index: int = 0, on_finished=None):
-        """Run AutoSolidIntensityController in a worker thread."""
-        if self.auto_solid_thread and self.auto_solid_thread.is_alive():
-            self.append_local_log("[AutoSolid] already running")
-            return False
-        if self.af_thread and self.af_thread.is_alive():
-            self.append_local_log("[AutoSolid] wait for autofocus to finish")
-            return False
-        if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
-            self.append_local_log("[AutoSolid] no camera available")
-            return False
-
-        self.auto_solid_finished_callback = on_finished
-        if hasattr(self, "autoSolidProjection_btn"):
-            self.autoSolidProjection_btn.setEnabled(False)
-        self.timer.stop()
-        self.preview_status.setText("Preview paused (auto solid projection running).")
-        self.preview_status.show()
-
-        start_intensity = int((getattr(self, "projection_settings", {}) or {}).get("solid_intensity", 50) or 50)
-        out_dir = os.path.join(self.cam_mgr.save_dir, "auto_solid")
-
-        def _runner():
-            try:
-                controller = AutoSolidIntensityController(
-                    cam_index=cam_index,
-                    take_screenshot=lambda ci, save_dir, prefix, warmup_frames: self.cam_mgr.take_screenshot(
-                        ci, save_dir=save_dir, prefix=prefix, warmup_frames=warmup_frames, simple_name=True
-                    ),
-                    set_intensity=self._set_auto_solid_intensity,
-                    log=lambda s: self.ui_bus.log.emit(s),
-                    start_intensity=start_intensity,
-                )
-                best, _stats = controller.run(out_dir=out_dir)
-                self.ui_bus.log.emit(f"[AutoSolid] done intensity={best}%")
-            except Exception as e:
-                self.ui_bus.log.emit(f"[AutoSolid] error: {e}")
-            finally:
-                self.ui_bus.auto_solid_finished.emit()
-
-        self.auto_solid_thread = threading.Thread(target=_runner, daemon=True)
-        self.auto_solid_thread.start()
-        return True
-
-    def _on_auto_solid_finished(self):
-        """Restore preview and button state after auto solid intensity exits."""
-        try:
-            self.timer.start(30)
-        except Exception:
-            pass
-        if hasattr(self, "autoSolidProjection_btn"):
-            self.autoSolidProjection_btn.setEnabled(self.cam_mgr.num_cameras > 0)
-        self.preview_status.hide()
-        callback = self.auto_solid_finished_callback
-        self.auto_solid_finished_callback = None
-        if callback:
-            callback()
-
-    def _stop_live_solid_projection(self, projector_index=None):
-        """Close one or all live solid-color projection windows."""
-        if projector_index is None:
-            for window in list(self.projection_windows.values()):
-                window.close()
-            return
-        try:
-            projector_index = int(projector_index)
-        except Exception: 
-            return
-        window = self.projection_windows.get(projector_index)
-        if window is not None:
-            window.close()
-            self.append_local_log(f"[Projection] Display {projector_index + 1}: solid color projection stopped")
-
-    def _start_projection_sequence(self, projector_index, patterns, role=None, on_finished=None):
-        """Display projection images in sequence on a selected display."""
-        screens = QApplication.screens()
-        if projector_index < 0 or projector_index >= len(screens):
-            self.append_local_log(f"[Projection] Display {projector_index + 1} is not available")
-            return False
-        if self.projection_sequence_running:
-            self.append_local_log("[Projection] projection already running; skipping new projection request")
-            return False
-
-        image_paths = [path for path in patterns if os.path.exists(path)]
-        missing_count = len(patterns) - len(image_paths)
-        if not image_paths:
-            self.append_local_log(f"[Projection] no existing image files for Display {projector_index + 1}")
-            return False
-        if missing_count:
-            self.append_local_log(f"[Projection] skipped {missing_count} missing image file(s)")
-
-        window = self.projection_windows.get(projector_index)
-        if window is None:
-            window = ProjectionWindow()
-            self.projection_windows[projector_index] = window
-        window.show_on_screen(screens[projector_index])
-
-        self.projection_sequence_running = True
-        role_label = role or "selected"
-        self.append_local_log(
-            f"[Projection] Display {projector_index + 1}: projecting {len(image_paths)} {role_label} pattern(s)"
-        )
-
-        def show_next(index=0):
-            if index >= len(image_paths):
-                window.close()
-                self.projection_sequence_running = False
-                self.append_local_log(f"[Projection] Display {projector_index + 1}: sequence finished")
-                if on_finished:
-                    on_finished()
-                return
-
-            path = image_paths[index]
-            ok = window.display_image(path)
-            status = "shown" if ok else "failed"
-            self.append_local_log(
-                f"[Projection] Display {projector_index + 1}: {status} {index + 1}/{len(image_paths)} {path}"
-            )
-            QTimer.singleShot(PROJECTION_PATTERN_INTERVAL_MS, lambda: show_next(index + 1))
-
-        QTimer.singleShot(0, show_next)
-        return True
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    #013026 add this for importing stage routine
-    def _load_default_stage_sequence(self, path):
-        """Load default stage stops from config.json."""
-        try:
-            with open(path, "r", encoding="utf-8") as file:
-                payload = json.load(file)
-            if isinstance(payload, dict):
-                self.custom_stage_sequence = payload.get("default_routine")
-        except Exception as e:
-            print(f"[StageSequence] failed to load default routine from {path}: {e}")
-        return None
-
-    def _current_configuration_payload(self):
-        """Build the current app configuration for saving."""
-        payload = {}
-        payload["default_routine"] = self.custom_stage_sequence or []
-        try:
-            with open(self.config_path, "r", encoding="utf-8") as file:
-                current_config = json.load(file)
-            if isinstance(current_config, dict):
-                payload["resolution"] = current_config.get("resolution", {})
-        except Exception as e:
-            print(f"[Configuration] failed to load current configuration from {self.config_path}: {e}")
-            payload["resolution"] = {}
-            payload["resolution"]["usaf_target"] = UsafConfig().export_to_dict()
-
-        payload["camera"] = [
-            {
-                "exposure": float(self.camera_control_widgets[cam_index]["exposure_input"].value()) if cam_index < self.cam_mgr.num_cameras else None,
-                "gain": float(self.camera_control_widgets[cam_index]["gain_input"].value()) if cam_index < self.cam_mgr.num_cameras else None,
-            }
-            for cam_index in range(self.cam_mgr.num_cameras)
-        ]
-
-        return payload
-
-    def open_configuration_dialog(self):
-        """Open JSON configuration editor and reload default routine after save."""
-        dialog = ConfigurationDialog(self.config_path, self._current_configuration_payload(), self)
-        if dialog.exec_() != QDialog.Accepted:
-            return
-        if dialog.load_config:
-            self.config_path = dialog.config_path
-            self._load_default_cam_config(self.config_path)
-            self._load_default_usaf_config(self.config_path)
-            self._load_default_stage_sequence(self.config_path)
-            self.append_local_log(f"[Configuration] loaded {self.config_path};")
-        elif dialog.save_config:
-            self.append_local_log(f"[Configuration] saved {dialog.save_path}")
-
-
-
-    def _load_default_cam_config(self, path):
-        """Load default camera configuration from config.json."""
-        try:
-            with open(path, "r", encoding="utf-8") as file:
-                payload = json.load(file)
-            if isinstance(payload, dict):
-                cam_config = payload.get("camera", [])
-                valid_cam_config = min(len(cam_config), self.cam_mgr.num_cameras)
-                for cam_index in range(valid_cam_config):
-                    exposure = cam_config[cam_index].get("exposure", None)
-                    gain = cam_config[cam_index].get("gain", None)
-                    if exposure is not None:
-                        self.apply_exposure(cam_index, self.camera_control_widgets[cam_index]["exposure_input"], exposure)
-                    if gain is not None:
-                        self.apply_gain(cam_index, self.camera_control_widgets[cam_index]["gain_input"], gain)
-        except Exception as e:
-            print(f"[Camera] failed to load camera configuration from {path}: {e}")
-
-
-
-
-
-
-
-
-
-
 
 
     def open_stage_sequence_editor(self):

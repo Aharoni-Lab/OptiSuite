@@ -1,9 +1,10 @@
 from PyQt5.QtWidgets import QWidget, QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QApplication
-from PyQt5.QtCore import Qt, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QPainter, QPen, QColor
 import threading
 import time
 from collections import deque
+import numpy as np
 
 
 
@@ -127,18 +128,74 @@ class PowerTraceWidget(QWidget):
         painter.end()
 
 
+class PowerMeterMeasurement:
+    """Report a power reading after 20 samples stay within the stability limit."""
+
+    def __init__(self, callback, sample_count=20, stability=0.01, timeout_s=10.0):
+        self.callback = callback
+        self.sample_count = sample_count
+        self.stability = stability
+        self.timeout_s = timeout_s
+        self.samples = deque(maxlen=sample_count)
+        self.is_measuring = False
+        self._timer = None
+
+    def measure(self):
+        """Start a measurement and call callback(power_w) when it finishes."""
+        self._stop_timer()
+        self.samples.clear()
+        self.is_measuring = True
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(lambda: self._finish(None))
+        self._timer.start(int(self.timeout_s * 1000))
+
+    def _stop_timer(self):
+        if self._timer is not None:
+            self._timer.stop()
+            self._timer.deleteLater()
+            self._timer = None
+
+    def _finish(self, power_w):
+        if not self.is_measuring:
+            return
+        self.is_measuring = False
+        self._stop_timer()
+        if self.callback is not None:
+            self.callback(power_w)
+
+    def add_sample(self, elapsed_s, power_w):
+        if not self.is_measuring:
+            return False
+        self.samples.append((float(elapsed_s), float(power_w)))
+        if len(self.samples) < self.sample_count:
+            return False
+        powers = [p for _, p in self.samples]
+        std = float(np.std(powers))
+        mean = float(np.mean([abs(p) for p in powers]))
+        if std > self.stability * mean:
+            return False
+        self._finish(power_w)
+        return True
+
+
 class PowerMeterWindow(QWidget):
     closed = pyqtSignal()
 
-    def __init__(self, start_callback, stop_callback, parent=None):
+    def __init__(self, start_callback, stop_callback, finish_callback, parent=None):
         super().__init__(parent)
         self.start_callback = start_callback
         self.stop_callback = stop_callback
-        self.stream_running = False
+        self.finish_callback = finish_callback
+        self.stream_running = True
+        self.measurement = PowerMeterMeasurement(callback=self._finish_power_measure)
+        self.stable_power_w = None
         self.setWindowTitle("Thorlabs Power Meter Live Plot")
 
         self.status_label = QLabel("Connecting to power meter...")
         self.status_label.setWordWrap(True)
+        self.reading_label = QLabel("")
+        self.reading_label.setWordWrap(True)
         self.latest_label = QLabel("Latest: --")
         self.latest_label.setStyleSheet("font-weight: 600;")
         self.plot = PowerTraceWidget()
@@ -155,15 +212,37 @@ class PowerMeterWindow(QWidget):
 
         layout = QVBoxLayout()
         layout.addWidget(self.status_label)
+        layout.addWidget(self.reading_label)
         layout.addWidget(self.latest_label)
         layout.addWidget(self.plot)
         layout.addLayout(controls)
         self.setLayout(layout)
         self.resize(820, 480)
 
+    def power_meter_measure(self):
+        """Measure until the reading is stable or 10 seconds pass, then stop the stream."""
+        if not self.stream_running:
+            self.toggle_stream()
+        self.measurement.measure()
+        return True
+
+    def _finish_power_measure(self, power_w):
+        self.stable_power_w = power_w
+        if self.stream_running:
+            self.toggle_stream()
+        if self.stable_power_w is not None:
+            self.reading_label.setText(f"Stable reading: {format_power_watts(self.stable_power_w)}")
+        else:
+            self.reading_label.setText("No stable reading in 10 seconds")
+        if power_w is None:
+            power_w = 0.0
+        self.finish_callback(power_w)
+
     def add_sample(self, elapsed_s: float, power_w: float):
+        power_w = 0 if power_w < 0 else power_w
         self.latest_label.setText(f"Latest: {format_power_watts(power_w)}")
         self.plot.add_sample(elapsed_s, power_w)
+        self.measurement.add_sample(elapsed_s, power_w)
 
     def set_status(self, text: str):
         self.status_label.setText(text)
@@ -175,8 +254,11 @@ class PowerMeterWindow(QWidget):
     def toggle_stream(self):
         if self.stream_running:
             self.stop_callback()
+            self.set_stream_running(False)
         else:
             self.start_callback()
+            self.set_stream_running(True)
+            self.plot.clear()
 
     def closeEvent(self, event):
         self.stop_callback()
