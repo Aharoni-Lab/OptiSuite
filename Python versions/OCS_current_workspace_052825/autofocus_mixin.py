@@ -1,10 +1,17 @@
+from __future__ import annotations
+
 from pathlib import Path
 import sys
 import json
 import threading
 import subprocess
+from typing import TYPE_CHECKING
+
 from autofocus_routine import AutofocusRoutine
 ROOT_DIR = Path(__file__).resolve().parents[2]
+
+if TYPE_CHECKING:
+    from camera_app_protocol import CameraAppHost, FinishedCallback
 
 
 
@@ -18,10 +25,10 @@ class AutofocusMixin:
     #------------------------------------------------------------------------------------------------------------------
 
 
-    def _load_default_usaf_config(self, config_path: Path):
+    def _load_default_usaf_config(self: CameraAppHost, config_path: Path) -> None:
         self.config_path = config_path
 
-    def start_autofocus(self, cam_index: int = 0, on_finished=None, no_ui=False):
+    def start_autofocus(self: CameraAppHost, cam_index: int = 0, on_finished: FinishedCallback | None = None, no_ui: bool = False) -> bool:
         """Run autofocus in a worker thread and open the USAF result UI."""
         if not (self.zmq_thread and self.zmq_thread.running):
             self.append_local_log("[AF] Not connected.")
@@ -91,7 +98,7 @@ class AutofocusMixin:
         return True
 
 
-    def cancel_autofocus(self):
+    def cancel_autofocus(self: CameraAppHost) -> None:
         """Request cancellation of the running autofocus routine."""
         if not (self.af_thread and self.af_thread.is_alive()):
             return
@@ -103,7 +110,7 @@ class AutofocusMixin:
             pass
         self.append_local_log("[AF] cancel requested (sent StopRun)")
 
-    def _on_autofocus_finished(self):
+    def _on_autofocus_finished(self: CameraAppHost) -> None:
         """Restore preview and button state after autofocus exits."""
         # Resume preview
         try:

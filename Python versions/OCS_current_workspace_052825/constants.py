@@ -23,3 +23,4 @@ class UiBus(QObject):
     auto_solid_apply = pyqtSignal(int)
     auto_solid_finished = pyqtSignal()
     power_meter_finished = pyqtSignal(float)
+    spectro_meter_finished = pyqtSignal(object)

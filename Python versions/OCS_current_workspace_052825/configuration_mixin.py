@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 from pathlib import Path
 import json
+from typing import Any, TYPE_CHECKING
+
 from configuration_dialog import ConfigurationDialog
 from PyQt5.QtWidgets import QDialog
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -13,6 +17,9 @@ _usaf_constants = importlib.util.module_from_spec(_usaf_constants_spec)
 _usaf_constants_spec.loader.exec_module(_usaf_constants)
 UsafConfig = _usaf_constants.UsafConfig
 
+if TYPE_CHECKING:
+    from camera_app_protocol import CameraAppHost
+
 
 
 class ConfigurationMixin:
@@ -25,7 +32,7 @@ class ConfigurationMixin:
     #------------------------------------------------------------------------------------------------------------------
 
     #013026 add this for importing stage routine
-    def _load_default_stage_sequence(self, path):
+    def _load_default_stage_sequence(self: CameraAppHost, path: Path) -> None:
         """Load default stage stops from config.json."""
         try:
             with open(path, "r", encoding="utf-8") as file:
@@ -36,7 +43,7 @@ class ConfigurationMixin:
             print(f"[StageSequence] failed to load default routine from {path}: {e}")
         return None
 
-    def _current_configuration_payload(self):
+    def _current_configuration_payload(self: CameraAppHost) -> dict[str, Any]:
         """Build the current app configuration for saving."""
         payload = {}
         payload["default_routine"] = self.custom_stage_sequence or []
@@ -60,7 +67,7 @@ class ConfigurationMixin:
 
         return payload
 
-    def open_configuration_dialog(self):
+    def open_configuration_dialog(self: CameraAppHost) -> None:
         """Open JSON configuration editor and reload default routine after save."""
         dialog = ConfigurationDialog(self.config_path, self._current_configuration_payload(), self)
         if dialog.exec_() != QDialog.Accepted:
@@ -76,7 +83,7 @@ class ConfigurationMixin:
 
 
 
-    def _load_default_cam_config(self, path):
+    def _load_default_cam_config(self: CameraAppHost, path: Path) -> None:
         """Load default camera configuration from config.json."""
         try:
             with open(path, "r", encoding="utf-8") as file:

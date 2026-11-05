@@ -1,6 +1,13 @@
-from PyQt5.QtCore import QEvent, Qt
-from PyQt5.QtWidgets import QLabel
+from __future__ import annotations
+
+from typing import Any, TYPE_CHECKING
+
 import cv2
+from PyQt5.QtCore import QEvent, QObject, QPoint, Qt
+from PyQt5.QtWidgets import QLabel
+
+if TYPE_CHECKING:
+    from camera_app_protocol import CameraAppHost
 
 
 
@@ -11,7 +18,7 @@ class CameraPreviewMixin:
     # Camera Preview Mouse Events and Zooming Functions
     #---------------------------------------------------------------------------------------------------------------------------------
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self: CameraAppHost, obj: QObject, event: QEvent) -> bool:
         """Handle camera preview mouse events for zooming and panning."""
         # Mouse-wheel zoom + cursor tracking on each preview label
         cam_index = obj.property("cam_index") if hasattr(obj, "property") else None
@@ -73,7 +80,7 @@ class CameraPreviewMixin:
 
         return super().eventFilter(obj, event)
 
-    def pan_camera_view(self, cam_index, label_pos):
+    def pan_camera_view(self: CameraAppHost, cam_index: int, label_pos: QPoint | None) -> None:
         """Pan a zoomed camera preview based on mouse movement."""
         prev = self.pan_last_pos[cam_index]
         if prev is None or label_pos is None:
@@ -109,19 +116,19 @@ class CameraPreviewMixin:
         state["cy"] = max(half_h, min(1.0 - half_h, cy))
         self.pan_last_pos[cam_index] = label_pos
 
-    def adjust_zoom(self, cam_index, multiplier):
+    def adjust_zoom(self: CameraAppHost, cam_index: int, multiplier: float) -> None:
         """
         Zoom a camera preview around the last known mouse position.
         use for zoom button where no mouse position is provided
         """
         self.zoom_at_label_pos(cam_index, float(multiplier), self.last_mouse_pos[cam_index])
 
-    def reset_zoom(self, cam_index):
+    def reset_zoom(self: CameraAppHost, cam_index: int) -> None:
         """Reset one camera preview to full-frame 1x zoom."""
         self.view_states[cam_index] = {"zoom": 1.0, "cx": 0.5, "cy": 0.5}
         self._update_zoom_label(cam_index)
 
-    def _update_zoom_label(self, cam_index):
+    def _update_zoom_label(self: CameraAppHost, cam_index: int) -> None:
         """Update the text label that shows the current preview zoom level."""
         lbl = self.zoom_labels[cam_index]
         if not lbl:
@@ -132,7 +139,7 @@ class CameraPreviewMixin:
         else:
             lbl.setText(f"{z:.2f}x")
 
-    def _get_pixmap_rect_in_label(self, label: QLabel):
+    def _get_pixmap_rect_in_label(self: CameraAppHost, label: QLabel) -> tuple[int, int, int, int] | None:
         """Return the displayed pixmap rectangle inside a preview label."""
         pm = label.pixmap()
         if pm is None:
@@ -145,7 +152,7 @@ class CameraPreviewMixin:
         off_y = int((label.height() - pm_h) / 2)
         return off_x, off_y, pm_w, pm_h
 
-    def zoom_at_label_pos(self, cam_index, factor, label_pos):
+    def zoom_at_label_pos(self: CameraAppHost, cam_index: int, factor: float, label_pos: QPoint | None) -> None:
         """Zoom toward a point in the preview while keeping that point anchored."""
         state = self.view_states[cam_index]
         z_old = float(state["zoom"])
@@ -203,7 +210,7 @@ class CameraPreviewMixin:
         state["cy"] = cy_new
         self._update_zoom_label(cam_index)
 
-    def apply_zoom(self, frame, cam_index):
+    def apply_zoom(self: CameraAppHost, frame: Any, cam_index: int) -> Any:
         """Crop and resize a frame according to the stored software zoom state."""
         if frame is None:
             return frame

@@ -1,10 +1,11 @@
 from PyQt5.QtWidgets import QWidget, QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QApplication, QFileDialog
-from PyQt5.QtCore import Qt, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QPainter, QPen, QColor
 import threading
 import time
 import numpy as np
 import os
+from scipy.signal import savgol_filter
 from ctypes import byref, c_double, c_int, c_void_p, cdll
 from datetime import datetime
 
@@ -26,6 +27,7 @@ class SpectrumTraceWidget(QWidget):
         super().__init__(parent)
         self.wavelengths = None
         self.intensities = None
+        self.maxima = None
         self.setMinimumSize(760, 420)
 
     def set_spectrum(self, wavelengths, intensities):
@@ -33,9 +35,14 @@ class SpectrumTraceWidget(QWidget):
         self.intensities = np.asarray(intensities, dtype=np.float64)
         self.update()
 
+    def set_maxima(self, maxima):
+        self.maxima = None if maxima is None else np.asarray(maxima, dtype=np.float64)
+        self.update()
+
     def clear(self):
         self.wavelengths = None
         self.intensities = None
+        self.maxima = None
         self.update()
 
     def paintEvent(self, event):
@@ -75,6 +82,12 @@ class SpectrumTraceWidget(QWidget):
         x_max = float(np.max(wavelengths))
         y_min = float(np.min(intensities))
         y_max = float(np.max(intensities))
+        if self.maxima is not None:
+            peak_y = self.maxima[:, 1]
+            peak_y = peak_y[np.isfinite(peak_y)]
+            if peak_y.size:
+                y_min = min(y_min, float(np.min(peak_y)))
+                y_max = max(y_max, float(np.max(peak_y)))
         if abs(x_max - x_min) < 1e-12:
             x_max = x_min + 1.0
         if abs(y_max - y_min) < 1e-12:
@@ -114,7 +127,18 @@ class SpectrumTraceWidget(QWidget):
                 painter.drawLine(prev[0], prev[1], point[0], point[1])
             prev = point
 
+        if self.maxima is not None:
+            painter.setPen(QPen(QColor(220, 38, 38), 2))
+            painter.setBrush(QColor(220, 38, 38))
+            for wavelength, intensity in self.maxima:
+                if not np.isfinite(wavelength) or not np.isfinite(intensity):
+                    continue
+                x = to_x(wavelength)
+                y = to_y(intensity)
+                painter.drawEllipse(x - 4, y - 4, 8, 8)
+
         painter.setPen(QPen(QColor(35, 35, 35), 1))
+        painter.setBrush(Qt.NoBrush)
         painter.drawText(8, margin_t + 4, margin_l - 14, 20, Qt.AlignRight, f"{y_max:.3g}")
         painter.drawText(8, margin_t + plot_h - 16, margin_l - 14, 20, Qt.AlignRight, f"{y_min:.3g}")
         painter.drawText(margin_l, height - 26, plot_w, 20, Qt.AlignCenter, "Wavelength (nm)")
@@ -122,18 +146,89 @@ class SpectrumTraceWidget(QWidget):
         painter.end()
 
 
+class SpectrometerMeasurement:
+    """Analyze the spectrum currently held by the plotter."""
+
+    def __init__(self, callback, read_spectrum, settle_s=10.0):
+        self.callback = callback
+        self.read_spectrum = read_spectrum
+        self.settle_s = settle_s
+        self._timer = None
+
+    def measure(self):
+        """Wait for the reading to settle, then analyze the current spectrum."""
+        self._stop_timer()
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._measure_settled)
+        self._timer.start(int(self.settle_s * 1000))
+
+    def _stop_timer(self):
+        if self._timer is not None:
+            self._timer.stop()
+            self._timer.deleteLater()
+            self._timer = None
+
+    def _measure_settled(self):
+        self._stop_timer()
+        wavelengths, intensities = self.read_spectrum()
+        if wavelengths is None or intensities is None:
+            result = None
+        else:
+            wavelengths = np.asarray(wavelengths, dtype=np.float64)
+            intensities = np.asarray(intensities, dtype=np.float64)
+            count = min(wavelengths.size, intensities.size)
+            result = self.analyze(wavelengths[:count], intensities[:count])
+        if self.callback is not None:
+            self.callback(result)
+
+    def analyze(self, wavelengths, intensities):
+        """Return the five strongest peaks as [wavelength_nm, filtered intensity]."""
+        window = int(intensities.size / 10)
+        if window % 2 == 0:
+            window -= 1
+        if window < 5:
+            smoothed = intensities
+        else:
+            smoothed = savgol_filter(intensities, window_length=window, polyorder=3)
+        peaks = np.where(
+            (smoothed[1:-1] > smoothed[:-2]) & (smoothed[1:-1] >= smoothed[2:])
+        )[0] + 1
+        result = np.full((5, 2), np.nan)
+        chosen = []
+        for index in peaks[np.argsort(smoothed[peaks])[::-1]]:
+            if all(abs(int(index) - other) > window for other in chosen):
+                chosen.append(int(index))
+            if len(chosen) == 5:
+                break
+        if not chosen:
+            return result
+        chosen = np.asarray(chosen)
+        result[:chosen.size, 0] = wavelengths[chosen]
+        result[:chosen.size, 1] = smoothed[chosen]
+        return result
+
+
 class SpectrometerWindow(QWidget):
     closed = pyqtSignal()
 
-    def __init__(self, start_callback, stop_callback, parent=None):
+    def __init__(self, start_callback, stop_callback, finish_callback, parent=None):
         super().__init__(parent)
         self.start_callback = start_callback
         self.stop_callback = stop_callback
+        self.finish_callback = finish_callback
         self.stream_running = False
+        self.measurement = SpectrometerMeasurement(
+            callback=self._finish_spectrum_measure,
+            read_spectrum=lambda: (self.plot.wavelengths, self.plot.intensities),
+        )
+        self.spectrum_result = None
         self.setWindowTitle("Thorlabs CCS100 Spectrometer Live Plot")
 
         self.status_label = QLabel("Connecting to spectrometer...")
         self.status_label.setWordWrap(True)
+        self.peak_label = QLabel("Peak: --")
+        self.peak_label.setWordWrap(True)
         self.latest_label = QLabel("Latest: --")
         self.latest_label.setStyleSheet("font-weight: 600;")
         self.plot = SpectrumTraceWidget()
@@ -154,11 +249,30 @@ class SpectrometerWindow(QWidget):
 
         layout = QVBoxLayout()
         layout.addWidget(self.status_label)
+        layout.addWidget(self.peak_label)
         layout.addWidget(self.latest_label)
         layout.addWidget(self.plot)
         layout.addLayout(controls)
         self.setLayout(layout)
         self.resize(860, 540)
+
+    def spectrometer_measure(self):
+        """Let the stream run for 10 seconds, then analyze the settled spectrum."""
+        if not self.stream_running:
+            self.toggle_stream()
+        self.measurement.measure()
+
+    def _finish_spectrum_measure(self, result):
+        self.spectrum_result = result
+        self.plot.set_maxima(result)
+        if result is not None and np.isfinite(result[0, 0]):
+            self.peak_label.setText(f"Peak: {result[0, 0]:.2f} nm, {result[0, 1]:.4g} a.u.")
+        else:
+            self.peak_label.setText("Peak: --")
+        if self.stream_running:
+            self.toggle_stream()
+        if self.finish_callback is not None:
+            self.finish_callback(result)
 
     def set_spectrum(self, wavelengths, intensities):
         arr = np.asarray(intensities, dtype=np.float64)

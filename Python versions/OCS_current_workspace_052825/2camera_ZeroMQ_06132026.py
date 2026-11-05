@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QAction, QGroupBox, QMenu, QMessageBox
 from PyQt5.QtWidgets import QAbstractItemView, QCheckBox, QDialog, QDoubleSpinBox, QListWidget, QListWidgetItem, QPlainTextEdit, QSlider
 from PyQt5.QtCore import QEvent, QObject, QPoint, QTimer, Qt, pyqtSignal, QRectF
-from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QIcon
+from PyQt5.QtGui import QCloseEvent, QImage, QPixmap, QPainter, QPen, QColor, QIcon
 import gxipy as gx
 import json #for sending run commands
 import autofocus as af
@@ -40,13 +40,9 @@ from power_meter import PowerMeterBus, PowerMeterWorker, PowerMeterWindow, Power
 from spectro_meter import SpectrometerBus, SpectrometerWorker, SpectrometerWindow, SpectrumTraceWidget
 from constants import BACKEND_NATIVE, BACKEND_PYCRO, BACKEND_LABELS, MICROSCOPE_DEFAULT_EXPOSURE_US, PROJECTION_PATTERN_INTERVAL_MS
 
-from autofocus_mixin import AutofocusMixin
-from camera_focus_scoring_mixin import CameraFocusScoringMixin
-from configuration_mixin import ConfigurationMixin
-from power_meter_mixin import PowerMeterMixin
-from projection_mixin import ProjectionMixin
-from spectrometer_mixin import SpectrometerMixin
-from camera_preview_mixin import CameraPreviewMixin
+from typing import Any, Callable
+
+from camera_app_protocol import CameraAppHost, CameraBackend, StageEvent
 from constants import StageEventBus, UiBus
 
 
@@ -123,9 +119,9 @@ def make_gauge_icon(size: int = 72) -> QIcon:
 
 #import the camera functinality from another file
 # -------- Main GUI Application -------- #
-# always place Qobject last in the inheritance list, 
-# or the inheritance will not work since mixin references Qobject methods
-class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, PowerMeterMixin, ProjectionMixin, SpectrometerMixin, CameraPreviewMixin, QWidget):
+# Mixins are listed on CameraAppHost, with QWidget last.
+# QWidget must stay last or mixin references to QObject methods fail.
+class CameraApp(CameraAppHost):
     
     
     
@@ -135,17 +131,17 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
     #---------------------------------------------------------------------------------------------------------------------------------
     # Configuration Functions
     #---------------------------------------------------------------------------------------------------------------------------------
-    def _stage_ports_for_backend(self, backend: str):
+    def _stage_ports_for_backend(self, backend: str) -> tuple[str, int, int]:
         """Return the ZMQ command and event ports for the selected hardware backend."""
         if backend == BACKEND_PYCRO:
             return self.pycro_stage_host, self.pycro_stage_cmd_port, self.pycro_stage_event_port
         return self.native_stage_host, self.native_stage_cmd_port, self.native_stage_event_port
 
-    def _stage_status_prefix(self):
+    def _stage_status_prefix(self) -> str:
         """Return the stage label prefix shown for the active hardware backend."""
         return "Pycro stage" if getattr(self, "hardware_backend", BACKEND_NATIVE) == BACKEND_PYCRO else "C# stage"
 
-    def _apply_microscope_default_exposure(self, manager):
+    def _apply_microscope_default_exposure(self, manager: CameraBackend) -> None:
         """Apply the default microscope exposure to camera slot 1 if available."""
         if getattr(manager, "num_cameras", 0) <= 0:
             return
@@ -155,7 +151,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         except Exception as e:
             print(f"[Camera] Could not set microscope default exposure: {e}")
 
-    def _create_camera_manager(self, backend: str):
+    def _create_camera_manager(self, backend: str) -> CameraBackend:
         """Create the camera manager or fallback manager for the requested backend."""
         if backend == BACKEND_PYCRO:
             try:
@@ -282,6 +278,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         self.ui_bus.auto_solid_apply.connect(self._on_auto_solid_apply)
         self.ui_bus.auto_solid_finished.connect(self._on_auto_solid_finished)
         self.ui_bus.power_meter_finished.connect(self._on_power_meter_finished)
+        self.ui_bus.spectro_meter_finished.connect(self._on_spectrometer_finished)
 
         # autofocus related variables
         # autofocus cancel flag
@@ -313,6 +310,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         self.spectrometer_bus.error.connect(self._on_spectrometer_error)
         self.spectrometer_thread = None
         self.spectrometer_window = None
+        self.spectro_meter_finished_callback = None
 
         # projection settings variables
         self.projection_settings = {}
@@ -570,7 +568,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
             spectrometer_btn = QPushButton("Spectrometer")
             spectrometer_btn.setFixedSize(104, 104)
             spectrometer_btn.setStyleSheet(rainbow_btn_style)
-            spectrometer_btn.clicked.connect(self.open_spectrometer_plot)
+            spectrometer_btn.clicked.connect(lambda: self.open_spectrometer_plot())
 
             power_btn = QPushButton("")
             power_btn.setFixedSize(104, 104)
@@ -1250,7 +1248,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
             return cam_title + (f" ({model})" if model else "")
         return cam_title + " (camera not detected)"
 
-    def _set_camera_controls_enabled(self, cam_index: int, enabled: bool):
+    def _set_camera_controls_enabled(self, cam_index: int, enabled: bool) -> None:
         """Enable or disable camera controls for one camera slot."""
         if cam_index >= len(self.camera_control_widgets):
             return
@@ -1277,7 +1275,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         widgets["gain_apply"].setEnabled(gain_supported)
         widgets["zoom_label"].setText("1.0x" if enabled else "--")
 
-    def _refresh_score_camera_choices(self):
+    def _refresh_score_camera_choices(self) -> None:
         """Refresh the focus-score camera dropdown based on available cameras."""
         if not hasattr(self, "score_cam_select"):
             return
@@ -1296,7 +1294,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
             self.autofocus_btn.setEnabled(False)
         self.score_cam_select.blockSignals(False)
 
-    def _refresh_camera_ui_state(self):
+    def _refresh_camera_ui_state(self) -> None:
         """Refresh camera labels, controls, exposure, gain, and score choices."""
         print("-------------4-------------------")
         if hasattr(self, "characterization_camera_select"):
@@ -1325,7 +1323,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
     # Camera Source and Backend Switching Functions
     # ---------------------------------------------------------------------------------------------------------------------------------
 
-    def on_characterization_camera_changed(self, _index=None):
+    def on_characterization_camera_changed(self, _index: int | None = None) -> None:
         """Switch the Cam 2 characterization source in native backend mode."""
         if self.hardware_backend != BACKEND_NATIVE:
             return
@@ -1361,7 +1359,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
             self.characterization_camera_select.blockSignals(False)
             self._refresh_camera_ui_state()
 
-    def on_backend_changed(self, _index=None):
+    def on_backend_changed(self, _index: int | None = None) -> None:
         """Switch between native and Pycro hardware backends."""
         backend = self.backend_select.currentData()
         if backend == self.hardware_backend:
@@ -1395,7 +1393,6 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
                 self.append_local_log(f"[Backend] failed to start pycro stage bridge: {e}")
 
         self.cam_mgr = self._create_camera_manager(backend)
-        print("-------------6-------------------")
         self._refresh_camera_ui_state()
         self.stage_status.setText(f"{self._stage_status_prefix()}: backend selected")
         self.append_local_log(
@@ -1407,7 +1404,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
     # Pycro Helper Processes Functions
     #---------------------------------------------------------------------------------------------------------------------------------
 
-    def _stop_pycro_helper_processes(self):
+    def _stop_pycro_helper_processes(self) -> None:
         """Terminate headless MM and stage-bridge subprocesses if they are running."""
         for attr in ("_pycro_bridge_proc", "_pycro_headless_proc"):
             proc = getattr(self, attr, None)
@@ -1445,7 +1442,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
                 time.sleep(0.25)
         return False
 
-    def _start_pycro_headless(self):
+    def _start_pycro_headless(self) -> None:
         """Launch pycro_server_headless.py and wait for MM ZMQ port 4827."""
         base = Path(__file__).resolve().parent
         kwargs = {"cwd": str(base)}
@@ -1463,7 +1460,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
             else:
                 print(msg)
 
-    def _start_pycro_bridge(self):
+    def _start_pycro_bridge(self) -> None:
         """Launch pycro_manager_zmq_bridge.py after headless MM is up."""
         base = Path(__file__).resolve().parent
         self._pycro_bridge_proc = subprocess.Popen(
@@ -1477,7 +1474,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
     # Camera Exposure and Gain Functions
     #---------------------------------------------------------------------------------------------------------------------------------
 
-    def apply_exposure(self, cam_index, widget: QDoubleSpinBox, config_exposure: float = None):
+    def apply_exposure(self, cam_index: int, widget: QDoubleSpinBox, config_exposure: float | None = None) -> None:
         """Apply the exposure value from the UI to the selected camera."""
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log(f"[Camera] cam={cam_index+1} not available")
@@ -1494,7 +1491,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         if not ok:
             print(f"[UI] Exposure rejected cam{cam_index}, kept {applied}")
 
-    def apply_gain(self, cam_index, widget: QDoubleSpinBox, config_gain: float = None):
+    def apply_gain(self, cam_index: int, widget: QDoubleSpinBox, config_gain: float | None = None) -> None:
         """Apply the gain value from the UI to the selected camera."""
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log(f"[Camera] cam={cam_index+1} not available")
@@ -1514,7 +1511,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
     # Main Utility Functions
     #---------------------------------------------------------------------------------------------------------------------------------
 
-    def on_stage_event(self, msg: str):
+    def on_stage_event(self, msg: str) -> None:
         """Display stage events and advance routines when stage moves complete."""
         # Called on the Qt thread via StageEventBus
         try:
@@ -1577,11 +1574,11 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
                 self.stage_routine.StepCompleted()
 
 
-    def _now_hhmmss(self):
+    def _now_hhmmss(self) -> str:
         """Return the current local time formatted for UI log lines."""
         return datetime.now().strftime("%H:%M:%S")
 
-    def _fmt_ts(self, ts_utc_ms):
+    def _fmt_ts(self, ts_utc_ms: Any) -> str:
         """Format a stage event timestamp, falling back to local time."""
         try:
             ms = int(ts_utc_ms)
@@ -1590,7 +1587,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         except Exception:
             return self._now_hhmmss()
 
-    def send_zmq_command(self):
+    def send_zmq_command(self) -> None:
         """Send the selected manual stage command over ZMQ."""
         if not (self.zmq_thread and self.zmq_thread.running):
             print("[ZMQ] Not connected.")
@@ -1631,7 +1628,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         json_msg = json.dumps(msg)
         self.zmq_thread.send_message(json_msg)
 
-    def update_frames(self):
+    def update_frames(self) -> None:
         """Refresh live camera previews and write recording frames."""
         # Display each camera live feed
         for i in range(self.cam_mgr.num_cameras):
@@ -1697,7 +1694,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
     # ZMQ Stage Connection Functions
     #---------------------------------------------------------------------------------------------------------------------------------
 
-    def connect_zmq(self):
+    def connect_zmq(self) -> None:
         """Start ZMQ stage command/event connections and verify the stage responds."""
         if self.zmq_thread and self.zmq_thread.running:
             print("[ZMQ] Already connected.")
@@ -1729,7 +1726,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
             f"stage tcp://{self.stage_host}:{self.stage_cmd_port}"
         )
 
-    def disconnect_zmq(self):
+    def disconnect_zmq(self) -> None:
         """Stop ZMQ stage command/event connections."""
         if self.zmq_thread:
             self.zmq_thread.stop()
@@ -1739,7 +1736,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
             self.zmq_events = None
         self.status_label.setText("Disconnected")
 
-    def _show_stage_connection_error(self, detail: str):
+    def _show_stage_connection_error(self, detail: str) -> None:
         """Show a modal error explaining why stage connection failed."""
         QMessageBox.critical(
             self,
@@ -1801,7 +1798,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
 
 
 
-    def _handle_stage_event_from_thread(self, msg: str):
+    def _handle_stage_event_from_thread(self, msg: str) -> None:
         """Queue background stage events and forward them to the UI thread."""
         # Called on ZMQPullListener thread
         try:
@@ -1836,7 +1833,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         with self._stage_seq_lock:
             return int(self._stage_last_seq)
 
-    def _wait_for_stage_event(self, predicate, *, min_seq: int, timeout_s: float):
+    def _wait_for_stage_event(self, predicate: Callable[[StageEvent], bool], *, min_seq: int, timeout_s: float) -> StageEvent:
         """Wait until a queued stage event newer than min_seq matches a predicate."""
         deadline = time.monotonic() + float(timeout_s)
         while time.monotonic() < deadline:
@@ -1872,7 +1869,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         z = float(payload.get("Z"))
         return x, y, z
 
-    def stage_move_to_xyz_and_wait(self, x: float, y: float, z: float, timeout_s: float = 30.0):
+    def stage_move_to_xyz_and_wait(self, x: float, y: float, z: float, timeout_s: float = 30.0) -> None:
         """Move the stage to XYZ and block until the matching completion event arrives."""
         if not (self.zmq_thread and self.zmq_thread.running):
             raise RuntimeError("Not connected to stage (ZMQ)")
@@ -1900,7 +1897,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
 
         self._wait_for_stage_event(_match_completed, min_seq=min_seq, timeout_s=timeout_s)
 
-    def append_local_log(self, line: str):
+    def append_local_log(self, line: str) -> None:
         """Append a timestamped message to the local stage/status log."""
         t = self._now_hhmmss()
         txt = f"{t} {line}".strip()
@@ -1920,7 +1917,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
 
 
     #make the json & pass it to the zmq class to send
-    def send_message(self):
+    def send_message(self) -> None:
         """Parse the free-text command box and send a JSON stage command."""
         if not (self.zmq_thread and self.zmq_thread.running):
             print("[ZMQ] Not connected.")
@@ -1952,13 +1949,14 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         json_msg = json.dumps(msg)
         self.zmq_thread.send_message(json_msg)
 
-    def _on_stage_routine_finished(self):
+    def _on_stage_routine_finished(self) -> None:
         """Run end-of-routine actions after the stage sequence completes."""
         self.append_local_log("[StageRoutine] Routine finished.")
         self.resolution_app_after_routine()
         self.power_meter_after_routine()
+        self.spectro_meter_after_routine()
 
-    def resolution_app_after_routine(self):
+    def resolution_app_after_routine(self) -> None:
         """launch a final multi-image USAF run if finished."""
         if getattr(self.stage_routine, "running", False) or not self.autofocus_best_image_paths:
             return
@@ -1970,7 +1968,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         )
         self.append_local_log(f"[AF] launched final USAF UI for {len(image_paths)} image(s)")
 
-    def _handle_completed_stage_stop_actions(self):
+    def _handle_completed_stage_stop_actions(self) -> bool:
         """Run stop-specific actions after a custom stage stop completes."""
         stop = self.stage_routine.CurrentCompletedStop()
         if not stop or len(stop) < 4:
@@ -2013,6 +2011,9 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         elif prop == "powermeter":
             self.open_power_meter_plot(show_window=False, on_finished=self.stage_routine.StepCompleted)
             return self.power_meter_window.power_meter_measure()
+        elif prop == "spectrometer":
+            self.open_spectrometer_plot(show_window=False, on_finished=self.stage_routine.StepCompleted)
+            return self.spectrometer_window.spectrometer_measure()
         else:
             return False
 
@@ -2028,7 +2029,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
     #------------------------------------------------------------------------------------------------------------------
 
 
-    def open_stage_sequence_editor(self):
+    def open_stage_sequence_editor(self) -> None:
         """Open the custom stage sequence editor and save its stops."""
         dialog = StageSequenceEditorDialog(getattr(self, "custom_stage_sequence", None), self)
         if dialog.exec_() != QDialog.Accepted:
@@ -2036,7 +2037,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         self.custom_stage_sequence = dialog.get_stops()
         self.append_local_log(f"[StageSequence] saved {len(self.custom_stage_sequence)} stop(s)")
 
-    def open_projection_settings_editor(self):
+    def open_projection_settings_editor(self) -> None:
         """Open the projection settings editor and save display/pattern settings."""
         dialog = ProjectionSettingsDialog(getattr(self, "projection_settings", None), self)
         if dialog.exec_() != QDialog.Accepted:
@@ -2060,20 +2061,20 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         if applied:
             self.append_local_log("[Projection] solid color projection updated on screen")
 
-    def _resume_pause_enabled(self):
+    def _resume_pause_enabled(self) -> bool:
         """Return whether stage routines should pause after each stop."""
         if hasattr(self, "resumePauseMode_check"):
             return self.resumePauseMode_check.isChecked()
         return True
 
-    def _refresh_resume_button_state(self):
+    def _refresh_resume_button_state(self) -> None:
         """Enable Resume only when allowed and autofocus is not running."""
         if not hasattr(self, "resumeRoutine_btn"):
             return
         autofocus_running = bool(self.af_thread and self.af_thread.is_alive())
         self.resumeRoutine_btn.setEnabled(self._resume_pause_enabled() and not autofocus_running)
 
-    def start_stage_routine(self):
+    def start_stage_routine(self) -> None:
         """Start the configured custom or fallback stage routine."""
         # For now, use your hardcoded test values
         self.autofocus_best_image_paths.clear()
@@ -2092,11 +2093,11 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
             self.stage_routine.ClearCustomStops()
         self.stage_routine.StartRoutine()
 
-    def resume_stage_routine(self):
+    def resume_stage_routine(self) -> None:
         """Resume a paused stage routine."""
         self.stage_routine.Resume()
 
-    def send_stage_move(self, x, y, z):
+    def send_stage_move(self, x: float, y: float, z: float) -> None:
         """Send a MoveToXYZ command for StageRoutine callbacks."""
         if not (self.zmq_thread and self.zmq_thread.running):
             print("[ZMQ] Not connected (cannot send stage move).")
@@ -2116,7 +2117,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
 
 
 
-    def closeEvent(self, event):
+    def closeEvent(self, event: QCloseEvent) -> None:
         """Clean up cameras, workers, ZMQ threads, and windows on exit."""
         try:
             self.af_cancel.set()
@@ -2146,7 +2147,7 @@ class CameraApp(AutofocusMixin, CameraFocusScoringMixin, ConfigurationMixin, Pow
         self.projection_windows.clear()
         event.accept()
 
-    def _on_screenshot(self, cam_index: int):
+    def _on_screenshot(self, cam_index: int) -> None:
         """Capture and log a screenshot from the selected camera."""
         if cam_index < 0 or cam_index >= self.cam_mgr.num_cameras:
             self.append_local_log(f"[Screenshot] cam={cam_index+1} not available")

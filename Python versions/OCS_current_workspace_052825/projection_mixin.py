@@ -1,11 +1,19 @@
-from projection_settings import ProjectionWindow
-from auto_solid_project import AutoSolidIntensityController
-import threading
+from __future__ import annotations
+
 import os
+import threading
+from typing import Any, TYPE_CHECKING
+
 from PyQt5.QtCore import QTimer
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QApplication
+
+from auto_solid_project import AutoSolidIntensityController
 from constants import PROJECTION_PATTERN_INTERVAL_MS
+from projection_settings import ProjectionWindow
+
+if TYPE_CHECKING:
+    from camera_app_protocol import CameraAppHost, FinishedCallback
 
 
 
@@ -19,7 +27,7 @@ class ProjectionMixin:
     #------------------------------------------------------------------------------------------------------------------
     #projection
     #------------------------------------------------------------------------------------------------------------------
-    def _projection_patterns_for_projector(self, projector_index):
+    def _projection_patterns_for_projector(self: CameraAppHost, projector_index: int | None) -> tuple[str | None, list[Any]]:
         """Return the saved projection role and image list for a display."""
         if projector_index is None:
             return None, []
@@ -42,7 +50,7 @@ class ProjectionMixin:
                 return role, list(patterns or [])
         return None, []
 
-    def _solid_color_from_settings(self, settings):
+    def _solid_color_from_settings(self: CameraAppHost, settings: dict[str, Any] | None) -> QColor:
         """Build a solid-projection QColor from saved intensity and channel."""
         settings = settings or {}
         intensity = max(0, min(100, int(settings.get("solid_intensity", 100))))
@@ -54,7 +62,7 @@ class ProjectionMixin:
             return QColor(0, 0, value)
         return QColor(value, 0, 0)
 
-    def _show_live_solid_projection(self, projector_index, color: QColor):
+    def _show_live_solid_projection(self: CameraAppHost, projector_index: int | None, color: QColor) -> bool:
         """Show a solid color on the selected projector display."""
         screens = QApplication.screens()
         try:
@@ -74,7 +82,7 @@ class ProjectionMixin:
         window.display_solid_color(color)
         return True
 
-    def _solid_display_index(self):
+    def _solid_display_index(self: CameraAppHost) -> int | None:
         """Return the saved or first external display index for solid projection."""
         settings = getattr(self, "projection_settings", {}) or {}
         for key in ("solid_display", "microscope_display", "plate_display"):
@@ -89,7 +97,7 @@ class ProjectionMixin:
                 return index
         return 0 if screens else None
 
-    def _apply_stage_projection_color(self, color_name, projector_index):
+    def _apply_stage_projection_color(self: CameraAppHost, color_name: str, projector_index: int) -> None:
         """Apply a solid projection color from a stage sequence stop."""
         settings = dict(getattr(self, "projection_settings", {}) or {})
         settings["solid_color"] = str(color_name).strip().lower()
@@ -98,7 +106,7 @@ class ProjectionMixin:
         self.projection_settings = settings
         self._show_live_solid_projection(projector_index, self._solid_color_from_settings(settings))
 
-    def _apply_auto_solid_intensity(self, intensity):
+    def _apply_auto_solid_intensity(self: CameraAppHost, intensity: int) -> bool:
         """Show the saved solid color at intensity without opening the dialog."""
         settings = dict(getattr(self, "projection_settings", {}) or {})
         settings["solid_intensity"] = int(intensity)
@@ -110,20 +118,20 @@ class ProjectionMixin:
             self._solid_color_from_settings(settings),
         )
 
-    def _set_auto_solid_intensity(self, intensity):
+    def _set_auto_solid_intensity(self: CameraAppHost, intensity: int) -> None:
         """Ask the GUI thread to update the projector, then wait until it is applied."""
         self.auto_solid_applied.clear()
         self.ui_bus.auto_solid_apply.emit(int(intensity))
         self.auto_solid_applied.wait(2.0)
 
-    def _on_auto_solid_apply(self, intensity):
+    def _on_auto_solid_apply(self: CameraAppHost, intensity: int) -> None:
         """Apply solid projection on the GUI thread."""
         try:
             self._apply_auto_solid_intensity(intensity)
         finally:
             self.auto_solid_applied.set()
 
-    def start_auto_solid_projection(self, cam_index: int = 0, on_finished=None):
+    def start_auto_solid_projection(self: CameraAppHost, cam_index: int = 0, on_finished: FinishedCallback | None = None) -> bool:
         """Run AutoSolidIntensityController in a worker thread."""
         if self.auto_solid_thread and self.auto_solid_thread.is_alive():
             self.append_local_log("[AutoSolid] already running")
@@ -167,7 +175,7 @@ class ProjectionMixin:
         self.auto_solid_thread.start()
         return True
 
-    def _on_auto_solid_finished(self):
+    def _on_auto_solid_finished(self: CameraAppHost) -> None:
         """Restore preview and button state after auto solid intensity exits."""
         try:
             self.timer.start(30)
@@ -181,7 +189,7 @@ class ProjectionMixin:
         if callback:
             callback()
 
-    def _stop_live_solid_projection(self, projector_index=None):
+    def _stop_live_solid_projection(self: CameraAppHost, projector_index: int | None = None) -> None:
         """Close one or all live solid-color projection windows."""
         if projector_index is None:
             for window in list(self.projection_windows.values()):
@@ -196,7 +204,7 @@ class ProjectionMixin:
             window.close()
             self.append_local_log(f"[Projection] Display {projector_index + 1}: solid color projection stopped")
 
-    def _start_projection_sequence(self, projector_index, patterns, role=None, on_finished=None):
+    def _start_projection_sequence(self: CameraAppHost, projector_index: int, patterns: list[str], role: str | None = None, on_finished: FinishedCallback | None = None) -> bool:
         """Display projection images in sequence on a selected display."""
         screens = QApplication.screens()
         if projector_index < 0 or projector_index >= len(screens):

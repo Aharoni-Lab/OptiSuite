@@ -1,14 +1,20 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from power_meter import PowerMeterWindow, PowerMeterWorker
+
+if TYPE_CHECKING:
+    from camera_app_protocol import CameraAppHost, FinishedCallback
 
 
 class PowerMeterMixin:
     """Mixin for the power meter."""
-    
 
     #------------------------------------------------------------------------------------------------------------------
     #power meter
     #------------------------------------------------------------------------------------------------------------------
-    def open_power_meter_plot(self, show_window=True, on_finished=None):
+    def open_power_meter_plot(self: CameraAppHost, show_window: bool = True, on_finished: FinishedCallback | None = None) -> None:
         """Open the power meter plot window and start streaming samples.
            if the window is already shown the fn wont hide it
            if the window is not shown the fn will show it depending on the show_window parameter"""
@@ -35,17 +41,17 @@ class PowerMeterMixin:
             self.power_meter_window.show()
         self.start_power_meter_stream()
 
-    def power_meter_finished_signal(self, power_w):
+    def power_meter_finished_signal(self: CameraAppHost, power_w: float) -> None:
         """light wrapper that signals the power meter finished to the UI bus"""
         self.ui_bus.power_meter_finished.emit(power_w)
 
-    def _on_power_meter_finished(self, power_w):
+    def _on_power_meter_finished(self: CameraAppHost, power_w: float) -> None:
         """Callback for the power meter finished signal"""
         callback = self.power_meter_finished_callback
         if callback is not None:
             callback()
 
-    def start_power_meter_stream(self):
+    def start_power_meter_stream(self: CameraAppHost) -> None:
         """Start the background power meter worker."""
         if self.power_meter_thread and self.power_meter_thread.is_alive():
             self._on_power_meter_status("Power meter stream already running.")
@@ -59,7 +65,7 @@ class PowerMeterMixin:
         if self.power_meter_window is not None:
             self.power_meter_window.set_stream_running(True)
 
-    def stop_power_meter_stream(self):
+    def stop_power_meter_stream(self: CameraAppHost) -> None:
         """Stop the background power meter worker and update controls."""
         if self.power_meter_thread:
             self.power_meter_thread.stop()
@@ -69,12 +75,12 @@ class PowerMeterMixin:
         if self.power_meter_window is not None:
             self.power_meter_window.set_stream_running(False)
 
-    def _on_power_meter_sample(self, elapsed_s: float, power_w: float):
+    def _on_power_meter_sample(self: CameraAppHost, elapsed_s: float, power_w: float) -> None:
         """Forward a power meter sample to the plot window."""
         if self.power_meter_window is not None:
             self.power_meter_window.add_sample(elapsed_s, power_w)
 
-    def _on_power_meter_status(self, text: str):
+    def _on_power_meter_status(self: CameraAppHost, text: str) -> None:
         """Display power meter status in the plot window and main log."""
         if self.power_meter_window is not None:
             self.power_meter_window.set_status(text)
@@ -86,7 +92,7 @@ class PowerMeterMixin:
             if self.power_meter_window is not None:
                 self.power_meter_window.set_stream_running(False)
 
-    def _on_power_meter_error(self, text: str):
+    def _on_power_meter_error(self: CameraAppHost, text: str) -> None:
         """Display a power meter error and re-enable related controls."""
         if self.power_meter_window is not None:
             self.power_meter_window.set_status(text)
@@ -95,13 +101,13 @@ class PowerMeterMixin:
         if hasattr(self, "power_meter_btn"):
             self.power_meter_btn.setEnabled(True)
 
-    def _on_power_meter_window_closed(self):
+    def _on_power_meter_window_closed(self: CameraAppHost) -> None:
         """Clear the stored power meter window reference after close."""
         self.power_meter_window = None
 
 
 
-    def power_meter_after_routine(self):
+    def power_meter_after_routine(self: CameraAppHost) -> None:
         if getattr(self.stage_routine, "running", False):
             return
         # show the power meter window if it is not already shown
@@ -109,6 +115,6 @@ class PowerMeterMixin:
             self.power_meter_window.show()
             self.power_meter_window.raise_()
             self.power_meter_window.activateWindow()
+            self.append_local_log("[PowerMeter] Power meter window shown after routine")
         
-        self.append_local_log("[PowerMeter] Power meter window shown after routine")
 
