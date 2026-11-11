@@ -105,6 +105,17 @@ class PycroManagerCameraManager:
         except Exception:
             return arr
 
+    def _as_uint8(self, img):
+        """Stretch the frame's actual counts into 8-bit so a narrow 16-bit range stays visible."""
+        if img.dtype == np.uint8:
+            return img
+        img_f = img.astype(np.float32)
+        low = float(np.min(img_f))
+        high = float(np.max(img_f))
+        if high <= low:
+            return np.zeros(img.shape, dtype=np.uint8)
+        return np.clip((img_f - low) * (255.0 / (high - low)), 0, 255).astype(np.uint8)
+
     def get_frame(self, cam_index):
         if cam_index != 0:
             return None
@@ -130,12 +141,16 @@ class PycroManagerCameraManager:
                 if img is None:
                     return None
 
-                img = np.asarray(img)
+                img = self._as_uint8(np.asarray(img))
                 if img.ndim == 2:
-                    return cv2.cvtColor(img.astype(np.uint8, copy=False), cv2.COLOR_GRAY2BGR)
-                if img.ndim == 3 and img.shape[2] >= 3:
-                    return cv2.cvtColor(img[:, :, :3].astype(np.uint8, copy=False), cv2.COLOR_RGB2BGR)
-                return img.astype(np.uint8, copy=False)
+                    frame = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+                elif img.ndim == 3 and img.shape[2] >= 3:
+                    frame = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2BGR)
+                else:
+                    frame = img
+                if frame.shape[:2] != (1944, 2592):
+                    frame = cv2.resize(frame, (2592, 1944), interpolation=cv2.INTER_LINEAR)
+                return frame
         except Exception as e:
             print(f"[PycroCamera] get_frame error: {e}")
             return None

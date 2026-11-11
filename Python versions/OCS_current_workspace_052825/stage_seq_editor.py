@@ -76,7 +76,7 @@ class StageSequenceEditorDialog(QDialog):
         layout.addLayout(edit_row)
         layout.addWidget(self.stop_list)
         layout.addLayout(action_row)
-
+        # offset x 4.426
         initial_stops = stops if stops else [
             (0.0, 0.0, 80.0, "Start"),
             (12.145, 0.0, 80.0, "imaging"),

@@ -27,7 +27,8 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_MM_APP_PATH = r"C:\Program Files\Micro-Manager-2.0"
 DEFAULT_PORT = 4827
-DEFAULT_CONFIG = SCRIPT_DIR / "MMConfig_Optsuite.cfg"
+DEFAULT_CONFIG = SCRIPT_DIR / "inSiliScope_Basic.cfg"
+# DEFAULT_CONFIG = SCRIPT_DIR / "MMConfig_Optsuite.cfg"
 
 
 def _resolve_config_path(path: str | Path) -> Path:

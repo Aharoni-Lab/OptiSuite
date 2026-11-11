@@ -5,7 +5,7 @@ import threading
 import time
 import numpy as np
 import os
-from scipy.signal import savgol_filter
+from scipy.signal import find_peaks, savgol_filter
 from ctypes import byref, c_double, c_int, c_void_p, cdll
 from datetime import datetime
 
@@ -184,21 +184,23 @@ class SpectrometerMeasurement:
 
     def analyze(self, wavelengths, intensities):
         """Return the five strongest peaks as [wavelength_nm, filtered intensity]."""
-        window = int(intensities.size / 10)
+        if np.count_nonzero(intensities >= 1.0) >= 10:
+            return np.empty((0, 2))
+        window = int(intensities.size / 50)
         if window % 2 == 0:
             window -= 1
         if window < 5:
             smoothed = intensities
         else:
             smoothed = savgol_filter(intensities, window_length=window, polyorder=3)
-        peaks = np.where(
-            (smoothed[1:-1] > smoothed[:-2]) & (smoothed[1:-1] >= smoothed[2:])
-        )[0] + 1
+        peak_indices, properties = find_peaks(smoothed, prominence=0.05, distance=max(window, 1))
         result = np.full((5, 2), np.nan)
         chosen = []
-        for index in peaks[np.argsort(smoothed[peaks])[::-1]]:
-            if all(abs(int(index) - other) > window for other in chosen):
-                chosen.append(int(index))
+        for index in peak_indices[np.argsort(smoothed[peak_indices])[::-1]]:
+            index = int(index)
+            if any(abs(index - other) <= window / 3.0 for other in chosen):
+                continue
+            chosen.append(index)
             if len(chosen) == 5:
                 break
         if not chosen:
@@ -227,6 +229,10 @@ class SpectrometerWindow(QWidget):
 
         self.status_label = QLabel("Connecting to spectrometer...")
         self.status_label.setWordWrap(True)
+        self.saturation_banner = QLabel("Intensity has exceeded the maximum the spectrometer can measure (1 a.u.).")
+        self.saturation_banner.setWordWrap(True)
+        self.saturation_banner.setStyleSheet("background: #b91c1c; color: white; font-weight: 600; padding: 6px;")
+        self.saturation_banner.hide()
         self.peak_label = QLabel("Peak: --")
         self.peak_label.setWordWrap(True)
         self.latest_label = QLabel("Latest: --")
@@ -249,6 +255,7 @@ class SpectrometerWindow(QWidget):
 
         layout = QVBoxLayout()
         layout.addWidget(self.status_label)
+        layout.addWidget(self.saturation_banner)
         layout.addWidget(self.peak_label)
         layout.addWidget(self.latest_label)
         layout.addWidget(self.plot)
@@ -265,7 +272,9 @@ class SpectrometerWindow(QWidget):
     def _finish_spectrum_measure(self, result):
         self.spectrum_result = result
         self.plot.set_maxima(result)
-        if result is not None and np.isfinite(result[0, 0]):
+        saturated = result is not None and result.size == 0
+        self.saturation_banner.setVisible(saturated)
+        if result is not None and result.size and np.isfinite(result[0, 0]):
             self.peak_label.setText(f"Peak: {result[0, 0]:.2f} nm, {result[0, 1]:.4g} a.u.")
         else:
             self.peak_label.setText("Peak: --")

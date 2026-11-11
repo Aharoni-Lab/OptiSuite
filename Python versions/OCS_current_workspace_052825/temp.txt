@@ -1,0 +1,28 @@
+img.max(): 255
+img.min(): 0
+img.dtype: uint8
+img.shape: (1944, 2592)
+img.max(): 255
+img.min(): 0
+img.dtype: uint8
+img.shape: (1944, 2592)
+img.max(): 255
+img.min(): 0
+img.dtype: uint8
+img.shape: (1944, 2592)
+img.max(): 255
+img.min(): 0
+img.dtype: uint8
+img.shape: (1944, 2592)
+img.max(): 255
+img.min(): 0
+img.dtype: uint8
+img.shape: (1944, 2592)
+img.max(): 255
+
+
+
+
+
+
+

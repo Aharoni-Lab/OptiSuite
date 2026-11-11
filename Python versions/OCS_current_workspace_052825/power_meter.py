@@ -131,7 +131,7 @@ class PowerTraceWidget(QWidget):
 class PowerMeterMeasurement:
     """Report a power reading after 20 samples stay within the stability limit."""
 
-    def __init__(self, callback, sample_count=20, stability=0.01, timeout_s=10.0):
+    def __init__(self, callback, sample_count=40, stability=0.002, timeout_s=15.0):
         self.callback = callback
         self.sample_count = sample_count
         self.stability = stability
@@ -171,9 +171,9 @@ class PowerMeterMeasurement:
         if len(self.samples) < self.sample_count:
             return False
         powers = [p for _, p in self.samples]
-        std = float(np.std(powers))
+        diff = max(powers) - min(powers)
         mean = float(np.mean([abs(p) for p in powers]))
-        if std > self.stability * mean:
+        if diff > self.stability * mean:
             return False
         self._finish(power_w)
         return True
