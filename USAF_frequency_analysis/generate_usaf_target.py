@@ -7,21 +7,36 @@ Geometry follows MIL-STD-150A:
     line width         = 1 / (2 * resolution)            [mm]
     each element       = 3 horizontal + 3 vertical bars, bar length = 5 * line width
 
-Groups are laid out in nested pairs like the physical slide: for each pair
-(even g, odd g+1), group g element 1 sits at the top right, g elements 2-6 run
-down the left column, group g+1 elements 1-6 run down the right column, and the
-next (smaller) pair is nested in the centre.
+Layout matches the standard chrome slide. For each group pair (even g, odd g+1):
+
+        g                [square]               g+1
+    2 ═ |||                                  ||| ═ 1
+    3 ═ |||          ( next pair )           ||| ═ 2
+    4 ═ |||          ( nested in )           ||| ═ 3
+    5 ═ |||          ( the centre)           ||| ═ 4
+    6 ═ |||                                  ||| ═ 5
+                                             ||| ═ 6
+                                               g
+                                       |||  ═  1
+
+  * left column : group g elements 2-6   (number, horizontal lines, vertical lines)
+  * right column: group g+1 elements 1-6 (vertical lines, horizontal lines, number)
+  * bottom right: group g element 1, with its group number above it
+  * top centre  : a solid reference square
+  * centre      : the next (4x smaller) pair, recursively
 
 Bars are rasterised with exact area coverage (analytic anti-aliasing), so the
 image is a "perfect" sampled version of the slide at the chosen pixel size.
+Default polarity is inverted: bright bars on a black background.
 
 Alongside the image a JSON sidecar is written with, for every element, its
-spatial frequency, line width in µm and px, and the pixel bounding boxes of
-its horizontal-line and vertical-line bar sets (for frequency / contrast analysis).
+spatial frequency, line width in µm and px, and the pixel bounding boxes of its
+horizontal-line and vertical-line bar sets, plus the reference squares
+(for frequency / contrast analysis).
 
 Usage:
-    python generate_usaf_target.py                       # groups 2-7, 0.5 µm/px
-    python generate_usaf_target.py --groups 2 7 --pixel-size 0.25 --polarity bright-bars
+    python generate_usaf_target.py                       # groups 2-7, 0.5 µm/px, bright bars
+    python generate_usaf_target.py --groups 2 7 --pixel-size 0.25 --polarity dark-bars
 """
 
 from __future__ import annotations
@@ -36,14 +51,15 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------------------------------------------------------
-# USAF geometry
+# USAF geometry (all lengths in units of the element's own line width w)
 # ---------------------------------------------------------------------------
 
-BAR_GAP_FACTOR = 2.0      # gap between horizontal and vertical bar sets, in line widths
-LABEL_HEIGHT = 5.0        # element-number height, in line widths (= bar length)
-LABEL_GAP = 1.5           # gap between element number and bars, in line widths
-LABEL_WIDTH = 3.2         # approx. width of one digit, in line widths
-ROW_GAP_FACTOR = 2.5      # vertical gap after each element, in line widths
+BAR_GAP = 2.0          # gap between horizontal- and vertical-line sets
+LABEL_HEIGHT = 5.0     # element-number cap height (= bar length)
+LABEL_WIDTH = 3.4      # approx. width of one digit
+LABEL_GAP = 1.5        # gap between element number and bars
+ROW_GAP = 3.0          # vertical gap below each element in a column
+GROUP_LABEL_SCALE = 1.2  # group number height relative to element-number height
 
 
 def lp_per_mm(group: int, element: int) -> float:
@@ -60,6 +76,9 @@ class Rect:
     y0: float
     x1: float
     y1: float
+
+    def shift(self, dx: float, dy: float) -> "Rect":
+        return Rect(self.x0 + dx, self.y0 + dy, self.x1 + dx, self.y1 + dy)
 
 
 @dataclass
@@ -86,86 +105,120 @@ class Block:
     rects: list[Rect] = field(default_factory=list)
     texts: list[Text] = field(default_factory=list)
     elements: list[ElementRecord] = field(default_factory=list)
+    squares: list[tuple[int, Rect]] = field(default_factory=list)
 
     def place(self, other: "Block", dx: float, dy: float) -> None:
-        self.rects += [Rect(r.x0 + dx, r.y0 + dy, r.x1 + dx, r.y1 + dy) for r in other.rects]
+        self.rects += [r.shift(dx, dy) for r in other.rects]
         self.texts += [Text(t.text, t.x + dx, t.y + dy, t.height) for t in other.texts]
-        for e in other.elements:
-            self.elements.append(ElementRecord(
-                e.group, e.element,
-                Rect(e.h_lines.x0 + dx, e.h_lines.y0 + dy, e.h_lines.x1 + dx, e.h_lines.y1 + dy),
-                Rect(e.v_lines.x0 + dx, e.v_lines.y0 + dy, e.v_lines.x1 + dx, e.v_lines.y1 + dy),
-            ))
+        self.elements += [ElementRecord(e.group, e.element, e.h_lines.shift(dx, dy), e.v_lines.shift(dx, dy))
+                          for e in other.elements]
+        self.squares += [(g, r.shift(dx, dy)) for g, r in other.squares]
 
 
-def element_block(group: int, element: int) -> Block:
-    """Element number on the left, then horizontal-line set, then vertical-line set."""
-    w = line_width_um(group, element)
-    label_w = LABEL_WIDTH * w
-    bx = label_w + LABEL_GAP * w            # x where bars start
-    L = 5.0 * w                             # bar length
-    b = Block(width=bx + 2 * L + BAR_GAP_FACTOR * w, height=L)
-
-    b.texts.append(Text(str(element), 0.0, 0.0, LABEL_HEIGHT * w))
-
-    # horizontal lines (run along x, stacked along y)
-    for k in range(3):
-        b.rects.append(Rect(bx, 2 * k * w, bx + L, 2 * k * w + w))
-    h = Rect(bx, 0.0, bx + L, L)
-
-    # vertical lines (run along y, stacked along x)
-    vx = bx + L + BAR_GAP_FACTOR * w
-    for k in range(3):
-        b.rects.append(Rect(vx + 2 * k * w, 0.0, vx + 2 * k * w + w, L))
-    v = Rect(vx, 0.0, vx + L, L)
-
-    b.elements.append(ElementRecord(group, element, h, v))
+def text_block(text: str, height: float) -> Block:
+    b = Block(width=LABEL_WIDTH / LABEL_HEIGHT * height * len(text), height=height)
+    b.texts.append(Text(text, 0.0, 0.0, height))
     return b
 
 
-def column(items: list[tuple]) -> Block:
-    """Stack items top-down. Item = ('el', g, e) or ('label', g, height_um)."""
-    blocks: list[tuple[Block, float]] = []
-    for it in items:
-        if it[0] == "el":
-            _, g, e = it
-            blocks.append((element_block(g, e), ROW_GAP_FACTOR * line_width_um(g, e)))
-        else:
-            _, g, hgt = it
-            lb = Block(width=LABEL_WIDTH * hgt / LABEL_HEIGHT * len(str(g)), height=hgt)
-            lb.texts.append(Text(str(g), 0.0, 0.0, hgt))
-            blocks.append((lb, 0.6 * hgt))
-    col = Block(width=max(bl.width for bl, _ in blocks), height=0.0)
+def element_block(group: int, element: int, mirrored: bool = False) -> Block:
+    """
+    Normal  : [number] [horizontal lines] [vertical lines]
+    Mirrored: [vertical lines] [horizontal lines] [number]
+    """
+    w = line_width_um(group, element)
+    L = 5.0 * w
+    label_w = LABEL_WIDTH * w
+    b = Block(width=label_w + LABEL_GAP * w + 2 * L + BAR_GAP * w, height=L)
+
+    if mirrored:
+        vx = 0.0
+        hx = L + BAR_GAP * w
+        tx = hx + L + LABEL_GAP * w
+    else:
+        tx = 0.0
+        hx = label_w + LABEL_GAP * w
+        vx = hx + L + BAR_GAP * w
+
+    b.texts.append(Text(str(element), tx, 0.0, LABEL_HEIGHT * w))
+    for k in range(3):
+        b.rects.append(Rect(hx, 2 * k * w, hx + L, 2 * k * w + w))          # horizontal lines
+        b.rects.append(Rect(vx + 2 * k * w, 0.0, vx + 2 * k * w + w, L))    # vertical lines
+    b.elements.append(ElementRecord(group, element, Rect(hx, 0.0, hx + L, L), Rect(vx, 0.0, vx + L, L)))
+    return b
+
+
+def element_column(group: int, elements: range, mirrored: bool) -> Block:
+    """Stack elements top-down; normal columns are left-aligned, mirrored ones right-aligned."""
+    blocks = [element_block(group, e, mirrored) for e in elements]
+    col = Block(width=max(b.width for b in blocks), height=0.0)
     y = 0.0
-    for i, (bl, gap) in enumerate(blocks):
-        col.place(bl, 0.0, y)
-        y += bl.height + (gap if i < len(blocks) - 1 else 0.0)
+    for i, (e, b) in enumerate(zip(elements, blocks)):
+        col.place(b, col.width - b.width if mirrored else 0.0, y)
+        y += b.height + (ROW_GAP * line_width_um(group, e) if i < len(blocks) - 1 else 0.0)
     col.height = y
     return col
 
 
+def stack_label_over(label: Block, body: Block, gap: float, align: str) -> Block:
+    """Put `label` above `body`, horizontally centred or right-aligned."""
+    out = Block(width=max(label.width, body.width), height=label.height + gap + body.height)
+    bx = (out.width - body.width) if align == "right" else (out.width - body.width) / 2
+    lx = (out.width - label.width) if align == "right" else (out.width - label.width) / 2
+    out.place(label, lx, 0.0)
+    out.place(body, bx, label.height + gap)
+    return out
+
+
 def pair_block(g: int, has_odd: bool, inner: Block | None) -> Block:
-    """Lay out group g (even slot) and optionally g+1 (odd slot) around `inner`."""
-    label_h_left = 1.2 * LABEL_HEIGHT * line_width_um(g, 2)
-    left = column([("label", g, label_h_left)] + [("el", g, e) for e in range(2, 7)])
+    """Lay out group g and (optionally) g+1 around the nested `inner` pair."""
+    wg1 = line_width_um(g, 1)
+    wg2 = line_width_um(g, 2)
 
-    right_items: list[tuple] = [("el", g, 1)]
+    # left column: group number g over elements 2..6
+    lbl_g = text_block(str(g), GROUP_LABEL_SCALE * LABEL_HEIGHT * wg2)
+    left = stack_label_over(lbl_g, element_column(g, range(2, 7), mirrored=False), 2.0 * wg2, "centre")
+
+    # right column: group number g+1 over elements 1..6 (mirrored)
     if has_odd:
-        label_h_right = 1.2 * LABEL_HEIGHT * line_width_um(g + 1, 1)
-        right_items += [("label", g + 1, label_h_right)] + [("el", g + 1, e) for e in range(1, 7)]
-    right = column(right_items)
+        wo1 = line_width_um(g + 1, 1)
+        lbl_o = text_block(str(g + 1), GROUP_LABEL_SCALE * LABEL_HEIGHT * wg2)
+        right = stack_label_over(lbl_o, element_column(g + 1, range(1, 7), mirrored=True), 2.0 * wg2, "centre")
+    else:
+        right = Block(width=0.0, height=lbl_g.height)
 
-    gc = 2.5 * line_width_um(g, 2)          # clearance around the nested pair
+    # bottom right: group g element 1 (mirrored) with group number g above it, right-aligned
+    corner = stack_label_over(text_block(str(g), GROUP_LABEL_SCALE * LABEL_HEIGHT * wg1 * 0.8),
+                              element_block(g, 1, mirrored=True), 1.0 * wg1, "right")
+
+    # reference square at top centre, top-aligned with the first element row
+    sq = 5.0 * wg2
+    gc = 3.0 * wg2                      # clearance around centre content
     inner_w = inner.width if inner else 0.0
     inner_h = inner.height if inner else 0.0
-    centre_w = inner_w + 2 * gc if inner else gc
+    centre_w = max(sq, inner_w) + 2 * gc
 
-    blk = Block(width=left.width + centre_w + right.width,
-                height=max(left.height, right.height, inner_h + 2 * gc))
+    width = left.width + centre_w + right.width
+    sq_top = lbl_g.height + 2.0 * wg2
+    # height: tallest of left column, right column + corner element, square + inner + corner
+    corner_top_min = max(right.height + gc, sq_top + sq + gc + inner_h + gc)
+    height = max(left.height, corner_top_min + corner.height)
+
+    blk = Block(width=width, height=height)
     blk.place(left, 0.0, 0.0)
-    blk.place(right, left.width + centre_w, 0.0)
+    blk.place(right, width - right.width, 0.0)
+    corner_y = height - corner.height
+    blk.place(corner, width - corner.width, corner_y)
+
+    cx0 = left.width                     # centre region spans [cx0, cx0 + centre_w]
+    sq_x = cx0 + (centre_w - sq) / 2
+    blk.rects.append(Rect(sq_x, sq_top, sq_x + sq, sq_top + sq))
+    blk.squares.append((g, Rect(sq_x, sq_top, sq_x + sq, sq_top + sq)))
+
     if inner:
-        blk.place(inner, left.width + gc, (blk.height - inner_h) / 2.0)
+        # centre the nested pair in the gap between the square and the corner element
+        y_lo, y_hi = sq_top + sq + gc, corner_y - gc
+        blk.place(inner, cx0 + (centre_w - inner_w) / 2, y_lo + (y_hi - y_lo - inner_h) / 2)
     return blk
 
 
@@ -201,11 +254,11 @@ def draw_rect(canvas: np.ndarray, r: Rect) -> None:
 
 
 def _load_font(size: int) -> ImageFont.ImageFont:
-    for path in ("/System/Library/Fonts/Helvetica.ttc",
-                 "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-                 "DejaVuSans-Bold.ttf", "arial.ttf"):
+    for path, index in (("/System/Library/Fonts/Helvetica.ttc", 1),          # Helvetica Bold
+                        ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 0),
+                        ("DejaVuSans-Bold.ttf", 0), ("arialbd.ttf", 0)):
         try:
-            return ImageFont.truetype(path, size)
+            return ImageFont.truetype(path, size, index=index)
         except OSError:
             continue
     return ImageFont.load_default(size)
@@ -217,14 +270,13 @@ def draw_text(canvas: np.ndarray, t: Text, ss: int = 8) -> None:
     if cap_px < 3:          # too small to be meaningful; skip
         return
     ref = _load_font(200)
-    l, top, r, bot = ref.getbbox("0")
+    _, top, _, bot = ref.getbbox("0")
     cap_ratio = (bot - top) / 200.0
     font = _load_font(max(4, int(round(cap_px * ss / cap_ratio))))
     l, top, r, bot = font.getbbox(t.text)
-    w_ss, h_ss = r - l, bot - top
     pad = ss
-    W_ss = int(math.ceil((w_ss + 2 * pad) / ss)) * ss
-    H_ss = int(math.ceil((h_ss + 2 * pad) / ss)) * ss
+    W_ss = int(math.ceil((r - l + 2 * pad) / ss)) * ss
+    H_ss = int(math.ceil((bot - top + 2 * pad) / ss)) * ss
     img = Image.new("L", (W_ss, H_ss), 0)
     ImageDraw.Draw(img).text((pad - l, pad - top), t.text, fill=255, font=font)
     patch = np.asarray(img.reduce(ss), dtype=np.float64) / 255.0
@@ -241,11 +293,15 @@ def draw_text(canvas: np.ndarray, t: Text, ss: int = 8) -> None:
     np.maximum(canvas[ya:yb, xa:xb], sub, out=canvas[ya:yb, xa:xb])
 
 
-def render(block: Block, pixel_um: float, margin_um: float) -> tuple[np.ndarray, list[dict]]:
+def _bbox(r: Rect) -> list[float]:
+    return [round(r.x0, 3), round(r.y0, 3), round(r.x1, 3), round(r.y1, 3)]
+
+
+def render(block: Block, pixel_um: float, margin_um: float) -> tuple[np.ndarray, dict]:
     s = 1.0 / pixel_um
     W = int(math.ceil((block.width + 2 * margin_um) * s))
     H = int(math.ceil((block.height + 2 * margin_um) * s))
-    canvas = np.zeros((H, W), dtype=np.float64)   # 1.0 = chrome (bar), 0.0 = glass
+    canvas = np.zeros((H, W), dtype=np.float64)   # 1.0 = chrome (pattern), 0.0 = background
 
     def px(r: Rect) -> Rect:
         return Rect((r.x0 + margin_um) * s, (r.y0 + margin_um) * s,
@@ -256,11 +312,10 @@ def render(block: Block, pixel_um: float, margin_um: float) -> tuple[np.ndarray,
     for t in block.texts:
         draw_text(canvas, Text(t.text, (t.x + margin_um) * s, (t.y + margin_um) * s, t.height * s))
 
-    records = []
+    elements = []
     for e in sorted(block.elements, key=lambda e: (e.group, e.element)):
         w_um = line_width_um(e.group, e.element)
-        h, v = px(e.h_lines), px(e.v_lines)
-        records.append({
+        elements.append({
             "group": e.group,
             "element": e.element,
             "lp_per_mm": round(lp_per_mm(e.group, e.element), 4),
@@ -270,10 +325,11 @@ def render(block: Block, pixel_um: float, margin_um: float) -> tuple[np.ndarray,
             "cycles_per_px": round(pixel_um / (2 * w_um), 5),
             "above_nyquist": bool(2 * w_um / pixel_um < 2.0),
             # bbox = [x0, y0, x1, y1] in pixel coordinates (float, origin top-left)
-            "horizontal_lines_bbox_px": [round(h.x0, 3), round(h.y0, 3), round(h.x1, 3), round(h.y1, 3)],
-            "vertical_lines_bbox_px": [round(v.x0, 3), round(v.y0, 3), round(v.x1, 3), round(v.y1, 3)],
+            "horizontal_lines_bbox_px": _bbox(px(e.h_lines)),
+            "vertical_lines_bbox_px": _bbox(px(e.v_lines)),
         })
-    return canvas, records
+    squares = [{"pair_group": g, "bbox_px": _bbox(px(r))} for g, r in sorted(block.squares)]
+    return canvas, {"elements": elements, "reference_squares": squares}
 
 
 # ---------------------------------------------------------------------------
@@ -284,10 +340,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--groups", nargs=2, type=int, default=[2, 7], metavar=("MIN", "MAX"))
     ap.add_argument("--pixel-size", type=float, default=0.5, help="object-space pixel size in µm (default 0.5)")
-    ap.add_argument("--polarity", choices=["dark-bars", "bright-bars"], default="dark-bars",
-                    help="dark-bars: chrome bars dark on bright glass (transmitted light, default)")
+    ap.add_argument("--polarity", choices=["bright-bars", "dark-bars"], default="bright-bars",
+                    help="bright-bars: white pattern on black (default, inverted); "
+                         "dark-bars: black pattern on white")
     ap.add_argument("--bit-depth", type=int, choices=[8, 16], default=16)
-    ap.add_argument("--margin", type=float, default=None, help="border in µm (default: 4 line widths of the largest element)")
+    ap.add_argument("--margin", type=float, default=None,
+                    help="border in µm (default: 4 line widths of the largest element)")
     ap.add_argument("--out", type=Path, default=None, help="output .png/.tif path")
     args = ap.parse_args()
 
@@ -297,7 +355,7 @@ def main() -> None:
     block = build_target(g_min, g_max)
     chrome, records = render(block, args.pixel_size, margin)
 
-    img = 1.0 - chrome if args.polarity == "dark-bars" else chrome
+    img = chrome if args.polarity == "bright-bars" else 1.0 - chrome
     maxval = 65535 if args.bit_depth == 16 else 255
     arr = np.round(img * maxval).astype(np.uint16 if args.bit_depth == 16 else np.uint8)
 
@@ -316,17 +374,17 @@ def main() -> None:
         "bit_depth": args.bit_depth,
         "notes": ("horizontal_lines = 3 bars running along x (modulation along y); "
                   "vertical_lines = 3 bars running along y (modulation along x). "
-                  "Bars are anti-aliased by exact pixel-area coverage."),
-        "elements": records,
+                  "Pattern is anti-aliased by exact pixel-area coverage."),
+        **records,
     }
     out.with_suffix(".json").write_text(json.dumps(meta, indent=2))
 
     print(f"Saved {out}  ({arr.shape[1]} x {arr.shape[0]} px, "
           f"{arr.shape[1] * args.pixel_size / 1000:.2f} x {arr.shape[0] * args.pixel_size / 1000:.2f} mm)")
-    finest = records[-1]
+    finest = records["elements"][-1]
     print(f"Finest element G{finest['group']}E{finest['element']}: {finest['lp_per_mm']} lp/mm, "
           f"line width {finest['line_width_px']} px")
-    if any(r["above_nyquist"] for r in records):
+    if any(r["above_nyquist"] for r in records["elements"]):
         print("WARNING: some elements exceed the Nyquist limit at this pixel size.")
 
 
