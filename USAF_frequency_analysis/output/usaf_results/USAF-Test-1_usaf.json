@@ -1,0 +1,1320 @@
+{
+  "contrast_threshold": 0.2,
+  "result": {
+    "group": 5,
+    "element": 5,
+    "lp_per_mm": 50.7968,
+    "line_width_um": 9.8431,
+    "contrast_H": 0.2468,
+    "contrast_V": 0.2957
+  },
+  "pixel_size_um_fitted": 2.55392,
+  "pixel_size_um_given": null,
+  "identification": "layout (mod 12) + coarsest-group hint",
+  "rotation_deg": 0.0,
+  "polarity": "bright-bars",
+  "black_level": 0.0,
+  "roi": null,
+  "notes": [
+    "Coarser elements below threshold (defocus / field effects or spurious resolution?): G5E1"
+  ],
+  "elements": [
+    {
+      "group": 4,
+      "element": 1,
+      "k": 24,
+      "lp_per_mm": 16.0,
+      "line_width_um": 31.25,
+      "line_width_px": 12.236,
+      "detected": true,
+      "contrast_H": 0.6866,
+      "contrast_V": 0.6619,
+      "contrast_min": 0.6619,
+      "lockin_H": 0.7492,
+      "lockin_V": 0.7048,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.942,
+      "ncc_V": 0.926,
+      "polygon_H_px": [
+        [
+          458.45,
+          510.0
+        ],
+        [
+          519.63,
+          510.0
+        ],
+        [
+          519.63,
+          571.18
+        ],
+        [
+          458.45,
+          571.18
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          457.66,
+          596.48
+        ],
+        [
+          518.84,
+          596.48
+        ],
+        [
+          518.84,
+          657.67
+        ],
+        [
+          457.66,
+          657.67
+        ]
+      ]
+    },
+    {
+      "group": 4,
+      "element": 2,
+      "k": 25,
+      "lp_per_mm": 17.9594,
+      "line_width_um": 27.8406,
+      "line_width_px": 10.901,
+      "detected": true,
+      "contrast_H": 0.6451,
+      "contrast_V": 0.6203,
+      "contrast_min": 0.6203,
+      "lockin_H": 0.7075,
+      "lockin_V": 0.6493,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.939,
+      "ncc_V": 0.909,
+      "polygon_H_px": [
+        [
+          753.25,
+          394.13
+        ],
+        [
+          807.76,
+          394.13
+        ],
+        [
+          807.76,
+          448.64
+        ],
+        [
+          753.25,
+          448.64
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          753.87,
+          318.6
+        ],
+        [
+          808.38,
+          318.6
+        ],
+        [
+          808.38,
+          373.1
+        ],
+        [
+          753.87,
+          373.1
+        ]
+      ]
+    },
+    {
+      "group": 4,
+      "element": 3,
+      "k": 26,
+      "lp_per_mm": 20.1587,
+      "line_width_um": 24.8031,
+      "line_width_px": 9.712,
+      "detected": true,
+      "contrast_H": 0.486,
+      "contrast_V": 0.611,
+      "contrast_min": 0.486,
+      "lockin_H": 0.5336,
+      "lockin_V": 0.6565,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.918,
+      "ncc_V": 0.933,
+      "polygon_H_px": [
+        [
+          666.47,
+          385.21
+        ],
+        [
+          715.03,
+          385.21
+        ],
+        [
+          715.03,
+          433.77
+        ],
+        [
+          666.47,
+          433.77
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          666.77,
+          317.85
+        ],
+        [
+          715.33,
+          317.85
+        ],
+        [
+          715.33,
+          366.4
+        ],
+        [
+          666.77,
+          366.4
+        ]
+      ]
+    },
+    {
+      "group": 4,
+      "element": 4,
+      "k": 27,
+      "lp_per_mm": 22.6274,
+      "line_width_um": 22.0971,
+      "line_width_px": 8.652,
+      "detected": true,
+      "contrast_H": 0.4416,
+      "contrast_V": 0.5616,
+      "contrast_min": 0.4416,
+      "lockin_H": 0.4795,
+      "lockin_V": 0.5993,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.9,
+      "ncc_V": 0.923,
+      "polygon_H_px": [
+        [
+          589.18,
+          377.5
+        ],
+        [
+          632.44,
+          377.5
+        ],
+        [
+          632.44,
+          420.76
+        ],
+        [
+          589.18,
+          420.76
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          589.42,
+          317.61
+        ],
+        [
+          632.68,
+          317.61
+        ],
+        [
+          632.68,
+          360.87
+        ],
+        [
+          589.42,
+          360.87
+        ]
+      ]
+    },
+    {
+      "group": 4,
+      "element": 5,
+      "k": 28,
+      "lp_per_mm": 25.3984,
+      "line_width_um": 19.6863,
+      "line_width_px": 7.708,
+      "detected": true,
+      "contrast_H": 0.511,
+      "contrast_V": 0.5904,
+      "contrast_min": 0.511,
+      "lockin_H": 0.5416,
+      "lockin_V": 0.6208,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.912,
+      "ncc_V": 0.923,
+      "polygon_H_px": [
+        [
+          520.24,
+          371.25
+        ],
+        [
+          558.78,
+          371.25
+        ],
+        [
+          558.78,
+          409.79
+        ],
+        [
+          520.24,
+          409.79
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          520.26,
+          317.73
+        ],
+        [
+          558.8,
+          317.73
+        ],
+        [
+          558.8,
+          356.27
+        ],
+        [
+          520.26,
+          356.27
+        ]
+      ]
+    },
+    {
+      "group": 4,
+      "element": 6,
+      "k": 29,
+      "lp_per_mm": 28.5088,
+      "line_width_um": 17.5385,
+      "line_width_px": 6.867,
+      "detected": true,
+      "contrast_H": 0.5592,
+      "contrast_V": 0.4814,
+      "contrast_min": 0.4814,
+      "lockin_H": 0.5722,
+      "lockin_V": 0.5089,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.914,
+      "ncc_V": 0.894,
+      "polygon_H_px": [
+        [
+          458.5,
+          365.92
+        ],
+        [
+          492.83,
+          365.92
+        ],
+        [
+          492.83,
+          400.26
+        ],
+        [
+          458.5,
+          400.26
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          458.14,
+          318.67
+        ],
+        [
+          492.48,
+          318.67
+        ],
+        [
+          492.48,
+          353.01
+        ],
+        [
+          458.14,
+          353.01
+        ]
+      ]
+    },
+    {
+      "group": 5,
+      "element": 1,
+      "k": 30,
+      "lp_per_mm": 32.0,
+      "line_width_um": 15.625,
+      "line_width_px": 6.118,
+      "detected": true,
+      "contrast_H": 0.4132,
+      "contrast_V": 0.1799,
+      "contrast_min": 0.1799,
+      "lockin_H": 0.4225,
+      "lockin_V": 0.1844,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.879,
+      "ncc_V": 0.768,
+      "polygon_H_px": [
+        [
+          777.2,
+          584.03
+        ],
+        [
+          807.8,
+          584.03
+        ],
+        [
+          807.8,
+          614.62
+        ],
+        [
+          777.2,
+          614.62
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          776.97,
+          627.2
+        ],
+        [
+          807.56,
+          627.2
+        ],
+        [
+          807.56,
+          657.8
+        ],
+        [
+          776.97,
+          657.8
+        ]
+      ]
+    },
+    {
+      "group": 5,
+      "element": 2,
+      "k": 31,
+      "lp_per_mm": 35.9188,
+      "line_width_um": 13.9203,
+      "line_width_px": 5.451,
+      "detected": true,
+      "contrast_H": 0.4065,
+      "contrast_V": 0.3526,
+      "contrast_min": 0.3526,
+      "lockin_H": 0.4257,
+      "lockin_V": 0.3595,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.896,
+      "ncc_V": 0.873,
+      "polygon_H_px": [
+        [
+          728.36,
+          591.39
+        ],
+        [
+          755.62,
+          591.39
+        ],
+        [
+          755.62,
+          618.65
+        ],
+        [
+          728.36,
+          618.65
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          728.24,
+          629.87
+        ],
+        [
+          755.49,
+          629.87
+        ],
+        [
+          755.49,
+          657.12
+        ],
+        [
+          728.24,
+          657.12
+        ]
+      ]
+    },
+    {
+      "group": 5,
+      "element": 3,
+      "k": 32,
+      "lp_per_mm": 40.3175,
+      "line_width_um": 12.4016,
+      "line_width_px": 4.856,
+      "detected": true,
+      "contrast_H": 0.359,
+      "contrast_V": 0.3766,
+      "contrast_min": 0.359,
+      "lockin_H": 0.3681,
+      "lockin_V": 0.3863,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.869,
+      "ncc_V": 0.881,
+      "polygon_H_px": [
+        [
+          684.99,
+          598.18
+        ],
+        [
+          709.26,
+          598.18
+        ],
+        [
+          709.26,
+          622.46
+        ],
+        [
+          684.99,
+          622.46
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          684.9,
+          632.67
+        ],
+        [
+          709.18,
+          632.67
+        ],
+        [
+          709.18,
+          656.95
+        ],
+        [
+          684.9,
+          656.95
+        ]
+      ]
+    },
+    {
+      "group": 5,
+      "element": 4,
+      "k": 33,
+      "lp_per_mm": 45.2548,
+      "line_width_um": 11.0485,
+      "line_width_px": 4.326,
+      "detected": true,
+      "contrast_H": 0.3111,
+      "contrast_V": 0.3328,
+      "contrast_min": 0.3111,
+      "lockin_H": 0.3163,
+      "lockin_V": 0.3377,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.846,
+      "ncc_V": 0.863,
+      "polygon_H_px": [
+        [
+          646.31,
+          604.64
+        ],
+        [
+          667.94,
+          604.64
+        ],
+        [
+          667.94,
+          626.27
+        ],
+        [
+          646.31,
+          626.27
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          646.1,
+          635.16
+        ],
+        [
+          667.73,
+          635.16
+        ],
+        [
+          667.73,
+          656.79
+        ],
+        [
+          646.1,
+          656.79
+        ]
+      ]
+    },
+    {
+      "group": 5,
+      "element": 5,
+      "k": 34,
+      "lp_per_mm": 50.7968,
+      "line_width_um": 9.8431,
+      "line_width_px": 3.854,
+      "detected": true,
+      "contrast_H": 0.2468,
+      "contrast_V": 0.2957,
+      "contrast_min": 0.2468,
+      "lockin_H": 0.25,
+      "lockin_V": 0.2951,
+      "passes": true,
+      "undersampled": false,
+      "ncc_H": 0.816,
+      "ncc_V": 0.845,
+      "polygon_H_px": [
+        [
+          611.87,
+          610.19
+        ],
+        [
+          631.14,
+          610.19
+        ],
+        [
+          631.14,
+          629.46
+        ],
+        [
+          611.87,
+          629.46
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          611.5,
+          637.61
+        ],
+        [
+          630.77,
+          637.61
+        ],
+        [
+          630.77,
+          656.88
+        ],
+        [
+          611.5,
+          656.88
+        ]
+      ]
+    },
+    {
+      "group": 5,
+      "element": 6,
+      "k": 35,
+      "lp_per_mm": 57.0175,
+      "line_width_um": 8.7692,
+      "line_width_px": 3.434,
+      "detected": true,
+      "contrast_H": 0.1908,
+      "contrast_V": 0.231,
+      "contrast_min": 0.1908,
+      "lockin_H": 0.187,
+      "lockin_V": 0.2264,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.775,
+      "ncc_V": 0.818,
+      "polygon_H_px": [
+        [
+          580.89,
+          615.34
+        ],
+        [
+          598.06,
+          615.34
+        ],
+        [
+          598.06,
+          632.51
+        ],
+        [
+          580.89,
+          632.51
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          580.61,
+          639.83
+        ],
+        [
+          597.77,
+          639.83
+        ],
+        [
+          597.77,
+          657.0
+        ],
+        [
+          580.61,
+          657.0
+        ]
+      ]
+    },
+    {
+      "group": 6,
+      "element": 1,
+      "k": 36,
+      "lp_per_mm": 64.0,
+      "line_width_um": 7.8125,
+      "line_width_px": 3.059,
+      "detected": true,
+      "contrast_H": 0.1979,
+      "contrast_V": 0.2074,
+      "contrast_min": 0.1979,
+      "lockin_H": 0.193,
+      "lockin_V": 0.2133,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.808,
+      "ncc_V": 0.81,
+      "polygon_H_px": [
+        [
+          574.45,
+          514.82
+        ],
+        [
+          589.75,
+          514.82
+        ],
+        [
+          589.75,
+          530.11
+        ],
+        [
+          574.45,
+          530.11
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          574.18,
+          536.06
+        ],
+        [
+          589.47,
+          536.06
+        ],
+        [
+          589.47,
+          551.35
+        ],
+        [
+          574.18,
+          551.35
+        ]
+      ]
+    },
+    {
+      "group": 6,
+      "element": 2,
+      "k": 37,
+      "lp_per_mm": 71.8376,
+      "line_width_um": 6.9601,
+      "line_width_px": 2.725,
+      "detected": true,
+      "contrast_H": 0.1762,
+      "contrast_V": 0.1602,
+      "contrast_min": 0.1602,
+      "lockin_H": 0.1718,
+      "lockin_V": 0.1597,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.779,
+      "ncc_V": 0.789,
+      "polygon_H_px": [
+        [
+          648.02,
+          485.83
+        ],
+        [
+          661.65,
+          485.83
+        ],
+        [
+          661.65,
+          499.45
+        ],
+        [
+          648.02,
+          499.45
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          648.2,
+          466.94
+        ],
+        [
+          661.83,
+          466.94
+        ],
+        [
+          661.83,
+          480.56
+        ],
+        [
+          648.2,
+          480.56
+        ]
+      ]
+    },
+    {
+      "group": 6,
+      "element": 3,
+      "k": 38,
+      "lp_per_mm": 80.6349,
+      "line_width_um": 6.2008,
+      "line_width_px": 2.428,
+      "detected": false,
+      "contrast_H": 0.1583,
+      "contrast_V": 0.1494,
+      "contrast_min": 0.1494,
+      "lockin_H": 0.1582,
+      "lockin_V": 0.1473,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.758,
+      "ncc_V": 0.787,
+      "polygon_H_px": [
+        [
+          626.4,
+          483.84
+        ],
+        [
+          638.54,
+          483.84
+        ],
+        [
+          638.54,
+          495.98
+        ],
+        [
+          626.4,
+          495.98
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          626.41,
+          466.87
+        ],
+        [
+          638.55,
+          466.87
+        ],
+        [
+          638.55,
+          479.01
+        ],
+        [
+          626.41,
+          479.01
+        ]
+      ]
+    },
+    {
+      "group": 6,
+      "element": 4,
+      "k": 39,
+      "lp_per_mm": 90.5097,
+      "line_width_um": 5.5243,
+      "line_width_px": 2.163,
+      "detected": false,
+      "contrast_H": 0.1262,
+      "contrast_V": 0.1088,
+      "contrast_min": 0.1088,
+      "lockin_H": 0.1266,
+      "lockin_V": 0.1071,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.714,
+      "ncc_V": 0.757,
+      "polygon_H_px": [
+        [
+          607.11,
+          481.82
+        ],
+        [
+          617.92,
+          481.82
+        ],
+        [
+          617.92,
+          492.64
+        ],
+        [
+          607.11,
+          492.64
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          607.0,
+          466.81
+        ],
+        [
+          617.82,
+          466.81
+        ],
+        [
+          617.82,
+          477.63
+        ],
+        [
+          607.0,
+          477.63
+        ]
+      ]
+    },
+    {
+      "group": 6,
+      "element": 5,
+      "k": 40,
+      "lp_per_mm": 101.5937,
+      "line_width_um": 4.9216,
+      "line_width_px": 1.927,
+      "detected": false,
+      "contrast_H": 0.1013,
+      "contrast_V": 0.1024,
+      "contrast_min": 0.1013,
+      "lockin_H": 0.0988,
+      "lockin_V": 0.1034,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.668,
+      "ncc_V": 0.732,
+      "polygon_H_px": [
+        [
+          589.92,
+          480.21
+        ],
+        [
+          599.55,
+          480.21
+        ],
+        [
+          599.55,
+          489.84
+        ],
+        [
+          589.92,
+          489.84
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          589.66,
+          466.76
+        ],
+        [
+          599.29,
+          466.76
+        ],
+        [
+          599.29,
+          476.4
+        ],
+        [
+          589.66,
+          476.4
+        ]
+      ]
+    },
+    {
+      "group": 6,
+      "element": 6,
+      "k": 41,
+      "lp_per_mm": 114.035,
+      "line_width_um": 4.3846,
+      "line_width_px": 1.717,
+      "detected": true,
+      "contrast_H": 0.069,
+      "contrast_V": 0.0419,
+      "contrast_min": 0.0419,
+      "lockin_H": 0.067,
+      "lockin_V": 0.0419,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.65,
+      "ncc_V": 0.658,
+      "polygon_H_px": [
+        [
+          574.66,
+          478.71
+        ],
+        [
+          583.24,
+          478.71
+        ],
+        [
+          583.24,
+          487.29
+        ],
+        [
+          574.66,
+          487.29
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          574.54,
+          466.71
+        ],
+        [
+          583.12,
+          466.71
+        ],
+        [
+          583.12,
+          475.29
+        ],
+        [
+          574.54,
+          475.29
+        ]
+      ]
+    },
+    {
+      "group": 7,
+      "element": 1,
+      "k": 42,
+      "lp_per_mm": 128.0,
+      "line_width_um": 3.9062,
+      "line_width_px": 1.53,
+      "detected": false,
+      "contrast_H": 0.0554,
+      "contrast_V": 0.0605,
+      "contrast_min": 0.0554,
+      "lockin_H": 0.0516,
+      "lockin_V": 0.0579,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.64,
+      "ncc_V": 0.639,
+      "polygon_H_px": [
+        [
+          653.74,
+          533.42
+        ],
+        [
+          661.38,
+          533.42
+        ],
+        [
+          661.38,
+          541.07
+        ],
+        [
+          653.74,
+          541.07
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          653.88,
+          543.63
+        ],
+        [
+          661.53,
+          543.63
+        ],
+        [
+          661.53,
+          551.27
+        ],
+        [
+          653.88,
+          551.27
+        ]
+      ]
+    },
+    {
+      "group": 7,
+      "element": 2,
+      "k": 43,
+      "lp_per_mm": 143.6751,
+      "line_width_um": 3.4801,
+      "line_width_px": 1.363,
+      "detected": false,
+      "contrast_H": 0.0489,
+      "contrast_V": 0.0215,
+      "contrast_min": 0.0215,
+      "lockin_H": 0.0494,
+      "lockin_V": 0.0174,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.633,
+      "ncc_V": 0.565,
+      "polygon_H_px": [
+        [
+          641.91,
+          535.45
+        ],
+        [
+          648.72,
+          535.45
+        ],
+        [
+          648.72,
+          542.27
+        ],
+        [
+          641.91,
+          542.27
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          641.7,
+          544.33
+        ],
+        [
+          648.51,
+          544.33
+        ],
+        [
+          648.51,
+          551.15
+        ],
+        [
+          641.7,
+          551.15
+        ]
+      ]
+    },
+    {
+      "group": 7,
+      "element": 3,
+      "k": 44,
+      "lp_per_mm": 161.2699,
+      "line_width_um": 3.1004,
+      "line_width_px": 1.214,
+      "detected": false,
+      "contrast_H": 0.0173,
+      "contrast_V": 0.0016,
+      "contrast_min": 0.0016,
+      "lockin_H": 0.0137,
+      "lockin_V": -0.0089,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.559,
+      "ncc_V": 0.521,
+      "polygon_H_px": [
+        [
+          630.76,
+          537.25
+        ],
+        [
+          636.83,
+          537.25
+        ],
+        [
+          636.83,
+          543.32
+        ],
+        [
+          630.76,
+          543.32
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          630.72,
+          545.38
+        ],
+        [
+          636.79,
+          545.38
+        ],
+        [
+          636.79,
+          551.45
+        ],
+        [
+          630.72,
+          551.45
+        ]
+      ]
+    },
+    {
+      "group": 7,
+      "element": 4,
+      "k": 45,
+      "lp_per_mm": 181.0193,
+      "line_width_um": 2.7621,
+      "line_width_px": 1.082,
+      "detected": false,
+      "contrast_H": -0.0036,
+      "contrast_V": 0.0027,
+      "contrast_min": -0.0036,
+      "lockin_H": -0.0069,
+      "lockin_V": -0.0097,
+      "passes": false,
+      "undersampled": false,
+      "ncc_H": 0.541,
+      "ncc_V": 0.503,
+      "polygon_H_px": [
+        [
+          621.12,
+          539.02
+        ],
+        [
+          626.53,
+          539.02
+        ],
+        [
+          626.53,
+          544.43
+        ],
+        [
+          621.12,
+          544.43
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          621.18,
+          546.0
+        ],
+        [
+          626.59,
+          546.0
+        ],
+        [
+          626.59,
+          551.4
+        ],
+        [
+          621.18,
+          551.4
+        ]
+      ]
+    },
+    {
+      "group": 7,
+      "element": 5,
+      "k": 46,
+      "lp_per_mm": 203.1873,
+      "line_width_um": 2.4608,
+      "line_width_px": 0.964,
+      "detected": false,
+      "contrast_H": -0.0173,
+      "contrast_V": -0.0053,
+      "contrast_min": -0.0173,
+      "lockin_H": -0.0224,
+      "lockin_V": -0.0111,
+      "passes": false,
+      "undersampled": true,
+      "ncc_H": 0.5,
+      "ncc_V": 0.488,
+      "polygon_H_px": [
+        [
+          612.78,
+          540.34
+        ],
+        [
+          617.6,
+          540.34
+        ],
+        [
+          617.6,
+          545.16
+        ],
+        [
+          612.78,
+          545.16
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          612.67,
+          546.37
+        ],
+        [
+          617.49,
+          546.37
+        ],
+        [
+          617.49,
+          551.19
+        ],
+        [
+          612.67,
+          551.19
+        ]
+      ]
+    },
+    {
+      "group": 7,
+      "element": 6,
+      "k": 47,
+      "lp_per_mm": 228.0701,
+      "line_width_um": 2.1923,
+      "line_width_px": 0.858,
+      "detected": false,
+      "contrast_H": -0.0146,
+      "contrast_V": -0.0142,
+      "contrast_min": -0.0146,
+      "lockin_H": -0.0185,
+      "lockin_V": -0.0194,
+      "passes": false,
+      "undersampled": true,
+      "ncc_H": 0.515,
+      "ncc_V": 0.459,
+      "polygon_H_px": [
+        [
+          605.04,
+          541.57
+        ],
+        [
+          609.33,
+          541.57
+        ],
+        [
+          609.33,
+          545.86
+        ],
+        [
+          605.04,
+          545.86
+        ]
+      ],
+      "polygon_V_px": [
+        [
+          604.85,
+          546.95
+        ],
+        [
+          609.14,
+          546.95
+        ],
+        [
+          609.14,
+          551.24
+        ],
+        [
+          604.85,
+          551.24
+        ]
+      ]
+    }
+  ],
+  "image": "output/USAF-Test-1.png"
+}

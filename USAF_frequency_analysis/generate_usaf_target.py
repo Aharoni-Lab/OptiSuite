@@ -171,7 +171,22 @@ def stack_label_over(label: Block, body: Block, gap: float, align: str) -> Block
 
 
 def pair_block(g: int, has_odd: bool, inner: Block | None) -> Block:
-    """Lay out group g and (optionally) g+1 around the nested `inner` pair."""
+    """
+    Lay out group g and (optionally) g+1 around a centre slot that is exactly 1/4 of
+    the pair's own size, so every pair is a 1/4-scale copy of the next coarser one
+    (self-similar, like the physical slide). `inner` is centred in that slot.
+    """
+    sw = sh = 0.0
+    for _ in range(80):                       # fixed point: slot = pair size / 4
+        dims = _pair_layout(g, has_odd, sw, sh, None)
+        nsw, nsh = dims.width / 4.0, dims.height / 4.0
+        if abs(nsw - sw) < 1e-9 and abs(nsh - sh) < 1e-9:
+            break
+        sw, sh = nsw, nsh
+    return _pair_layout(g, has_odd, sw, sh, inner)
+
+
+def _pair_layout(g: int, has_odd: bool, slot_w: float, slot_h: float, inner: Block | None) -> Block:
     wg1 = line_width_um(g, 1)
     wg2 = line_width_um(g, 2)
 
@@ -194,8 +209,7 @@ def pair_block(g: int, has_odd: bool, inner: Block | None) -> Block:
     # reference square at top centre, top-aligned with the first element row
     sq = 5.0 * wg2
     gc = 3.0 * wg2                      # clearance around centre content
-    inner_w = inner.width if inner else 0.0
-    inner_h = inner.height if inner else 0.0
+    inner_w, inner_h = slot_w, slot_h
     centre_w = max(sq, inner_w) + 2 * gc
 
     width = left.width + centre_w + right.width
@@ -216,9 +230,11 @@ def pair_block(g: int, has_odd: bool, inner: Block | None) -> Block:
     blk.squares.append((g, Rect(sq_x, sq_top, sq_x + sq, sq_top + sq)))
 
     if inner:
-        # centre the nested pair in the gap between the square and the corner element
+        # centre the nested pair in its slot, between the square and the corner element
         y_lo, y_hi = sq_top + sq + gc, corner_y - gc
-        blk.place(inner, cx0 + (centre_w - inner_w) / 2, y_lo + (y_hi - y_lo - inner_h) / 2)
+        slot_x = cx0 + (centre_w - inner_w) / 2
+        slot_y = y_lo + (y_hi - y_lo - inner_h) / 2
+        blk.place(inner, slot_x + (inner_w - inner.width) / 2, slot_y + (inner_h - inner.height) / 2)
     return blk
 
 
