@@ -27,7 +27,17 @@ python usaf_reader.py my_image.tif --coarsest-group 4    # largest group visible
 
 Results go to `usaf_results/` next to the image: a JSON and CSV with every element,
 an overlay image (green = passes, red = fails, purple/orange = located from the layout
-rather than detected, blue = the reported limit), and a contrast-vs-frequency (CTF) plot.
+rather than detected, blue = the reported limit, yellow = scan lines), and a
+contrast-vs-frequency (CTF) plot.
+
+As an independent check, the reader also takes **one scan line through the centre of every
+bar set**, perpendicular to the bars, and reads the nearest raw pixel values (no
+interpolation or averaging). `<stem>_scanlines.png` plots that scan line against the reader's
+averaged profile for every element, with the ideal bar positions shaded, and gives both
+contrasts in each panel title. The values behind the plot are in `<stem>_scanlines.csv`, and the
+scan-line contrast is in the per-element CSV and JSON (`scanline_contrast_H/V`).
+A single scan line is noisier and, at fine elements, usually a little lower than the reader's
+value, because the pixel centres rarely land exactly on the bar and gap centres.
 
 ### How it works
 

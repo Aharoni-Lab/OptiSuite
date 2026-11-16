@@ -59,6 +59,8 @@ Outputs (in --out-dir, default: <image folder>/usaf_results/):
     <stem>_usaf.csv      per-element table
     <stem>_overlay.png   detections drawn on the image (green pass, red fail)
     <stem>_ctf.png       contrast vs spatial frequency (CTF) with the threshold
+    <stem>_scanlines.png raw centre scan line (pixel values) vs. the reader's profile, per bar set
+    <stem>_scanlines.csv the scan-line and profile values behind that plot
 """
 
 from __future__ import annotations
@@ -553,7 +555,7 @@ def snap_predicted(img: np.ndarray, s: Det, w: float, polarity: float) -> Det:
 # ---------------------------------------------------------------------------
 
 def measure_set(coeffs: np.ndarray, s: Det, w: float, polarity: float, refine_pos: bool,
-                frame: Frame) -> dict:
+                frame: Frame, raw: np.ndarray | None = None, black: float = 0.0) -> dict:
     """
     `coeffs` are cubic-spline coefficients of the ORIGINAL (not de-rotated) image, so the
     profile is interpolated only once and with a near-ideal kernel; the working-frame
@@ -596,8 +598,31 @@ def measure_set(coeffs: np.ndarray, s: Det, w: float, polarity: float, refine_po
 
     perp = (s.x if s.axis == "x" else s.y) + shift
     cx, cy = (perp, s.y) if s.axis == "x" else (s.x, perp)
-    return {"michelson": float(michelson), "lockin_modulation": float(mod),
-            "i_bar": i_bar, "i_gap": i_gap, "cx": float(cx), "cy": float(cy)}
+    out = {"michelson": float(michelson), "lockin_modulation": float(mod),
+           "i_bar": i_bar, "i_gap": i_gap, "cx": float(cx), "cy": float(cy)}
+
+    if raw is not None:
+        # Independent check: ONE scan line through the element centre, perpendicular to the
+        # bars, reading the nearest raw pixel values (no interpolation, no averaging).
+        t = np.arange(-4.0 * w, 4.0 * w + 1e-9, 1.0)
+        tx, ty = (cx + t, np.full_like(t, cy)) if s.axis == "x" else (np.full_like(t, cx), cy + t)
+        ox, oy = frame.to_original(tx, ty)
+        ix = np.clip(np.rint(ox).astype(int), 0, raw.shape[1] - 1)
+        iy = np.clip(np.rint(oy).astype(int), 0, raw.shape[0] - 1)
+        vals = raw[iy, ix] - black
+        sb = float(np.mean(np.interp([-2 * w, 0.0, 2 * w], t, vals)))
+        sg = float(np.mean(np.interp([-w, w], t, vals)))
+        shi, slo = (sb, sg) if polarity > 0 else (sg, sb)
+        out["scan"] = {
+            "t_px": t.round(3).tolist(),
+            "values": (vals + black).round(4).tolist(),
+            "pixels_xy": np.stack([ix, iy], 1).tolist(),
+            "avg_t_px": (u - shift).round(3).tolist(),
+            "avg_values": (prof + black).round(4).tolist(),
+            "i_bar": sb + black, "i_gap": sg + black,
+            "michelson": float((shi - slo) / (shi + slo)) if (shi + slo) > 0 else float("nan"),
+        }
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -705,8 +730,8 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
     coeffs = ndimage.spline_filter(img0 - black, order=3)
     for e in all_el:
         w_px = line_width_um_k(e.k) / px_fit
-        e.meas["H"] = measure_set(coeffs, e.h, w_px, polarity, True, frame)
-        e.meas["V"] = measure_set(coeffs, e.v, w_px, polarity, True, frame)
+        e.meas["H"] = measure_set(coeffs, e.h, w_px, polarity, True, frame, img0, black)
+        e.meas["V"] = measure_set(coeffs, e.v, w_px, polarity, True, frame, img0, black)
 
     rows = []
     for e in all_el:
@@ -736,6 +761,12 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
             "ncc_H": round(e.h.score, 3),
             "ncc_V": round(e.v.score, 3),
             "polygon_H_px": polys["H"], "polygon_V_px": polys["V"],
+            "scanline_contrast_H": round(e.meas["H"]["scan"]["michelson"], 4),
+            "scanline_contrast_V": round(e.meas["V"]["scan"]["michelson"], 4),
+            "scan_H": {**e.meas["H"]["scan"],
+                       "pixels_xy": [[a + off[0], b + off[1]] for a, b in e.meas["H"]["scan"]["pixels_xy"]]},
+            "scan_V": {**e.meas["V"]["scan"],
+                       "pixels_xy": [[a + off[0], b + off[1]] for a, b in e.meas["V"]["scan"]["pixels_xy"]]},
         })
 
     passing = [r for r in rows if r["passes"]]
@@ -793,6 +824,10 @@ def save_overlay(img: np.ndarray, res: dict, path: Path) -> None:
         for key in ("polygon_H_px", "polygon_V_px"):
             pts = [(x * scale, y * scale) for x, y in r[key]]
             dr.polygon(pts, outline=col, width=2 if r["line_width_px"] * scale > 4 else 1)
+        for key in ("scan_H", "scan_V"):
+            px_ = r[key]["pixels_xy"]
+            dr.line([(px_[0][0] * scale, px_[0][1] * scale), (px_[-1][0] * scale, px_[-1][1] * scale)],
+                    fill=(255, 255, 0), width=1)
         xs = [p[0] for p in r["polygon_H_px"] + r["polygon_V_px"]]
         ys = [p[1] for p in r["polygon_H_px"] + r["polygon_V_px"]]
         fs = int(np.clip(r["line_width_px"] * scale * 2.2, 9, 28))
@@ -846,6 +881,54 @@ def save_ctf_plot(res: dict, path: Path, title: str) -> None:
     plt.close(fig)
 
 
+def save_scanline_plot(res: dict, path: Path, title: str) -> None:
+    """One panel per bar set: raw centre scan line (pixel values) vs. the reader's averaged
+    profile, with the ideal bar positions shaded and the bar/gap levels marked."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    rows = res["elements"]
+    px = res["pixel_size_um_fitted"]
+    bright = res["polarity"] == "bright-bars"
+    ncols = 4                                    # H, V of two elements per row
+    nrows = math.ceil(len(rows) / 2)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(16, 2.3 * nrows), squeeze=False)
+    for i, ax in enumerate(axes.ravel()):
+        r_i, side = divmod(i, 2)
+        if r_i >= len(rows):
+            ax.axis("off")
+            continue
+        r = rows[r_i]
+        key = "H" if side == 0 else "V"
+        sc = r[f"scan_{key}"]
+        w = r["line_width_px"]
+        for c in (-2, 0, 2):                     # ideal bar positions
+            ax.axvspan((c - 0.5) * w * px, (c + 0.5) * w * px,
+                       color="0.85" if bright else "0.6", alpha=0.6, lw=0)
+        ax.plot(np.array(sc["avg_t_px"]) * px, sc["avg_values"], color="tab:blue", lw=1.2,
+                label="reader profile (avg. along bars)")
+        ax.plot(np.array(sc["t_px"]) * px, sc["values"], color="tab:red", lw=0.8, marker=".", ms=4,
+                drawstyle="steps-mid", label="centre scan line (raw pixels)")
+        ax.axhline(sc["i_bar"], color="tab:green", ls="--", lw=0.8)
+        ax.axhline(sc["i_gap"], color="tab:purple", ls="--", lw=0.8)
+        ok = r["passes"]
+        ax.set_title(f"G{r['group']}E{r['element']} {key}-lines  {r['lp_per_mm']:.1f} lp/mm  "
+                     f"reader {100 * r[f'contrast_{key}']:.1f}%  scan {100 * sc['michelson']:.1f}%"
+                     + ("" if r["detected"] else "  (located)"),
+                     fontsize=8, color="tab:green" if ok else "tab:red")
+        ax.tick_params(labelsize=7)
+        if r_i == len(rows) - 1 or i >= (nrows - 1) * ncols:
+            ax.set_xlabel("position across bars [µm]", fontsize=7)
+    axes[0, 0].legend(fontsize=7, loc="lower right")
+    fig.suptitle(f"{title}\nshaded = ideal bar positions; dashed = bar (green) / gap (purple) "
+                 f"levels from the scan line; title colour = element pass/fail at "
+                 f"{100 * res['contrast_threshold']:.0f}%", fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.985))
+    fig.savefig(path, dpi=110)
+    plt.close(fig)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image", type=Path)
@@ -877,21 +960,38 @@ def main() -> None:
     stem = args.image.stem
     (out / f"{stem}_usaf.json").write_text(json.dumps(res, indent=2))
     cols = ["group", "element", "lp_per_mm", "line_width_um", "line_width_px", "detected",
-            "contrast_H", "contrast_V", "contrast_min", "lockin_H", "lockin_V", "passes", "undersampled"]
+            "contrast_H", "contrast_V", "contrast_min", "lockin_H", "lockin_V",
+            "scanline_contrast_H", "scanline_contrast_V", "passes", "undersampled"]
     with open(out / f"{stem}_usaf.csv", "w", newline="") as fh:
         wr = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
         wr.writeheader()
         wr.writerows(res["elements"])
     save_overlay(img, res, out / f"{stem}_overlay.png")
     save_ctf_plot(res, out / f"{stem}_ctf.png", f"{args.image.name} - CTF")
+    save_scanline_plot(res, out / f"{stem}_scanlines.png", f"{args.image.name} - scan lines")
+    with open(out / f"{stem}_scanlines.csv", "w", newline="") as fh:
+        wr = csv.writer(fh)
+        wr.writerow(["group", "element", "lines", "kind", "position_px", "position_um", "value",
+                     "pixel_x", "pixel_y"])
+        for r in res["elements"]:
+            for key in ("H", "V"):
+                sc = r[f"scan_{key}"]
+                for t, v, (x, y) in zip(sc["t_px"], sc["values"], sc["pixels_xy"]):
+                    wr.writerow([r["group"], r["element"], key, "scanline", t,
+                                 round(t * res["pixel_size_um_fitted"], 4), v, x, y])
+                for t, v in zip(sc["avg_t_px"], sc["avg_values"]):
+                    wr.writerow([r["group"], r["element"], key, "reader_profile", t,
+                                 round(t * res["pixel_size_um_fitted"], 4), v, "", ""])
 
     print()
-    print(f"{'G':>3} {'E':>2} {'lp/mm':>8} {'w[µm]':>7} {'w[px]':>6}  {'C_H':>6} {'C_V':>6}  status")
+    print(f"{'G':>3} {'E':>2} {'lp/mm':>8} {'w[µm]':>7} {'w[px]':>6}  {'C_H':>6} {'C_V':>6}  "
+          f"{'scanH':>6} {'scanV':>6}  status")
     for r in res["elements"]:
         st = "PASS" if r["passes"] else ("undersampled" if r["undersampled"] else "fail")
         st += "" if r["detected"] else " (extrapolated)"
         print(f"{r['group']:>3} {r['element']:>2} {r['lp_per_mm']:>8.2f} {r['line_width_um']:>7.3f} "
-              f"{r['line_width_px']:>6.2f}  {100 * r['contrast_H']:>5.1f}% {100 * r['contrast_V']:>5.1f}%  {st}")
+              f"{r['line_width_px']:>6.2f}  {100 * r['contrast_H']:>5.1f}% {100 * r['contrast_V']:>5.1f}%  "
+              f"{100 * r['scanline_contrast_H']:>5.1f}% {100 * r['scanline_contrast_V']:>5.1f}%  {st}")
     print()
     print(f"Pixel size (fitted): {res['pixel_size_um_fitted']:.4g} µm/px   identification: {res['identification']}")
     if res["result"]:
