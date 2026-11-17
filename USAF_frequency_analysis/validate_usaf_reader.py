@@ -79,10 +79,16 @@ def simulate(sigma_um: float, rot_small: float, mirror: bool, rot90: int, seed: 
 
 
 def run_case(name: str, sigma: float, rot_small: float, mirror: bool, rot90: int,
-             pixel_hint: float | None, group_hint: int | None, thr: float = 0.2) -> bool:
+             pixel_hint: float | None, group_hint: int | None, dark: bool = False,
+             thr: float = 0.2) -> bool:
     pix = RENDER_PX * BIN
     img, offset = simulate(sigma, rot_small, mirror, rot90)
-    res = rd.analyze(img, contrast=thr, pixel_size=pixel_hint, group_hint=group_hint, verbose=False)
+    dark_frame = None
+    if dark:
+        # camera dark frame: the same offset plus independent read noise, light blocked
+        dark_frame = offset + np.random.default_rng(1).normal(0, 0.008, img.shape)
+    res = rd.analyze(img, contrast=thr, pixel_size=pixel_hint, group_hint=group_hint, verbose=False,
+                     dark_frame=dark_frame)
 
     errs, rows_out = [], []
     for r in res["elements"]:
@@ -91,19 +97,28 @@ def run_case(name: str, sigma: float, rot_small: float, mirror: bool, rot90: int
         pts = np.array(r["polygon_H_px"] + r["polygon_V_px"])
         x, y = pts.mean(0)
         r2 = ((x - img.shape[1] / 2) ** 2 + (y - img.shape[0] / 2) ** 2) / (0.5 * max(img.shape)) ** 2
-        ct = true_contrast(w, sigma, pix, 1.0 - 0.3 * r2, offset)
+        ct = true_contrast(w, sigma, pix, 1.0 - 0.3 * r2, offset - res["black_level"])
         if not r["undersampled"]:
             errs.append(max(abs(r["contrast_H"] - ct), abs(r["contrast_V"] - ct)))
         rows_out.append((r["group"], r["element"], r["detected"], ct, r["contrast_H"], r["contrast_V"]))
 
-    true_pass = [(g, e) for g, e, _, ct, _, _ in rows_out if ct >= thr and 2 * rd.line_width_um_k(6 * g + e - 1) / pix >= 2]
-    true_lim = max(true_pass, key=lambda ge: 6 * ge[0] + ge[1]) if true_pass else None
+    # first-fail rule, coarse -> fine, stepping over one isolated failure (as the reader does)
+    seq = sorted(rows_out, key=lambda t: 6 * t[0] + t[1])
+    ok_t = [ct >= thr and 2 * rd.line_width_um_k(6 * g + e - 1) / pix >= 2 for g, e, _, ct, _, _ in seq]
+    true_lim, skips = None, 0
+    for i, (g, e, *_rest) in enumerate(seq):
+        if ok_t[i]:
+            true_lim = (g, e)
+        elif skips < 1 and i + 1 < len(seq) and ok_t[i + 1]:
+            skips += 1
+        else:
+            break
     got = (res["result"]["group"], res["result"]["element"]) if res["result"] else None
     px_err = res["pixel_size_um_fitted"] / pix - 1
 
     ok = (got == true_lim) and max(errs) < 0.05 and abs(px_err) < 0.01
     print(f"\n=== {name}: σ={sigma} µm, rot {rot90 * 90}°+{rot_small}°, mirror={mirror}, "
-          f"pixel hint={pixel_hint}, group hint={group_hint}")
+          f"pixel hint={pixel_hint}, group hint={group_hint}, dark frame={dark}")
     print(f"  identification: {res['identification']}")
     print(f"  pixel size fitted {res['pixel_size_um_fitted']:.4f} µm (true {pix}, err {100 * px_err:+.2f} %)")
     print(f"  elements measured: {len(rows_out)} ({sum(1 for r in rows_out if r[2])} detected); "
@@ -120,6 +135,7 @@ def main() -> None:
         ("A  sharp-ish, pixel hint 30% off", 1.2, 3.0, True, 1, 1.3, None),
         ("B  blurred, group hint", 2.5, -2.0, False, 3, None, 4),
         ("C  blurred, no hint at all", 2.0, 0.0, True, 2, None, None),
+        ("D  as C, with a dark frame", 2.0, 0.0, True, 2, None, None, True),
     ]
     results = [run_case(*c) for c in cases]
     print(f"\n{sum(results)}/{len(results)} cases passed")

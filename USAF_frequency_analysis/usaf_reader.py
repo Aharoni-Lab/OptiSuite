@@ -40,6 +40,10 @@ Pipeline
                       tell neighbouring elements apart) are re-checked against these
                       predicted positions. So the contrast fall-off past the
                       resolution limit is measured, not assumed.
+                      Each detected element is also checked against the layout
+                      predicted from the others: a bar set far off while its partner
+                      agrees was paired with the wrong feature and is moved. Bar sets
+                      not fully inside the image are flagged as cut off and skipped.
     8. Contrast     - per bar set, a profile across the bars (averaged over the
                       central 60 % of the bar length) gives
                         Michelson contrast  C = (I_bar - I_gap)/(I_bar + I_gap)
@@ -47,6 +51,15 @@ Pipeline
                       contrast reversal / spurious resolution), and a lock-in
                       (least-squares sine fit at the known frequency) modulation.
                       An element passes when both orientations reach the threshold.
+                      The limit is the last passing element before the first failure,
+                      going from coarse to fine. One isolated failure (the next element
+                      passes again) is stepped over and reported (--skip-isolated 0 to
+                      stop there; --limit-rule finest-pass: finest element that passes).
+                      Contrast is reported on the raw image and after a background
+                      correction: a dark frame (--dark-frame, recommended), a value, or
+                      an automatic estimate. The raw image is the primary result unless a
+                      dark frame or value is given, because stray light is part of the
+                      system's performance and the automatic estimate can't separate it.
 
 Usage
     python usaf_reader.py image.png                         # 20 % threshold
@@ -113,11 +126,17 @@ def load_gray(path: Path) -> np.ndarray:
 # 1. Orientation
 # ---------------------------------------------------------------------------
 
-def _edge_angle(img: np.ndarray) -> float:
-    """Dominant edge orientation folded to (-45°, 45°], degrees."""
+def _edge_angle(img: np.ndarray, border: int = 16) -> float:
+    """Dominant edge orientation folded to (-45°, 45°], degrees.
+    Gradients within `border` px of the image edge are ignored: padding strips, frame
+    borders and the edges left by de-rotation are long straight edges that would
+    otherwise outweigh the target."""
     sm = ndimage.gaussian_filter(img, 1.5)
     gx, gy = ndimage.sobel(sm, 1), ndimage.sobel(sm, 0)
     m2 = gx * gx + gy * gy
+    b = max(0, min(border, min(img.shape) // 8))
+    if b:
+        m2[:b], m2[-b:], m2[:, :b], m2[:, -b:] = 0, 0, 0, 0
     mask = m2 > np.percentile(m2, 95)
     z = np.sum(m2[mask] * np.exp(4j * np.arctan2(gy[mask], gx[mask])))
     return math.degrees(np.angle(z) / 4.0)
@@ -345,6 +364,7 @@ class Element:
     detected: bool = True
     k: int | None = None
     meas: dict = field(default_factory=dict)
+    relocated: list = field(default_factory=list)   # bar sets moved to their layout position
 
     @property
     def center(self) -> np.ndarray:
@@ -432,11 +452,8 @@ def predict_missing(elements: list[Element], k_lo: int, k_hi: int,
                     img_shape: tuple[int, int]) -> list[Element]:
     known, detected = predict_positions(elements, k_lo, k_hi)
     new = []
-    H, W = img_shape
     for k, (c, hv) in sorted(known.items()):
         if k in detected or not (k_lo <= k <= k_hi):
-            continue
-        if not (0 <= c[0] < W and 0 <= c[1] < H):
             continue
         h = Det(c[0] - hv[0] / 2, c[1] - hv[1] / 2, 0.0, "y", 0.0)
         v = Det(c[0] + hv[0] / 2, c[1] + hv[1] / 2, 0.0, "x", 0.0)
@@ -460,7 +477,16 @@ def verify_small(elements: list[Element], px: float, k_lo: int, w_reliable: floa
     taken = {e.k for e in reliable}
     best_for: dict[int, tuple[float, Element]] = {}
     n_moved = n_drop = 0
+    n_keep = 0
     for e in small:
+        if not any(kk in pred for kk in (e.k - 1, e.k, e.k + 1)):
+            # the layout can't predict this region from the large elements alone (e.g. no
+            # group pair is seen together with the pair 2 groups finer yet): keep it unverified;
+            # it is what anchors the 1/4 self-similarity for the finest groups
+            if e.k not in best_for:
+                best_for[e.k] = (0.0, e)
+                n_keep += 1
+            continue
         opts = [(float(np.linalg.norm(pred[kk][0] - e.center)) / wpx(kk), kk)
                 for kk in (e.k - 1, e.k, e.k + 1) if kk in pred and kk not in taken]
         if not opts or min(opts)[0] > 3.0:
@@ -471,9 +497,46 @@ def verify_small(elements: list[Element], px: float, k_lo: int, w_reliable: floa
         e.k, e.r = kk, e.r + (kk - e.k)
         if kk not in best_for or d < best_for[kk][0]:
             best_for[kk] = (d, e)
-    if n_moved or n_drop:
-        log(f"    small elements checked against layout: {n_moved} re-labelled, {n_drop} dropped")
+    if n_moved or n_drop or n_keep:
+        log(f"    small elements checked against layout: {n_moved} re-labelled, {n_drop} dropped"
+            + (f", {n_keep} kept unverified (no layout prediction there)" if n_keep else ""))
     return sorted(reliable + [e for _, e in best_for.values()], key=lambda e: e.k)
+
+
+def check_layout(elements: list[Element], img: np.ndarray, px: float, k_lo: int, polarity: float,
+                 tol: float = 4.0, agree: float = 1.5, log=print) -> list[Element]:
+    """
+    Leave-one-out check of every detected element against the slide layout predicted from
+    all the others. If one bar set sits far from its predicted position (> tol·w) while the
+    other agrees (< agree·w), the outlier was paired with the wrong feature (reference square,
+    a digit, a neighbouring element): it is moved to the predicted position and re-snapped.
+    """
+    wpx = lambda k: line_width_um_k(k) / px
+    n_fix = 0
+    for e in elements:
+        pred, _ = predict_positions([o for o in elements if o is not e], k_lo, K_MAX)
+        if e.k not in pred:
+            continue
+        c, hv = pred[e.k]
+        w = wpx(e.k)
+        ph, pv = c - hv / 2, c + hv / 2
+        dh = float(np.linalg.norm(np.array([e.h.x, e.h.y]) - ph)) / w
+        dv = float(np.linalg.norm(np.array([e.v.x, e.v.y]) - pv)) / w
+        if dh > tol and dv < agree:
+            e.h = snap_predicted(img, Det(ph[0], ph[1], w, "y", 0.0), w, polarity)
+            e.relocated.append("H")
+        elif dv > tol and dh < agree:
+            e.v = snap_predicted(img, Det(pv[0], pv[1], w, "x", 0.0), w, polarity)
+            e.relocated.append("V")
+        else:
+            continue
+        n_fix += 1
+        g, el = k_to_ge(e.k)
+        log(f"    G{g}E{el}: {e.relocated[-1]} set was {max(dh, dv):.1f} w off the layout "
+            f"(paired with another feature) -> moved to its predicted position")
+    if n_fix:
+        log(f"    layout check: {n_fix} bar set(s) relocated")
+    return elements
 
 
 def predict_positions(elements: list[Element], k_lo: int, k_hi: int):
@@ -632,7 +695,8 @@ def measure_set(coeffs: np.ndarray, s: Det, w: float, polarity: float, refine_po
 def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None = None,
             group_hint: int | None = None, black_level: str | float = "none",
             roi: tuple[int, int, int, int] | None = None, min_ncc: float = 0.55,
-            w_min: float = 1.25, verbose: bool = True) -> dict:
+            w_min: float = 1.25, verbose: bool = True, limit_rule: str = "first-fail",
+            skip_isolated: int = 1, dark_frame: np.ndarray | None = None) -> dict:
     log = print if verbose else (lambda *a, **k: None)
     notes: list[str] = []
 
@@ -643,12 +707,28 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
         img0 = img0[y0:y1, x0:x1]
         off = (x0, y0)
 
-    if black_level == "auto":
-        black = float(np.percentile(ndimage.median_filter(img0, 5), 0.5))
+    # ---- background ---------------------------------------------------------
+    # Contrast is always measured twice: on the raw image and after a background correction.
+    # The correction is a dark frame (per pixel) if given, else a fixed value if given, else an
+    # automatic estimate (darkest 0.5 % of the median-filtered image). The automatic estimate
+    # cannot tell camera offset from stray light, so it is never the primary result: the
+    # primary result is the corrected one only when the user supplied a dark frame or value.
+    auto_black = float(np.percentile(ndimage.median_filter(img0, 5), 0.5))
+    if dark_frame is not None:
+        dark = np.asarray(dark_frame, dtype=np.float64)
+        if roi:
+            dark = dark[y0:y1, x0:x1]
+        if dark.shape != img0.shape:
+            raise ValueError(f"Dark frame shape {dark.shape} does not match image {img0.shape}.")
+        bg, bg_method, primary = dark, f"dark frame (mean {dark.mean():.4g})", "corrected"
+    elif black_level == "auto":
+        bg, bg_method, primary = auto_black, f"automatic black level {auto_black:.4g}", "corrected"
     elif black_level == "none":
-        black = 0.0
+        bg, bg_method, primary = auto_black, f"automatic black level {auto_black:.4g}", "raw"
     else:
-        black = float(black_level)
+        bg, bg_method, primary = float(black_level), f"black level {float(black_level):.4g}", "corrected"
+    img_corr = img0 - bg
+    black = float(np.mean(bg)) if primary == "corrected" else 0.0
 
     img, frame = derotate(img0)
     log(f"[1] orientation: de-rotated by {frame.angle:+.2f}°")
@@ -718,6 +798,7 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
     g_lo = k_to_ge(min(e.k for e in elements))[0]
     k_lo = 6 * (g_lo - g_lo % 2)                       # start of the coarsest detected pair
     elements = verify_small(elements, px_fit, k_lo, log=log)
+    elements = check_layout(elements, img, px_fit, k_lo, polarity, log=log)
     extra = predict_missing(elements, k_lo, K_MAX, img.shape)
     for e in extra:
         w_px = line_width_um_k(e.k) / px_fit
@@ -727,25 +808,38 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
     all_el = sorted(elements + extra, key=lambda e: e.k)
 
     # ---- contrast ----------------------------------------------------------
-    coeffs = ndimage.spline_filter(img0 - black, order=3)
+    img_p, img_s = (img_corr, img0) if primary == "corrected" else (img0, img_corr)
+    coeffs = ndimage.spline_filter(img_p, order=3)
+    coeffs_s = ndimage.spline_filter(img_s, order=3)
+    alt: dict[int, dict[str, float]] = {}
     for e in all_el:
         w_px = line_width_um_k(e.k) / px_fit
-        e.meas["H"] = measure_set(coeffs, e.h, w_px, polarity, True, frame, img0, black)
-        e.meas["V"] = measure_set(coeffs, e.v, w_px, polarity, True, frame, img0, black)
+        e.meas["H"] = measure_set(coeffs, e.h, w_px, polarity, True, frame, img_p)
+        e.meas["V"] = measure_set(coeffs, e.v, w_px, polarity, True, frame, img_p)
+        alt[e.k] = {q: measure_set(coeffs_s, (e.h if q == "H" else e.v), w_px, polarity, True,
+                                   frame)["michelson"] for q in ("H", "V")}
 
+    # camera full scale: flag elements whose bars reach it (clipped peaks bias contrast)
+    vmax = float(img0.max())
+    sat_level = next((fs for fs in (255.0, 1023.0, 4095.0, 16383.0, 65535.0) if abs(vmax - fs) < 0.5), None)
     rows = []
     for e in all_el:
         g, el = k_to_ge(e.k)
         w_px = line_width_um_k(e.k) / px_fit
         cH, cV = e.meas["H"]["michelson"], e.meas["V"]["michelson"]
         cmin = min(cH, cV)
+        aH, aV = alt[e.k]["H"], alt[e.k]["V"]
         undersampled = 2 * w_px < 2.0
         polys = {}
+        cut_off = False
+        H0, W0 = img0.shape
         for key, s in (("H", e.meas["H"]), ("V", e.meas["V"])):
             axis = "y" if key == "H" else "x"
             hw = 2.5 * w_px
             corners = np.array([[-hw, -hw], [hw, -hw], [hw, hw], [-hw, hw]]) + [s["cx"], s["cy"]]
             ox, oy = frame.to_original(corners[:, 0], corners[:, 1])
+            # a bar set not fully inside the image can't be measured: flag it, don't fail it
+            cut_off |= bool(np.any(ox < 0) or np.any(oy < 0) or np.any(ox > W0 - 1) or np.any(oy > H0 - 1))
             polys[key] = [[round(float(a) + off[0], 2), round(float(b) + off[1], 2)] for a, b in zip(ox, oy)]
         rows.append({
             "group": g, "element": el, "k": e.k,
@@ -756,8 +850,18 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
             "contrast_H": round(cH, 4), "contrast_V": round(cV, 4), "contrast_min": round(cmin, 4),
             "lockin_H": round(e.meas["H"]["lockin_modulation"], 4),
             "lockin_V": round(e.meas["V"]["lockin_modulation"], 4),
-            "passes": bool(cmin >= contrast and not undersampled),
+            "passes": bool(cmin >= contrast and not undersampled and not cut_off),
+            "contrast_H_raw": round(cH if primary == "raw" else aH, 4),
+            "contrast_V_raw": round(cV if primary == "raw" else aV, 4),
+            "contrast_H_corrected": round(aH if primary == "raw" else cH, 4),
+            "contrast_V_corrected": round(aV if primary == "raw" else cV, 4),
+            "passes_alt": bool(min(aH, aV) >= contrast and not undersampled and not cut_off),
             "undersampled": bool(undersampled),
+            "cut_off": cut_off,
+            "saturated": bool(sat_level is not None and max(
+                max(img0[y, x] for x, y in e.meas[q]["scan"]["pixels_xy"]) for q in ("H", "V"))
+                >= sat_level - 0.5),
+            "relocated": list(e.relocated),
             "ncc_H": round(e.h.score, 3),
             "ncc_V": round(e.v.score, 3),
             "polygon_H_px": polys["H"], "polygon_V_px": polys["V"],
@@ -769,15 +873,90 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
                        "pixels_xy": [[a + off[0], b + off[1]] for a, b in e.meas["V"]["scan"]["pixels_xy"]]},
         })
 
-    passing = [r for r in rows if r["passes"]]
-    limit = max(passing, key=lambda r: r["k"]) if passing else None
+    # Limit. "first-fail" (default): walk from the coarsest measured element towards finer
+    # ones and stop at the first element that fails (or a missing one); the limit is the last
+    # passing element before it. Up to `skip_isolated` failures are tolerated when they are
+    # isolated, i.e. the very next element passes again (a single out-of-focus element at the
+    # edge of the field should not end the reading). "finest-pass": the finest element that
+    # passes at all.
+    # Elements cut off by the image border are not measurable and are stepped over.
+    def walk(key: str):
+        ff, prev_k, skp = None, None, []
+        meas_rows = [r for r in rows if not r["cut_off"]]
+        for r in rows:
+            if prev_k is not None and r["k"] != prev_k + 1:
+                break
+            prev_k = r["k"]
+            if r["cut_off"]:
+                continue
+            if r[key]:
+                ff = r
+                continue
+            j_m = meas_rows.index(r)
+            nxt_r = meas_rows[j_m + 1] if j_m + 1 < len(meas_rows) else None
+            isolated = nxt_r is not None and nxt_r[key] and all(
+                q["cut_off"] for q in rows if r["k"] < q["k"] < nxt_r["k"])
+            if isolated and len(skp) < skip_isolated:
+                skp.append(r)
+                continue
+            break
+        passing = [r for r in rows if r[key]]
+        fp = max(passing, key=lambda r: r["k"]) if passing else None
+        return ff, skp, fp
+
+    first_fail_lim, skipped, finest_pass_lim = walk("passes")
+    limit = first_fail_lim if limit_rule == "first-fail" else finest_pass_lim
+    ff_a, _, fp_a = walk("passes_alt")
+    limit_alt = ff_a if limit_rule == "first-fail" else fp_a
+
+    def _name(r):
+        return f"G{r['group']}E{r['element']}" if r else "none"
+
+    lim_raw, lim_corr = (limit, limit_alt) if primary == "raw" else (limit_alt, limit)
+    if _name(lim_raw) != _name(lim_corr):
+        notes.append(f"Background matters here: raw image -> {_name(lim_raw)}, after {bg_method} -> "
+                     f"{_name(lim_corr)}. "
+                     + ("The automatic estimate can't tell camera offset from stray light; take a dark "
+                        "frame (light blocked, same exposure) and pass --dark-frame for a corrected result."
+                        if dark_frame is None else
+                        "The dark frame removes only the camera offset; stray light stays in the raw-image value too."))
+
+    sat = [_name(r) for r in rows if r["saturated"] and not r["cut_off"]]
+    if sat:
+        notes.append(f"Bars reach the camera's full scale ({sat_level:.0f}) in {len(sat)} element(s) "
+                     f"({sat[0]}-{sat[-1]}): clipped peaks bias contrast; lower the exposure if possible.")
+    cut = [_name(r) for r in rows if r["cut_off"]]
+    if cut:
+        notes.append("Not measurable, cut off by the image border (stepped over): " + ", ".join(cut))
+    rel = [f"{_name(r)} {'+'.join(r['relocated'])}" for r in rows if r["relocated"]]
+    if rel:
+        notes.append("Bar sets moved to their layout position (detection was paired with another "
+                     "feature): " + ", ".join(rel))
+    if limit_rule == "first-fail":
+        for r in skipped:
+            notes.append(f"Skipped isolated failure {_name(r)} (C_H {100 * r['contrast_H']:.1f}%, "
+                         f"C_V {100 * r['contrast_V']:.1f}%): the next element passes again, so it is "
+                         "treated as a local focus / field-of-view effect (--skip-isolated 0 to stop there).")
+    if finest_pass_lim is not None and finest_pass_lim is not first_fail_lim:
+        if limit_rule == "first-fail":
+            stop = next((r for r in rows if not r["cut_off"] and not r["passes"]
+                         and r["k"] not in {q["k"] for q in skipped}
+                         and (first_fail_lim is None or r["k"] > first_fail_lim["k"])), None)
+            if stop is not None:
+                notes.append(f"Stopped at the first failing element {_name(stop)} "
+                             f"(C_H {100 * stop['contrast_H']:.1f}%, C_V {100 * stop['contrast_V']:.1f}%); "
+                             f"finer elements up to {_name(finest_pass_lim)} pass again "
+                             f"(--limit-rule finest-pass would report {_name(finest_pass_lim)}).")
+        else:
+            notes.append(f"Coarser elements fail below the reported limit; "
+                         f"--limit-rule first-fail would report {_name(first_fail_lim)}.")
+    if limit and limit["line_width_px"] < 2.0:
+        sl = min(limit["scanline_contrast_H"], limit["scanline_contrast_V"])
+        notes.append(f"The limit element has only {limit['line_width_px']:.2f} px per line: its contrast "
+                     "relies on sub-pixel averaging along the (tilted) bars. A single row of pixels reads "
+                     f"{100 * sl:.1f}% there. The result is close to the camera's sampling limit.")
     if limit:
-        coarser_fail = [f"G{r['group']}E{r['element']}" for r in rows
-                        if r["k"] < limit["k"] and not r["passes"] and not r["undersampled"]]
-        if coarser_fail:
-            notes.append("Coarser elements below threshold (defocus / field effects or spurious "
-                         "resolution?): " + ", ".join(coarser_fail))
-        nxt = [r for r in rows if r["k"] == limit["k"] + 1]
+        nxt = [r for r in rows if r["k"] > limit["k"] and not r["cut_off"]][:1]
         if not nxt:
             notes.append("The next finer element could not be measured (outside field / not located).")
         elif nxt[0]["undersampled"]:
@@ -785,6 +964,10 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
 
     return {
         "contrast_threshold": contrast,
+        "limit_rule": limit_rule,
+        "result_first_fail": None if not first_fail_lim else _name(first_fail_lim),
+        "skipped_isolated_failures": [_name(r) for r in skipped] if limit_rule == "first-fail" else [],
+        "result_finest_pass": None if not finest_pass_lim else _name(finest_pass_lim),
         "result": None if not limit else {
             "group": limit["group"], "element": limit["element"],
             "lp_per_mm": limit["lp_per_mm"], "line_width_um": limit["line_width_um"],
@@ -796,6 +979,15 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
         "rotation_deg": round(frame.angle, 3),
         "polarity": "bright-bars" if polarity > 0 else "dark-bars",
         "black_level": black,
+        "background": {
+            "primary": primary,
+            "correction": bg_method,
+            "auto_estimate": round(auto_black, 4),
+            "result_raw": _name(lim_raw) if lim_raw else None,
+            "result_corrected": _name(lim_corr) if lim_corr else None,
+            "lp_per_mm_raw": lim_raw["lp_per_mm"] if lim_raw else None,
+            "lp_per_mm_corrected": lim_corr["lp_per_mm"] if lim_corr else None,
+        },
         "roi": roi,
         "notes": notes,
         "elements": rows,
@@ -819,6 +1011,8 @@ def save_overlay(img: np.ndarray, res: dict, path: Path) -> None:
         col = (40, 220, 90) if r["passes"] else (235, 60, 60)
         if not r["detected"]:
             col = (255, 170, 40) if r["passes"] else (170, 70, 200)
+        if r["cut_off"]:
+            col = (140, 140, 140)
         if lim and r["group"] == lim["group"] and r["element"] == lim["element"]:
             col = (60, 200, 255)
         for key in ("polygon_H_px", "polygon_V_px"):
@@ -845,10 +1039,16 @@ def save_ctf_plot(res: dict, path: Path, title: str) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    rows = res["elements"]
+    rows = [r for r in res["elements"] if not r["cut_off"]]
     f = np.array([r["lp_per_mm"] for r in rows])
     det = np.array([r["detected"] for r in rows])
-    fig, ax = plt.subplots(figsize=(9, 5))
+    fig, ax = plt.subplots(figsize=(11.5, 5))
+    bgd = res["background"]
+    other = "corrected" if bgd["primary"] == "raw" else "raw"
+    for key, colr in (("contrast_H", "tab:blue"), ("contrast_V", "tab:orange")):
+        c2 = np.array([r[f"{key}_{other}"] for r in rows])
+        ax.plot(f, c2, color=colr, lw=0.8, ls="--", alpha=0.6,
+                label=f"{key[-1]} lines, " + ("raw image" if other == "raw" else bgd["correction"]))
     for key, mk, colr in (("contrast_H", "o", "tab:blue"), ("contrast_V", "s", "tab:orange")):
         c = np.array([r[key] for r in rows])
         ax.plot(f, c, color=colr, lw=0.8, alpha=0.6)
@@ -868,7 +1068,7 @@ def save_ctf_plot(res: dict, path: Path, title: str) -> None:
     ax.set_ylabel("Michelson contrast")
     ax.set_ylim(min(-0.1, ax.get_ylim()[0]), 1.05)
     ax.grid(True, which="both", alpha=0.3)
-    ax.legend(fontsize=8, loc="lower left")
+    ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0)
     ax.set_title(title)
     sec = ax.secondary_xaxis("top", functions=(lambda x: np.log2(np.maximum(x, 1e-9)),
                                                lambda g: 2.0 ** g))
@@ -915,13 +1115,17 @@ def save_scanline_plot(res: dict, path: Path, title: str) -> None:
         ok = r["passes"]
         ax.set_title(f"G{r['group']}E{r['element']} {key}-lines  {r['lp_per_mm']:.1f} lp/mm  "
                      f"reader {100 * r[f'contrast_{key}']:.1f}%  scan {100 * sc['michelson']:.1f}%"
-                     + ("" if r["detected"] else "  (located)"),
-                     fontsize=8, color="tab:green" if ok else "tab:red")
+                     + ("" if r["detected"] else "  (located)")
+                     + ("  CUT OFF" if r["cut_off"] else "")
+                     + (f"  (moved {'+'.join(r['relocated'])})" if r["relocated"] else ""),
+                     fontsize=8, color="0.5" if r["cut_off"] else ("tab:green" if ok else "tab:red"))
         ax.tick_params(labelsize=7)
         if r_i == len(rows) - 1 or i >= (nrows - 1) * ncols:
             ax.set_xlabel("position across bars [µm]", fontsize=7)
     axes[0, 0].legend(fontsize=7, loc="lower right")
-    fig.suptitle(f"{title}\nshaded = ideal bar positions; dashed = bar (green) / gap (purple) "
+    bgd = res["background"]
+    what = "raw pixel values" if bgd["primary"] == "raw" else f"pixel values after {bgd['correction']}"
+    fig.suptitle(f"{title}  ({what})\nshaded = ideal bar positions; dashed = bar (green) / gap (purple) "
                  f"levels from the scan line; title colour = element pass/fail at "
                  f"{100 * res['contrast_threshold']:.0f}%", fontsize=10)
     fig.tight_layout(rect=(0, 0, 1, 0.985))
@@ -938,9 +1142,20 @@ def main() -> None:
     ap.add_argument("--camera-pixel", type=float, default=None, help="camera pixel pitch, µm")
     ap.add_argument("--coarsest-group", type=int, default=None,
                     help="number of the coarsest (largest-bar) group visible in the image")
+    ap.add_argument("--dark-frame", type=Path, nargs="+", default=None,
+                    help="dark frame(s): same camera, exposure and gain, light blocked. Averaged and "
+                         "subtracted per pixel; the corrected contrast becomes the primary result")
     ap.add_argument("--black-level", default="none",
-                    help="'none' (default), 'auto' (0.5th percentile), or a number to subtract")
+                    help="'none' (default: primary result on the raw image), a number to subtract, or "
+                         "'auto' (darkest 0.5%% of the image; may remove stray light too). The raw and "
+                         "corrected results are both always reported")
     ap.add_argument("--roi", type=int, nargs=4, default=None, metavar=("X0", "Y0", "X1", "Y1"))
+    ap.add_argument("--limit-rule", choices=("first-fail", "finest-pass"), default="first-fail",
+                    help="first-fail (default): last passing element before the first failure, "
+                         "going from coarse to fine; finest-pass: finest element that passes at all")
+    ap.add_argument("--skip-isolated", type=int, default=1,
+                    help="first-fail rule: how many isolated failures (next element passes again) "
+                         "to step over (default 1; 0 = stop at the very first failure)")
     ap.add_argument("--min-ncc", type=float, default=0.55, help="matched-filter detection threshold")
     ap.add_argument("--out-dir", type=Path, default=None)
     args = ap.parse_args()
@@ -951,8 +1166,12 @@ def main() -> None:
     bl = args.black_level if args.black_level in ("none", "auto") else float(args.black_level)
 
     img = load_gray(args.image)
+    dark = None
+    if args.dark_frame:
+        dark = np.mean([load_gray(pth) for pth in args.dark_frame], axis=0)
     res = analyze(img, args.contrast, px, args.coarsest_group, bl, tuple(args.roi) if args.roi else None,
-                  args.min_ncc)
+                  args.min_ncc, limit_rule=args.limit_rule,
+                  skip_isolated=args.skip_isolated, dark_frame=dark)
     res["image"] = str(args.image)
 
     out = args.out_dir or args.image.parent / "usaf_results"
@@ -961,7 +1180,9 @@ def main() -> None:
     (out / f"{stem}_usaf.json").write_text(json.dumps(res, indent=2))
     cols = ["group", "element", "lp_per_mm", "line_width_um", "line_width_px", "detected",
             "contrast_H", "contrast_V", "contrast_min", "lockin_H", "lockin_V",
-            "scanline_contrast_H", "scanline_contrast_V", "passes", "undersampled"]
+            "scanline_contrast_H", "scanline_contrast_V",
+            "contrast_H_raw", "contrast_V_raw", "contrast_H_corrected", "contrast_V_corrected",
+            "passes", "undersampled", "cut_off"]
     with open(out / f"{stem}_usaf.csv", "w", newline="") as fh:
         wr = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
         wr.writeheader()
@@ -988,12 +1209,21 @@ def main() -> None:
           f"{'scanH':>6} {'scanV':>6}  status")
     for r in res["elements"]:
         st = "PASS" if r["passes"] else ("undersampled" if r["undersampled"] else "fail")
+        if r["cut_off"]:
+            st = "cut off"
         st += "" if r["detected"] else " (extrapolated)"
+        st += f" (moved {'+'.join(r['relocated'])})" if r["relocated"] else ""
         print(f"{r['group']:>3} {r['element']:>2} {r['lp_per_mm']:>8.2f} {r['line_width_um']:>7.3f} "
               f"{r['line_width_px']:>6.2f}  {100 * r['contrast_H']:>5.1f}% {100 * r['contrast_V']:>5.1f}%  "
               f"{100 * r['scanline_contrast_H']:>5.1f}% {100 * r['scanline_contrast_V']:>5.1f}%  {st}")
     print()
     print(f"Pixel size (fitted): {res['pixel_size_um_fitted']:.4g} µm/px   identification: {res['identification']}")
+    bgd = res["background"]
+    print(f"Primary result on: {'raw image' if bgd['primary'] == 'raw' else 'image after ' + bgd['correction']}")
+    print(f"  raw image:               {bgd['result_raw']}"
+          + (f" ({bgd['lp_per_mm_raw']:.2f} lp/mm)" if bgd["lp_per_mm_raw"] else ""))
+    print(f"  after {bgd['correction']}: {bgd['result_corrected']}"
+          + (f" ({bgd['lp_per_mm_corrected']:.2f} lp/mm)" if bgd["lp_per_mm_corrected"] else ""))
     if res["result"]:
         r = res["result"]
         print(f"RESULT @ {100 * args.contrast:.0f}% contrast: Group {r['group']} Element {r['element']}  "
