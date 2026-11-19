@@ -1,0 +1,455 @@
+{
+ "per_image": [
+  {
+   "kind": "synthetic",
+   "image": "synA_s2.0.png",
+   "truth": "G7E1",
+   "yolo": "G4E4",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G7E1",
+   "mine+px": "G7E1",
+   "mine:fit": "G7E1",
+   "mine+px:fit": "G7E1"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synA_s3.0.png",
+   "truth": "G6E4",
+   "yolo": "G4E4",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G6E4",
+   "mine+px": "G6E4",
+   "mine:fit": "G6E4",
+   "mine+px:fit": "G6E4"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synA_s4.0.png",
+   "truth": "G6E2",
+   "yolo": "G4E5",
+   "sift:auto": "G2E2",
+   "sift:sift": "no answer",
+   "mine": "G6E2",
+   "mine+px": "G6E2",
+   "mine:fit": "G6E2",
+   "mine+px:fit": "G6E2"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synA_s5.5.png",
+   "truth": "G5E5",
+   "yolo": "G4E4",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G5E5",
+   "mine+px": "G5E5",
+   "mine:fit": "G5E5",
+   "mine+px:fit": "G5E5"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synA_s7.0.png",
+   "truth": "G5E3",
+   "yolo": "G4E4",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G5E3",
+   "mine+px": "G5E3",
+   "mine:fit": "G5E3",
+   "mine+px:fit": "G5E3"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synA_s9.0.png",
+   "truth": "G5E1",
+   "yolo": "G4E4",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G5E1",
+   "mine+px": "G5E1",
+   "mine:fit": "G5E1",
+   "mine+px:fit": "G5E1"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synB_s2.0.png",
+   "truth": "G7E1",
+   "yolo": "G4E5",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G7E1",
+   "mine+px": "G7E1",
+   "mine:fit": "G7E1",
+   "mine+px:fit": "G7E1"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synB_s3.0.png",
+   "truth": "G6E4",
+   "yolo": "G4E5",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G6E4",
+   "mine+px": "G6E4",
+   "mine:fit": "G6E4",
+   "mine+px:fit": "G6E4"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synB_s4.0.png",
+   "truth": "G6E2",
+   "yolo": "G3E6",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G6E1",
+   "mine+px": "G6E1",
+   "mine:fit": "G6E2",
+   "mine+px:fit": "G6E2"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synB_s5.5.png",
+   "truth": "G5E5",
+   "yolo": "G3E5",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G5E5",
+   "mine+px": "G5E5",
+   "mine:fit": "G5E5",
+   "mine+px:fit": "G5E5"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synB_s7.0.png",
+   "truth": "G5E3",
+   "yolo": "G4E4",
+   "sift:auto": "no answer",
+   "sift:sift": "G2E2",
+   "mine": "G5E3",
+   "mine+px": "G5E3",
+   "mine:fit": "G5E3",
+   "mine+px:fit": "G5E3"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synB_s9.0.png",
+   "truth": "G5E1",
+   "yolo": "G3E5",
+   "sift:auto": "no answer",
+   "sift:sift": "G2E4",
+   "mine": "G5E1",
+   "mine+px": "G5E1",
+   "mine:fit": "G5E1",
+   "mine+px:fit": "G5E1"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synC_s2.0.png",
+   "truth": "G7E1",
+   "yolo": "G6E1",
+   "sift:auto": "G3E2",
+   "sift:sift": "G2E3",
+   "mine": "G7E1",
+   "mine+px": "G7E1",
+   "mine:fit": "G7E1",
+   "mine+px:fit": "G7E1"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synC_s4.0.png",
+   "truth": "G6E2",
+   "yolo": "G6E1",
+   "sift:auto": "no answer",
+   "sift:sift": "no answer",
+   "mine": "G6E1",
+   "mine+px": "G6E1",
+   "mine:fit": "G6E2",
+   "mine+px:fit": "G6E2"
+  },
+  {
+   "kind": "synthetic",
+   "image": "synC_s7.0.png",
+   "truth": "G5E3",
+   "yolo": "G6E1",
+   "sift:auto": "G2E2",
+   "sift:sift": "no answer",
+   "mine": "G5E3",
+   "mine+px": "G5E3",
+   "mine:fit": "G5E3",
+   "mine+px:fit": "G5E3"
+  },
+  {
+   "kind": "labelled",
+   "image": "test_image_g3e6.png",
+   "truth": "G3E6",
+   "yolo": "G3E6",
+   "sift:auto": "G3E6",
+   "sift:sift": "G3E6",
+   "mine": "no answer",
+   "mine+px": "G3E5",
+   "mine:fit": "no answer",
+   "mine+px:fit": "G3E6"
+  },
+  {
+   "kind": "labelled",
+   "image": "test_image_g3e6_(1).png",
+   "truth": "G3E6",
+   "yolo": "G5E6",
+   "sift:auto": "G3E6",
+   "sift:sift": "G3E6",
+   "mine": "G5E6",
+   "mine+px": "G3E6",
+   "mine:fit": "G6E1",
+   "mine+px:fit": "G4E1"
+  },
+  {
+   "kind": "labelled",
+   "image": "test_image_g4e4.png",
+   "truth": "G4E4",
+   "yolo": "G6E1",
+   "sift:auto": "G4E3",
+   "sift:sift": "G4E3",
+   "mine": "G4E1",
+   "mine+px": "G4E1",
+   "mine:fit": "G4E2",
+   "mine+px:fit": "G4E2"
+  },
+  {
+   "kind": "labelled",
+   "image": "test_image_g5e4.png",
+   "truth": "G5E4",
+   "yolo": "G6E4",
+   "sift:auto": "G5E2",
+   "sift:sift": "G5E2",
+   "mine": "G5E1",
+   "mine+px": "G5E1",
+   "mine:fit": "G4E6",
+   "mine+px:fit": "G4E6"
+  },
+  {
+   "kind": "labelled",
+   "image": "test_image_g6e1.png",
+   "truth": "G6E1",
+   "yolo": "G6E5",
+   "sift:auto": "G5E5",
+   "sift:sift": "G5E5",
+   "mine": "G5E3",
+   "mine+px": "G5E3",
+   "mine:fit": "G5E3",
+   "mine+px:fit": "G5E3"
+  },
+  {
+   "kind": "labelled",
+   "image": "test_image_g6e6.png",
+   "truth": "G6E6",
+   "yolo": "G6E4",
+   "sift:auto": "G6E5",
+   "sift:sift": "G5E6",
+   "mine": "G6E3",
+   "mine+px": "G6E3",
+   "mine:fit": "G6E2",
+   "mine+px:fit": "G6E2"
+  }
+ ],
+ "summary": {
+  "synthetic": {
+   "YOLO (OmniTargetReader)": {
+    "images": 15,
+    "no_answer": 0,
+    "exact": 0,
+    "within_1_element": 1,
+    "mean_abs_error_elements": 8.4,
+    "mean_signed_error_elements": -7.87,
+    "worst_abs_error_elements": 15
+   },
+   "SIFT pipeline, default (auto)": {
+    "images": 15,
+    "no_answer": 12,
+    "exact": 0,
+    "within_1_element": 0,
+    "mean_abs_error_elements": 22.0,
+    "mean_signed_error_elements": -22.0,
+    "worst_abs_error_elements": 24
+   },
+   "SIFT pipeline, forced SIFT": {
+    "images": 15,
+    "no_answer": 12,
+    "exact": 0,
+    "within_1_element": 0,
+    "mean_abs_error_elements": 20.67,
+    "mean_signed_error_elements": -20.67,
+    "worst_abs_error_elements": 28
+   },
+   "Matched-filter reader, no hint": {
+    "images": 15,
+    "no_answer": 0,
+    "exact": 13,
+    "within_1_element": 15,
+    "mean_abs_error_elements": 0.13,
+    "mean_signed_error_elements": -0.13,
+    "worst_abs_error_elements": 1
+   },
+   "Matched-filter reader, pixel size given": {
+    "images": 15,
+    "no_answer": 0,
+    "exact": 13,
+    "within_1_element": 15,
+    "mean_abs_error_elements": 0.13,
+    "mean_signed_error_elements": -0.13,
+    "worst_abs_error_elements": 1
+   },
+   "Matched-filter reader + CTF fit, no hint": {
+    "images": 15,
+    "no_answer": 0,
+    "exact": 15,
+    "within_1_element": 15,
+    "mean_abs_error_elements": 0.0,
+    "mean_signed_error_elements": 0.0,
+    "worst_abs_error_elements": 0
+   },
+   "Matched-filter reader + CTF fit, pixel size given": {
+    "images": 15,
+    "no_answer": 0,
+    "exact": 15,
+    "within_1_element": 15,
+    "mean_abs_error_elements": 0.0,
+    "mean_signed_error_elements": 0.0,
+    "worst_abs_error_elements": 0
+   }
+  },
+  "labelled": {
+   "YOLO (OmniTargetReader)": {
+    "images": 6,
+    "no_answer": 0,
+    "exact": 1,
+    "within_1_element": 1,
+    "mean_abs_error_elements": 5.5,
+    "mean_signed_error_elements": 4.83,
+    "worst_abs_error_elements": 12
+   },
+   "SIFT pipeline, default (auto)": {
+    "images": 6,
+    "no_answer": 0,
+    "exact": 2,
+    "within_1_element": 4,
+    "mean_abs_error_elements": 1.0,
+    "mean_signed_error_elements": -1.0,
+    "worst_abs_error_elements": 2
+   },
+   "SIFT pipeline, forced SIFT": {
+    "images": 6,
+    "no_answer": 0,
+    "exact": 2,
+    "within_1_element": 3,
+    "mean_abs_error_elements": 1.83,
+    "mean_signed_error_elements": -1.83,
+    "worst_abs_error_elements": 6
+   },
+   "Matched-filter reader, no hint": {
+    "images": 6,
+    "no_answer": 1,
+    "exact": 0,
+    "within_1_element": 0,
+    "mean_abs_error_elements": 5.0,
+    "mean_signed_error_elements": -0.2,
+    "worst_abs_error_elements": 12
+   },
+   "Matched-filter reader, pixel size given": {
+    "images": 6,
+    "no_answer": 0,
+    "exact": 1,
+    "within_1_element": 2,
+    "mean_abs_error_elements": 2.33,
+    "mean_signed_error_elements": -2.33,
+    "worst_abs_error_elements": 4
+   },
+   "Matched-filter reader + CTF fit, no hint": {
+    "images": 6,
+    "no_answer": 1,
+    "exact": 0,
+    "within_1_element": 0,
+    "mean_abs_error_elements": 5.4,
+    "mean_signed_error_elements": -0.2,
+    "worst_abs_error_elements": 13
+   },
+   "Matched-filter reader + CTF fit, pixel size given": {
+    "images": 6,
+    "no_answer": 0,
+    "exact": 1,
+    "within_1_element": 2,
+    "mean_abs_error_elements": 2.5,
+    "mean_signed_error_elements": -2.17,
+    "worst_abs_error_elements": 4
+   }
+  }
+ },
+ "contrast_accuracy": {
+  "Matched-filter reader, no hint": {
+   "elements": 507,
+   "mean_abs_error": 0.0049,
+   "median": 0.0021,
+   "p95": 0.0246,
+   "max": 0.041
+  },
+  "Matched-filter reader, pixel size given": {
+   "elements": 507,
+   "mean_abs_error": 0.0049,
+   "median": 0.0021,
+   "p95": 0.0246,
+   "max": 0.041
+  }
+ },
+ "unlabelled": [
+  {
+   "image": "STIMscopeLFOVImage.bmp",
+   "yolo": "G6E4",
+   "sift:auto": "G7E6",
+   "sift:sift": "G7E1",
+   "mine": "G5E5",
+   "mine:fit": "G6E3"
+  },
+  {
+   "image": "SingleWell.PNG",
+   "yolo": "G6E2",
+   "sift:auto": "G6E4",
+   "sift:sift": "G5E6",
+   "mine": "G6E5",
+   "mine:fit": "G6E5"
+  },
+  {
+   "image": "USAF-Test-1.png",
+   "yolo": "G5E2",
+   "sift:auto": "G5E6",
+   "sift:sift": "G5E6",
+   "mine": "G5E5",
+   "mine:fit": "G5E6"
+  },
+  {
+   "image": "USAF-Test-2.png",
+   "yolo": "G6E6",
+   "sift:auto": "G6E5",
+   "sift:sift": "G5E5",
+   "mine": "G6E3",
+   "mine:fit": "G6E2"
+  },
+  {
+   "image": "USAF-Test-3.bmp",
+   "yolo": "G6E2",
+   "sift:auto": "G6E2",
+   "sift:sift": "G6E2",
+   "mine": "G6E1",
+   "mine:fit": "G6E1"
+  }
+ ],
+ "median_seconds_per_image": {
+  "YOLO (OmniTargetReader)": 2.0,
+  "SIFT pipeline, default (auto)": 4.4,
+  "SIFT pipeline, forced SIFT": 3.9,
+  "Matched-filter reader, no hint": 14.149999999999999,
+  "Matched-filter reader, pixel size given": 14.3,
+  "Matched-filter reader + CTF fit, no hint": 14.149999999999999,
+  "Matched-filter reader + CTF fit, pixel size given": 14.3
+ }
+}
