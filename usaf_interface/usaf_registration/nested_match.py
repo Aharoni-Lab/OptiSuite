@@ -13,6 +13,13 @@ with its labels shifted by an even number ("4@-2" = config 4 used as groups 2-5)
 
 Layer 1: whole-photo SIFT, photo resized to template density by the big square. A match
 ~0.25x the expected size locked onto the inner copy -> moved out one level.
+Deeper layers (NESTED_MATCH):
+  "own_template": the layer's own template, shrunk to the layer-above template's scale,
+                  matched in a cutout around where the layer above puts it
+  "parent_crop":  the layer-above template's region of these groups, same cutout
+Same settings for both: ratio 0.8, RANSAC 6 px, >= 6 inliers, boxes not broken, size within
+3x of the prediction. If a layer fails, it and every deeper layer use the last good match's
+boxes and nothing deeper is matched.
 """
 import json
 from pathlib import Path
@@ -26,6 +33,10 @@ LEVELS = {int(c): t["levels"] for c, t in _TEMPLATE_DATA.items()}
 FIRST_GROUP = {int(c): t["first_group"] for c, t in _TEMPLATE_DATA.items()}
 PREF = [3, 4, 14, 17, 16]          # real renders before the synthetic 6-9 ones
 
+CUTOUT_MARGIN = 0.30               # cutout around the predicted block, each side
+TEMPLATE_MARGIN = 0.15             # "parent_crop" template region around the block, each side
+MIN_INLIERS = 6
+SIZE_GATE = 3.0
 MAX_DIM = 7000                     # cap on the resized photo's longer side (px)
 
 _CACHE = {"img": {}, "kd": {}, "tmap": {}, "inner": {}}
@@ -255,3 +266,92 @@ def _layer_one_match(self, gray, flip, key, g0):
             raise ValueError(f"template {key}: matched inner copy, re-anchor didn't line up")
         H, note = H2, f", re-anchored one level out (was {ratio:.2f}x)"
     return H, n, note
+
+
+def _deeper(self, gray, H_out, key_out, key_in, g_in, g_out, flip, own_template):
+    """Match one deeper layer. Returns (H: key_in px -> photo px or None, info, why-not)."""
+    info = {"template": str(key_in)}
+    h, w = gray.shape
+    bx_in = _boxes(key_in, flip, g_in)
+    tc = _corners(bx_in)
+    H_pred = H_out @ _tmap(key_in, key_out, flip)
+    proj = _apply(H_pred, tc)
+    if not np.all(np.isfinite(proj)):
+        return None, info, "layer above not finite"
+    lo, hi = proj.min(0), proj.max(0)
+    m = CUTOUT_MARGIN * (hi - lo)
+    x0, y0 = np.maximum((lo - m).astype(int), 0)
+    x1, y1 = np.minimum((hi + m).astype(int), [w, h])
+    if x1 - x0 < 8 or y1 - y0 < 8:
+        return None, info, "cutout empty / off image"
+    cut = gray[y0:y1, x0:x1]
+    if own_template:
+        # shrink the template (not blow up the photo) to the layer-above template's scale
+        k = min(1.0, _local_scale(_tmap(key_in, key_out, flip), tc.mean(0)))
+        s = min(k / _local_scale(H_pred, tc.mean(0)), MAX_DIM / max(cut.shape))
+        kp1, d1 = _kd(self, key_in, flip, scale=k)
+        post = np.diag([k, k, 1])
+    else:
+        s = min(1.0 / _local_scale(H_pred, tc.mean(0)), MAX_DIM / max(cut.shape))
+        th, tw = _template_image(self, _base(key_in), flip).shape
+        tlo, thi = tc.min(0), tc.max(0)
+        tm = TEMPLATE_MARGIN * (thi - tlo)
+        region = (int(max(tlo[0] - tm[0], 0)), int(max(tlo[1] - tm[1], 0)),
+                  int(min(thi[0] + tm[0], tw)), int(min(thi[1] + tm[1], th)))
+        kp1, d1 = _kd(self, key_in, flip, region=region)
+        post = np.array([[1, 0, -region[0]], [0, 1, -region[1]], [0, 0, 1]], float)
+    tgt = cv2.resize(cut, None, fx=s, fy=s, interpolation=cv2.INTER_LANCZOS4 if s > 1 else cv2.INTER_AREA) if abs(s - 1) > 1e-3 else cut
+    H, n, ng = _fit(kp1, d1, tgt, 0.8, 6.0, 1)
+    info.update(cutout=[int(x0), int(y0), int(x1), int(y1)], inliers=n, matches=ng)
+    if H is None:
+        return None, info, f"no fit ({ng} matches)" if ng < 4 else f"too few inliers ({n})"
+    H = np.array([[1, 0, x0], [0, 1, y0], [0, 0, 1]], float) @ np.diag([1 / s, 1 / s, 1]) @ H @ post
+    if n < MIN_INLIERS:
+        return H, info, f"too few inliers ({n})"
+    if not _quads_sane(H, bx_in):
+        return H, info, "boxes broken"
+    bx_out = _boxes(key_out, flip, g_out)
+    if _quads_sane(H_out, bx_out):
+        r = np.linalg.norm(np.ptp(_apply(H, tc), 0)) / np.linalg.norm(np.ptp(proj, 0))
+        info["size_vs_prediction"] = round(float(r), 2)
+        if not (np.isfinite(r) and 1 / SIZE_GATE <= r <= SIZE_GATE):
+            return H, info, f"implausible size ({r:.2f}x)"
+    else:
+        bo = _boxes(key_in, flip, g_out)
+        if bo:
+            po = _apply(H, _corners(bo))
+            inside = (po[:, 0].min() >= -0.05 * w and po[:, 1].min() >= -0.05 * h
+                      and po[:, 0].max() <= 1.05 * w and po[:, 1].max() <= 1.05 * h)
+            if not (inside and _quads_sane(H, bo)):
+                return H, info, "matched the outer copy of the pattern"
+    return H, info, None
+
+
+def nested_match_layers(self, gray, flip, g0, nested, method="own_template"):
+    """[{group, H, template, fallback, desc, info}] one per nested level, biggest first.
+    method: "own_template" or "parent_crop" (see the module docstring)."""
+    if method not in ("own_template", "parent_crop"):
+        raise ValueError(f"nested_match: unknown NESTED_MATCH {method!r} (own_template / parent_crop)")
+    spec = [(g0 + 2 * i, nested_template_for(g0 + 2 * i, nested - i)) for i in range(nested)]
+    H, n, note = _layer_one(self, gray, flip, spec[0][1], spec[0][0])
+    layers = [dict(group=spec[0][0], H=H, template=spec[0][1], fallback=False,
+                   desc=f"SIFT template {spec[0][1]} ({n} inliers{note})", info={"inliers": n})]
+    stopped = None
+    for i in range(1, len(spec)):
+        g_in, key_in = spec[i]
+        up = layers[-1]
+        if stopped:
+            layers.append(dict(group=g_in, H=up["H"], template=up["template"], fallback=True, info={},
+                               desc=f"not matched (stopped after groups {stopped} fell back); boxes from template {up['template']}"))
+            continue
+        own = method == "own_template"
+        key = key_in if own else spec[i - 1][1]
+        Hf, info, why = _deeper(self, gray, up["H"], up["template"], key, g_in, up["group"], flip, own_template=own)
+        meth = f"SIFT template {key}" if own else f"parent crop of template {key}"
+        if why is None:
+            layers.append(dict(group=g_in, H=Hf, template=key, fallback=False, info=info, desc=f"{meth} ({info['inliers']} inliers)"))
+        else:
+            layers.append(dict(group=g_in, H=up["H"], template=up["template"], fallback=True, info=info,
+                               desc=f"fallback, boxes from the match above ({meth}: {why})"))
+            stopped = f"{g_in}-{g_in + 1}"
+    return layers
