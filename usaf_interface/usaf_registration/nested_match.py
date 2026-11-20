@@ -265,16 +265,21 @@ def _layer_one_match(self, gray, flip, key, g0):
     H = np.diag([1 / sc, 1 / sc, 1]) @ H
     if not _quads_sane(H, _boxes(key, flip, g0)):
         raise ValueError(f"template {key}: boxes broken")
+    # the target repeats every nested level, so the match can slip one level either way (judged by
+    # the size the template's square lands at vs the photo's square): move it back one level
     ratio = _local_scale(H, t_sq) / (p_side / t_side)
     note = ""
-    if 0.18 <= ratio <= 0.35:       # matched the 4x-smaller inner copy -> move out one level
-        H2 = H @ np.linalg.inv(_inner_copy(key, flip))
-        r2 = _local_scale(H2, t_sq) / (p_side / t_side)
-        off = np.linalg.norm(_apply(H2, t_sq)[0] - p_sq) / p_side
-        if not (0.6 <= r2 <= 1.6 and off < 0.5):
-            raise ValueError(f"template {key}: matched inner copy, re-anchor didn't line up")
-        H, note = H2, f", re-anchored one level out (was {ratio:.2f}x)"
-    return H, n, note
+    if 0.18 <= ratio <= 0.35:       # photo's level matched the template's 4x-smaller inner copy -> move out
+        H2, way = H @ np.linalg.inv(_inner_copy(key, flip)), "out"
+    elif 2.8 <= ratio <= 5.5:       # photo's level matched by the template's inner copy (4x too big) -> move in
+        H2, way = H @ _inner_copy(key, flip), "in"
+    else:
+        return H, n, note
+    r2 = _local_scale(H2, t_sq) / (p_side / t_side)
+    off = np.linalg.norm(_apply(H2, t_sq)[0] - p_sq) / p_side
+    if not (0.6 <= r2 <= 1.6 and off < 0.5):
+        raise ValueError(f"template {key}: matched one level {way}, re-anchor didn't line up")
+    return H2, n, f", re-anchored one level {way} (was {ratio:.2f}x)"
 
 
 def _deeper(self, gray, H_out, key_out, key_in, g_in, g_out, flip, own_template):
