@@ -19,6 +19,14 @@ class UsafConfig:
         # target-space point to test image for scoring and adjustment
         self.OPTIONAL_SETTING = False
 
+        # nested matching (nested_match.py): glyph boxes carried from the annotated templates by SIFT,
+        # one nested level at a time, each found inside the level above
+        self.NESTED_MATCH = "own_template"
+        # "own_template": each nested level matched with its own template
+        # "parent_crop": each nested level matched with its region of the template one level up
+        self.NESTED_GROUP = None             # biggest group in view; None -> read the printed group numbers, else 8 - 2*pattern_count
+        self.NESTED_MAX_GROUP = 7            # groups past this are matched but not scored (groups 8-9 later)
+
         # gradient settings
         self.GRADIENT_MIN = False
         self.GRADIENT_PLOT_ENABLE = False       # visualize selected scanline intensity + gradient
@@ -148,6 +156,9 @@ class UsafConfig:
         self.retry_count = 0
         self.pattern_count = 0
         self.current_image_label = "image"
+        self.current_image_path = None
+        self.current_raw_image = None        # image before contrast normalization (scanline checker input)
+        self.nested_result = None            # record of the nested matching (start group, layers, checker)
         self._sift_ref_image_cache = None
         self._sift_h_matrix = None  # ref->test homography from last coordinate_calibration (SIFT path)
         self._itk_transform_params = None  # optional refinement from SIFT-warped reference target-space -> target
