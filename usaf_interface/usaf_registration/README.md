@@ -75,10 +75,21 @@ scanline and printed group number annotated in `nested_templates.json`:
 | 16 | `sift_ref_group89_degraded.png` | 8-9 | 1 |
 | 17 | `sift_ref_group69_degraded.png` | 6-9 | 2 |
 
+![The five templates with their annotated glyph boxes, printed group numbers and white square](docs/templates.jpg)
+
 A template can be relabelled to other groups (`4@+2` = template 4 read as 6-9), since every
 nested level has the same pattern. Each layer uses the template with exactly as many levels as
 are left from there, preferring one whose own labels match, otherwise the first of 3, 4, 14, 17,
-16 relabelled: a single 6-7 level uses `14@+4`, a single 8-9 level uses 16.
+16 relabelled:
+
+| Groups in view | Layer 1 | Layer 2 | Layer 3 |
+|---|---|---|---|
+| 2-7 | 2-3: `3` | 4-5: `4` | 6-7: `14@+4` |
+| 4-9 | 4-5: `3@+2` | 6-7: `17` | 8-9: `16` |
+| 2-5 | 2-3: `4@-2` | 4-5: `14@+2` | |
+| 4-7 | 4-5: `4` | 6-7: `14@+4` | |
+| 6-9 | 6-7: `17` | 8-9: `16` | |
+| one level | 2-3: `14`, 4-5: `14@+2`, 6-7: `14@+4`, 8-9: `16` | | |
 
 **Layer 1, the biggest level in view.** SIFT on the whole photo, scaled so its white square matches
 the template's; Lowe ratio test (0.75), one-to-one matches, RANSAC homography (≥ 8 inliers). The
@@ -159,4 +170,5 @@ python -m usaf_interface.usaf_registration.nested_report <images or folders> --o
 | `constants.py` | settings and per-photo state |
 | `nested_report.py` | drawings of the projected boxes |
 | `nested_templates.json`, `templates/` | annotated templates |
+| `docs/` | figures for this README |
 | `models/` | `4p_detect_ultra_pro_max.pt` (4-point model), `best23.pt` (scanline detector, app default) |
