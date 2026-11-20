@@ -1,37 +1,14 @@
 from pathlib import Path
+
 import cv2
-from ultralytics import YOLO
-import numpy as np
 import matplotlib.pyplot as plt
-from .transforms import yolo2screen
+import numpy as np
+from ultralytics import YOLO
 
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "models/best23.pt"
-NUM_MODEL_PATH = BASE_DIR / "models/best_num_classify.pt"
-# RES_MODEL_PATH = BASE_DIR / "models/resolution_cls_model2.pt"
-RES_MODEL_PATH = BASE_DIR / "models/pattern_classify_v2_thresh_0.2.pt"
-# RES_MODEL_PATH = BASE_DIR / "models/0.2_threshold_classification.pt"
-# PT4_MODEL_PATH = BASE_DIR / "models/best_4p_4_focused.pt"
-PT4_MODEL_PATH = BASE_DIR / "models/4p_detect_ultra_pro_max.pt"
-SINGLE_SCANLINE_MODEL_PATH = BASE_DIR / "models/single_pattern_scanline_v2.pt"
-
-
-
-
-
-
-
-
-def classify_resolution(self, img):
-    img = cv2.resize(img, (256, 256))
-    model = self.get_yolo_model(RES_MODEL_PATH)
-    results = model(img, verbose=False)
-    result = results[0]
-    if result.probs is None:
-        return "unresolved", 0.0
-    # return result and it confidence score for the top class
-    return result.names[result.probs.top1], float(result.probs.top1conf.item())
+MODEL_PATH = BASE_DIR / "models/best23.pt"                        # scanline detector (UI router fallback)
+PT4_MODEL_PATH = BASE_DIR / "models/4p_detect_ultra_pro_max.pt"   # 4-point pattern detector: nested count + flip
 
 
 def count_4pts_pattern(self, img):
@@ -85,14 +62,6 @@ def count_4pts_pattern(self, img):
         raise RuntimeError("yolo_model.count_4pts_pattern: YOLO returned no bounding boxes")
 
     return first_result
-    
-
-
-
-
-
-
-
 
 
 def yolo_4pt_calculation(self, pt4_pattern_result):
@@ -147,13 +116,6 @@ def yolo_4pt_calculation(self, pt4_pattern_result):
     yolo_dir = max(directions, key=lambda x: x[1])[0]
     self.C.FLIPED_TARGET = yolo_dir
     return yolo_dir
-
-
-
-
-
-
-
 
 
 def get_yolo_model(self, model_path):
@@ -292,63 +254,3 @@ def visualize_detections(self, img, result = None, detections = None):
     plt.show()
     
     return img_vis
-
-
-def detect_single_scanline_keypoints(self, image, imgsz=256, conf=0.10, iou=0.5):
-    """
-    Run SINGLE_SCANLINE_MODEL_PATH (keypoint model) on an image and return detected keypoints.
-
-    Args:
-        image: BGR numpy array, or a path string/Path.
-        imgsz: YOLO inference image size.
-        conf: Confidence threshold.
-        iou: IOU threshold.
-
-    Returns:
-        List of (x, y) integer keypoint coordinates.
-    """
-    model = self.get_yolo_model(SINGLE_SCANLINE_MODEL_PATH)
-
-    if isinstance(image, (str, Path)):
-        img = cv2.imread(str(image))
-        if img is None:
-            raise FileNotFoundError(f"yolo_model.detect_single_scanline_keypoints: Could not read image: {image}")
-        source = str(image)
-    else:
-        img = image
-        if img is None or img.size == 0:
-            raise ValueError("yolo_model.detect_single_scanline_keypoints: Invalid image array")
-        source = img
-
-    results = model(source, imgsz=imgsz, conf=conf, iou=iou, verbose=False)
-    if not results:
-        return []
-
-    result = results[0]
-    keypoints = []
-
-    if result.keypoints is not None and result.keypoints.xy is not None:
-        keypoints_xy = result.keypoints.xy.cpu().numpy()
-        for det_points in keypoints_xy:
-            kp1, kp2 = det_points[:2]  # Take first 2 keypoints
-            if np.isnan(kp1[0]) or np.isnan(kp1[1]) or np.isnan(kp2[0]) or np.isnan(kp2[1]):
-                continue
-            kp1, kp2 = (int(round(float(kp1[0]))), int(round(float(kp1[1])))), (int(round(float(kp2[0]))), int(round(float(kp2[1]))))
-            keypoints.append((kp1, kp2))
-
-    if self.C.DEBUG_MODE and False:
-        img_vis = img.copy()
-        for p1, p2 in keypoints:
-            cv2.circle(img_vis, p1, 4, (0, 0, 255), -1)
-            cv2.circle(img_vis, p2, 4, (0, 255, 255), -1)
-            cv2.line(img_vis, p1, p2, (0, 255, 0), 1)
-
-        plt.figure("Single Scanline KP Debug", figsize=(8, 8))
-        plt.clf()
-        plt.imshow(cv2.cvtColor(img_vis, cv2.COLOR_BGR2RGB))
-        plt.title(f"Detected keypoints: {len(keypoints)}")
-        plt.axis("off")
-        plt.tight_layout()
-        plt.show()
-
-    return keypoints
