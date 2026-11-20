@@ -19,7 +19,6 @@ class UsafConfig:
         # "own_template": each nested level matched with its own template
         # "parent_crop": each nested level matched with its region of the template one level up
         self.NESTED_GROUP = None             # biggest group in view; None -> read the printed group numbers, else 8 - 2*pattern_count
-        self.NESTED_MAX_GROUP = 7            # groups past this are matched but not scored (groups 8-9 later)
 
         self.BASE_DIR = str(Path(__file__).resolve().parent)
         self.LOG_PATH = Path(self.BASE_DIR).parent.parent / "logs"

@@ -562,12 +562,8 @@ def nested_scanline_contrast_scores(self, img, gray, normalized_gray):
     rec["layers"] = [dict(groups=f"{L['group']}-{L['group'] + 1}", template=str(L["template"]), fallback=L["fallback"],
                           desc=L["desc"], H=L["H"].tolist()) for L in layers]
 
-    # score table: every element of the placed groups, up to NESTED_MAX_GROUP (groups 8-9 not scored for now)
-    last = min(layers[-1]["group"] + 1, self.C.NESTED_MAX_GROUP)
-    by_group = {g: L for L in layers for g in (L["group"], L["group"] + 1) if g <= last}
-    if not by_group:
-        rec["error"] = f"no scored groups (first group {layers[0]['group']} > {self.C.NESTED_MAX_GROUP})"
-        raise ValueError(f"nested_match: {rec['error']}")
+    # score table: every element of the placed groups
+    by_group = {g: L for L in layers for g in (L["group"], L["group"] + 1)}
     self.C.score_table = {i: [g, e] for i, (g, e) in enumerate((g, e) for g in sorted(by_group) for e in range(1, 7))}
     n = len(self.C.score_table)
 
