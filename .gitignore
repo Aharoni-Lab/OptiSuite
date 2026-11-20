@@ -25,3 +25,9 @@ TD.txt
 screenshots/
 
 .venv/
+.venv-usaf/
+
+# generated report output (regenerable by re-running each report's run_batch.py)
+*/annotated/
+*.zip
+.DS_Store
