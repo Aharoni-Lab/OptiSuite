@@ -64,7 +64,7 @@ def count_4pts_pattern(self, img):
 
     # Safety Check 2: Ensure model path is valid
     try:
-        model = YOLO(str(PT4_MODEL_PATH))
+        model = self.get_yolo_model(PT4_MODEL_PATH)
     except Exception as e:
         raise RuntimeError(f"yolo_model.count_4pts_pattern: Error loading model from {PT4_MODEL_PATH}: {e}")
         
