@@ -31,15 +31,12 @@ def _config_scope(reg: UsafRegistration, config: USAFAnalyzerConfig) -> Iterator
     original = {
         "DEBUG_MODE": C.DEBUG_MODE,
         "PREVIEW_MODE": C.PREVIEW_MODE,
-        "YOLO_DETECT": C.YOLO_DETECT,
         "FLIPED_TARGET": C.FLIPED_TARGET,
-        "AUTO_ADJUST": C.AUTO_ADJUST,
     }
+    # allow_model_assist / auto_adjust belonged to the old world-table path and no longer do anything
     C.DEBUG_MODE = config.debug_mode
     C.PREVIEW_MODE = config.show_preview
-    C.YOLO_DETECT = config.allow_model_assist
     C.FLIPED_TARGET = config.flipped_target
-    C.AUTO_ADJUST = config.auto_adjust
     try:
         yield
     finally:
@@ -90,21 +87,22 @@ class USAFAnalyzer(ResolutionAnalyzer):
         self.usaf = UsafRegistration()
 
     def probe(self, context) -> float:
-        candidates = _flip_mode_to_candidates(self.config.flip_mode)
-        best_probe = 0.1
-        for _label, flipped_target in candidates:
-            probe_config = replace(self.config, flipped_target=flipped_target)
-            try:
-                with _config_scope(self.usaf, probe_config):
-                    corners = self.usaf.find_square_corners(context.gray_image.copy())
-                    if corners is not None:
-                        calibration = self.usaf.coordinate_calibration(context.gray_image.copy(), corners)
-                        if calibration is not None:
-                            best_probe = max(best_probe, 0.96)
-                        else:
-                            best_probe = max(best_probe, 0.35)
-            except Exception:
-                continue
+        # YOLO finds USAF patterns -> 0.96, only the white square -> 0.35, neither -> 0.1
+        try:
+            patterns = len(self.usaf.count_4pts_pattern(context.color_image).boxes)
+        except Exception:
+            patterns = 0
+        try:
+            self.usaf.find_square_corners(context.gray_image.copy())
+            square = True
+        except Exception:
+            square = False
+        if patterns > 0:
+            best_probe = 0.96
+        elif square:
+            best_probe = 0.35
+        else:
+            best_probe = 0.1
         if self.config.flip_mode == "auto" and best_probe >= 0.35:
             best_probe += 0.01
         return best_probe
@@ -142,11 +140,6 @@ class USAFAnalyzer(ResolutionAnalyzer):
                     scores_list = [item["score"] for item in scores.values()]
 
                     overlay_items: list[OverlayItem] = []
-                    corners = self.usaf.find_square_corners(context.gray_image.copy())
-                    corners = None
-                    if corners is not None:
-                        screen_points = [(int(x), int(context.gray_image.shape[0] - y - 1)) for x, y in corners]
-                        overlay_items.append(OverlayItem(kind="polygon", points=screen_points, color=(0, 255, 255), thickness=2))
 
                 candidate_results.append(
                     {
