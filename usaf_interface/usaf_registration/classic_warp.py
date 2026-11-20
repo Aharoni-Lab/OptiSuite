@@ -140,13 +140,17 @@ def find_square_corners(self, gray):
         # Use GaussianBlur to reduce noise before thresholding
         blurred = cv2.GaussianBlur(scaled_gray, (5, 5), 0)
         # Use Otsu's thresholding to automatically find the best light/dark split
-        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        # # Find all contours
-        contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        # Sort contours by area (largest first)
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # On dark, blurry photos the Otsu cut sits low and the square's glow merges with the bars
+        # next to it; brighter cuts (fractions of the brightest level) separate it again.
+        top = float(np.percentile(blurred, 99.5))
+        cuts = [otsu] + [cv2.threshold(blurred, f * top, 255, cv2.THRESH_BINARY)[1] for f in (0.5, 0.65, 0.8)]
+        # all contours of every cut, largest first
+        contours = [(cnt, thresh) for thresh in cuts
+                    for cnt in cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[0]]
+        contours.sort(key=lambda ct: cv2.contourArea(ct[0]), reverse=True)
 
-        for cnt in contours:
+        for cnt, thresh in contours:
             area_scaled = cv2.contourArea(cnt)
             if area_scaled < 500:  # Ignore tiny noise on the current scale
                 continue
