@@ -31,6 +31,20 @@ def sample_line_profile(self, gray, pt_a, pt_b, sample_count=200):
 
 
 
+def extend_line(self, pt_a, pt_b, extend_length=1.0):
+    """Extends segment AB at both ends by extend_length x its length."""
+    a = np.array(pt_a, dtype=np.float32)
+    b = np.array(pt_b, dtype=np.float32)
+    direction = b - a
+    length = np.linalg.norm(direction)
+    if length == 0:
+        return a, b
+    unit_vector = direction / length
+    new_a = a - (unit_vector * extend_length * length)
+    new_b = b + (unit_vector * extend_length * length)
+    return (int(new_a[0]), int(new_a[1])), (int(new_b[0]), int(new_b[1]))
+
+
 def is_image_clear(self, curr_image, threshold=3.0):
     if curr_image is None or curr_image.size == 0:
         if self.C.DEBUG_MODE:
