@@ -4,6 +4,10 @@ template boxes (nested_templates.json, template pixels) onto the photo with SIFT
 homographies. Experiments, reports and notes behind it are on branch emz95-experiments
 (lab_images_report/NOTES.md).
 
+Which groups: biggest group g0 and the NESTED count = YOLO pattern_count (count_4pts_pattern).
+g0 = NESTED_GROUP, else 8 - 2*pattern_count. Layers are g0, g0+2, ...
+(one pair of groups per nested level); g0 and the nested count pick the templates below.
+
 Templates by nested count: each layer's template holds exactly the levels still left
   3 left -> config 3 (full target, groups 2-7)
   2 left -> config 4 (groups 4-7) or config 17 (6-9)
@@ -27,11 +31,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from scipy.signal import savgol_filter
+
 _DIR = Path(__file__).resolve().parent
 _TEMPLATE_DATA = json.loads((_DIR / "nested_templates.json").read_text())["templates"]   # keyed by template id
 LEVELS = {int(c): t["levels"] for c, t in _TEMPLATE_DATA.items()}
 FIRST_GROUP = {int(c): t["first_group"] for c, t in _TEMPLATE_DATA.items()}
 PREF = [3, 4, 14, 17, 16]          # real renders before the synthetic 6-9 ones
+MAX_TEMPLATE_GROUP = 9
 
 CUTOUT_MARGIN = 0.30               # cutout around the predicted block, each side
 TEMPLATE_MARGIN = 0.15             # "parent_crop" template region around the block, each side
@@ -355,3 +362,113 @@ def nested_match_layers(self, gray, flip, g0, nested, method="own_template"):
                                desc=f"fallback, boxes from the match above ({meth}: {why})"))
             stopped = f"{g_in}-{g_in + 1}"
     return layers
+
+
+# ---------------------------------------------------------------------------------------
+# scanline checker
+# ---------------------------------------------------------------------------------------
+def nested_scanline_contrast_scores(self, img, gray, normalized_gray):
+    """
+    (final_score, scanline_map) with every scanline placed by nested matching: the annotated
+    box's scanline, projected. Scored by the scanline checker (check_scanline); the per-glyph
+    result is in self.C.nested_result["checker"]. Scanlines are drawn onto img (green = resolved).
+    Raises ValueError if the whole-photo (layer 1) match fails with both mirror states.
+    """
+    method = self.C.NESTED_MATCH
+    flip = bool(self.C.FLIPED_TARGET)
+    nested = int(np.clip(self.C.pattern_count, 1, 3))
+    self._layer_one_cache = {}
+    # biggest group: NESTED_GROUP, else 8 - 2*pattern_count
+    if self.C.NESTED_GROUP is not None:
+        g0, g_src = int(self.C.NESTED_GROUP), "NESTED_GROUP"
+    else:
+        g0, g_src = 8 - 2 * nested, "8 - 2*pattern_count"
+    nested = max(1, min(nested, (MAX_TEMPLATE_GROUP - g0 + 1) // 2))
+    rec = dict(method=method, first_group=g0, first_group_source=g_src, nested=nested,
+               pattern_count=int(self.C.pattern_count), flip=flip)
+    self.C.nested_result = rec
+    layers, errs = None, []
+    for fl in (flip, not flip):     # FLIPED_TARGET comes from the YOLO 4-pt direction; if that misses, try the mirror
+        try:
+            layers = nested_match_layers(self, gray, fl, g0, nested, method)
+            if fl != flip:
+                rec["flip_retry"] = f"layer 1 failed with flip={flip} ({errs[0]}); matched mirrored"
+                rec["flip"] = flip = fl
+            break
+        except Exception as e:
+            errs.append(f"{type(e).__name__}: {e}")
+    if layers is None:
+        rec["error"] = f"layer 1 failed: flip={flip}: {errs[0]}; flip={not flip}: {errs[1]}"
+        raise ValueError(f"nested_match: {rec['error']}")
+
+    # drop leading layers that are mostly outside the photo (e.g. groups 2-3 cut off by the frame)
+    h, w = gray.shape
+    def inside(L):
+        c = np.array([_apply(L["H"], b["quad"]).mean(0) for b in _boxes(L["template"], flip, L["group"])])
+        return np.mean((c[:, 0] >= 0) & (c[:, 0] < w) & (c[:, 1] >= 0) & (c[:, 1] < h))
+    while len(layers) > 1 and inside(layers[0]) < 0.5:
+        rec.setdefault("dropped_out_of_frame", []).append(f"{layers[0]['group']}-{layers[0]['group'] + 1}")
+        layers = layers[1:]
+    rec["layers"] = [dict(groups=f"{L['group']}-{L['group'] + 1}", template=str(L["template"]), fallback=L["fallback"],
+                          desc=L["desc"], H=L["H"].tolist()) for L in layers]
+
+    # score table: every element of the placed groups, up to NESTED_MAX_GROUP (groups 8-9 not scored for now)
+    last = min(layers[-1]["group"] + 1, self.C.NESTED_MAX_GROUP)
+    by_group = {g: L for L in layers for g in (L["group"], L["group"] + 1) if g <= last}
+    if not by_group:
+        rec["error"] = f"no scored groups (first group {layers[0]['group']} > {self.C.NESTED_MAX_GROUP})"
+        raise ValueError(f"nested_match: {rec['error']}")
+    self.C.score_table = {i: [g, e] for i, (g, e) in enumerate((g, e) for g in sorted(by_group) for e in range(1, 7))}
+    n = len(self.C.score_table)
+
+    # scanline checker: full-box scanline straight from the projected box, p98-p2 contrast on the raw image / its max, local minima on the line extended 20%;
+    # resolved = >= 2 minima and contrast > SCORE_THRESHOLD. No crops, no classifier.
+    raw = self.C.current_raw_image
+    if raw is not None:
+        rg = cv2.cvtColor(raw, cv2.COLOR_BGR2GRAY) if raw.ndim == 3 else raw
+        check_gray = np.clip(rg.astype(float) / max(1, int(rg.max())), 0, 1)
+    else:
+        check_gray = normalized_gray
+    scores, scanlines, checks = {}, {}, []
+    for i in range(n):
+        g, e = self.C.score_table[i]
+        L = by_group[g]
+        boxes = {b["dir"]: b for b in _boxes(L["template"], flip, L["group"]) if b["label"] == (g, e)}
+        for key, d in ((i, "vertical"), (i + n, "horizontal")):
+            box = boxes.get(d) or next(iter(boxes.values()))
+            pa, pb = _apply(L["H"], box["scan"])
+            pt_a, pt_b = (int(round(pa[0])), int(round(pa[1]))), (int(round(pb[0])), int(round(pb[1])))
+            score, minima = check_scanline(self, check_gray, pt_a, pt_b)
+            resolved = minima >= 2 and score > self.C.SCORE_THRESHOLD
+            scores[key] = {"score": score, "type": "local_min" if minima >= 2 else "grid"}
+            scanlines[key] = {"pt_a": list(pt_a), "pt_b": list(pt_b), "score": float(score), "used_yolo": False,
+                              "minima": int(minima), "resolved": bool(resolved),
+                              "fallback": L["fallback"], "template": str(L["template"])}
+            checks.append(dict(group=g, element=e, dir=d, scan_index=i, score=round(float(score), 3),
+                               minima=int(minima), resolved=bool(resolved)))
+            cv2.line(img, pt_a, pt_b, (0, 200, 0) if resolved else (0, 0, 255), 2)
+    ok = [c for c in checks if c["resolved"]]
+    best = max(ok, key=lambda c: (c["group"], c["element"])) if ok else None
+    rec["checker"] = dict(best=[best["group"], best["element"]] if best else None,
+                          scan_index=best["scan_index"] if best else None,
+                          n_resolved=len(ok), n_total=len(checks), glyphs=checks)
+    return self.bundle_scanline_scores(scores, scanlines)
+
+
+def check_scanline(self, check_gray, pt_a, pt_b):
+    """(contrast, local minima) for one scanline: p98 - p2 along the line, and local minima of the
+    smoothed profile along the line extended 20% at both ends."""
+    mask = np.zeros(check_gray.shape, dtype=np.uint8)
+    cv2.line(mask, pt_a, pt_b, 255, 2)
+    px = check_gray[mask > 0]
+    score = float(np.percentile(px, 98) - np.percentile(px, 2)) if len(px) else 0.0
+    pt_a_e, pt_b_e = self.extend_line(pt_a, pt_b, extend_length=0.2)
+    _, line_pixels = self.sample_line_profile(check_gray, pt_a_e, pt_b_e, sample_count=100)
+    if len(line_pixels) < 15:
+        return score, 0
+    smooth = savgol_filter(line_pixels, window_length=15, polyorder=3)
+    dy = np.gradient(smooth)
+    idx = np.nonzero((dy[:-1] < -0.0001) & (dy[1:] > 0.0001))[0]
+    if len(idx) > 1:
+        idx = idx[np.concatenate(([True], np.diff(idx) > 1))]
+    return score, len(idx)
