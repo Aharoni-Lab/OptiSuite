@@ -5,7 +5,8 @@ homographies. Experiments, reports and notes behind it are on branch emz95-exper
 (lab_images_report/NOTES.md).
 
 Which groups: biggest group g0 and the NESTED count = YOLO pattern_count (count_4pts_pattern).
-g0 = NESTED_GROUP, else 8 - 2*pattern_count. Layers are g0, g0+2, ...
+g0 = NESTED_GROUP, else read from the printed group numbers (read_start_group), else
+8 - 2*pattern_count. Layers are g0, g0+2, ...
 (one pair of groups per nested level); g0 and the nested count pick the templates below.
 
 Templates by nested count: each layer's template holds exactly the levels still left
@@ -26,6 +27,7 @@ Same settings for both: ratio 0.8, RANSAC 6 px, >= 6 inliers, boxes not broken, 
 boxes and nothing deeper is matched.
 """
 import json
+import time
 from pathlib import Path
 
 import cv2
@@ -444,6 +446,55 @@ def _digit_crop(img, H, cfg, flip, box, pad=0.25):
     return cv2.warpPerspective(img, M, (ow, oh), flags=cv2.INTER_AREA), pc
 
 
+def read_start_group(self, img, gray, flip, nested):
+    """
+    Biggest group in the photo from its printed group numbers. Layer 1 with a template (its own
+    labels), every group-number box carried onto the photo and read against the templates' digits.
+    Each reading votes for a label shift (digit read - template's number); the winner needs >= 2
+    votes and no tie. Start = outermost pair in the photo. Default template for the nested count
+    first, then the other first-layer templates. Returns a record (start None if nothing agreed).
+    """
+    default = _base(nested_template_for(8 - 2 * nested, nested))
+    order = [default] + [k for k in DIGIT_TEMPLATES if k != default]
+    out = dict(start=None, tried=[])
+    for cfg in order:
+        if cfg not in DIGIT_TEMPLATES:
+            out["tried"].append(dict(template=cfg, error="no group-number boxes"))
+            continue
+        H, err = None, None
+        for fl in (flip, not flip):
+            try:
+                H, n, _ = _layer_one(self, gray, fl, cfg, FIRST_GROUP[cfg])
+                break
+            except Exception as e:  # noqa: BLE001
+                err = f"{type(e).__name__}: {e}"
+        if H is None:
+            out["tried"].append(dict(template=cfg, error=err))
+            continue
+        reads, votes = [], {}
+        for b in _TEMPLATE_DATA[str(cfg)]["group_numbers"]:
+            crop, pc = _digit_crop(img, H, cfg, fl, b["box"])
+            r = dict(group=b["group"], quad=pc.round(1).tolist(), read=None)
+            if crop is not None:
+                d, s, m = _read_digit(self, crop)
+                r.update(read=d, score=round(s, 3), margin=round(m, 3))
+                if d is not None and s >= DIGIT_MIN_SCORE and m >= DIGIT_MIN_MARGIN:
+                    votes[d - b["group"]] = votes.get(d - b["group"], 0) + 1
+            reads.append(r)
+        ranked = sorted(votes.items(), key=lambda kv: -kv[1])
+        shift = None
+        if ranked and ranked[0][1] >= 2 and not (len(ranked) > 1 and ranked[1][1] == ranked[0][1]):
+            shift = ranked[0][0]
+        t = dict(template=cfg, flip=fl, inliers=int(n), votes={str(k): v for k, v in ranked}, shift=shift, reads=reads)
+        out["tried"].append(t)
+        if shift is not None:
+            seen = [r["group"] + shift for r in reads if r["read"] is not None and r["group"] + shift >= 2]
+            if seen:
+                out.update(start=2 * (min(seen) // 2), template=cfg, flip=fl, shift=shift)
+                return out
+    return out
+
+
 # ---------------------------------------------------------------------------------------
 # scanline checker
 # ---------------------------------------------------------------------------------------
@@ -458,14 +509,22 @@ def nested_scanline_contrast_scores(self, img, gray, normalized_gray):
     flip = bool(self.C.FLIPED_TARGET)
     nested = int(np.clip(self.C.pattern_count, 1, 3))
     self._layer_one_cache = {}
-    # biggest group: NESTED_GROUP, else 8 - 2*pattern_count
+    # biggest group: NESTED_GROUP, else the printed group numbers, else 8 - 2*pattern_count
+    g0, g_src, digits = None, None, None
     if self.C.NESTED_GROUP is not None:
         g0, g_src = int(self.C.NESTED_GROUP), "NESTED_GROUP"
     else:
+        t0 = time.time()
+        src = self.C.current_raw_image if self.C.current_raw_image is not None else img
+        digits = read_start_group(self, src, gray, flip, nested)
+        digits["seconds"] = round(time.time() - t0, 2)
+        if digits["start"] is not None:
+            g0, g_src, flip = digits["start"], f"group numbers (template {digits['template']})", digits["flip"]
+    if g0 is None:
         g0, g_src = 8 - 2 * nested, "8 - 2*pattern_count"
     nested = max(1, min(nested, (MAX_TEMPLATE_GROUP - g0 + 1) // 2))
     rec = dict(method=method, first_group=g0, first_group_source=g_src, nested=nested,
-               pattern_count=int(self.C.pattern_count), flip=flip)
+               pattern_count=int(self.C.pattern_count), flip=flip, digits=digits)
     self.C.nested_result = rec
     layers, errs = None, []
     for fl in (flip, not flip):     # FLIPED_TARGET comes from the YOLO 4-pt direction; if that misses, try the mirror
