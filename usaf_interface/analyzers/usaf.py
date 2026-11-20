@@ -70,12 +70,13 @@ def _candidate_quality(scores: list[float], threshold: float) -> float:
     )
 
 
-def _flip_mode_to_candidates(flip_mode: str) -> list[tuple[str, bool]]:
+def _flip_mode_to_candidates(flip_mode: str, default: bool) -> list[tuple[str, bool]]:
     if flip_mode == "flipped":
         return [("flipped", True)]
     if flip_mode == "not_flipped":
         return [("not_flipped", False)]
-    return [("flipped", True), ("not_flipped", False)]
+    # auto: one run; the pipeline picks the mirror (YOLO keypoints, the other mirror if layer 1 fails)
+    return [("auto", default)]
 
 
 
@@ -115,7 +116,7 @@ class USAFAnalyzer(ResolutionAnalyzer):
         candidate_results: list[dict] = []
         last_exception: Exception | None = None
 
-        for flip_label, flipped_target in _flip_mode_to_candidates(self.config.flip_mode):
+        for flip_label, flipped_target in _flip_mode_to_candidates(self.config.flip_mode, self.config.flipped_target):
             candidate_config = replace(self.config, flipped_target=flipped_target)
             try:
                 with _config_scope(self.usaf, candidate_config):
@@ -142,6 +143,10 @@ class USAFAnalyzer(ResolutionAnalyzer):
                     scores_list = [item["score"] for item in scores.values()]
 
                     overlay_items: list[OverlayItem] = []
+                    # mirror the matching actually used
+                    flipped_target = bool((self.usaf.C.nested_result or {}).get("flip", flipped_target))
+                    if flip_label == "auto":
+                        flip_label = "flipped" if flipped_target else "not_flipped"
 
                 candidate_results.append(
                     {
