@@ -156,3 +156,46 @@ def _kd(self, key, flip, region=None, scale=1.0):
             im = cv2.resize(im, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         _CACHE["kd"][k] = _sift().detectAndCompute(im, None)
     return _CACHE["kd"][k]
+
+
+def _ratio_matches(d1, d2, ratio):
+    """Lowe ratio test, then one-to-one (each photo keypoint keeps its best template match)."""
+    if d1 is None or d2 is None or len(d1) < 2 or len(d2) < 2:
+        return []
+    good = [m for pair in cv2.BFMatcher(cv2.NORM_L2).knnMatch(d1, d2, k=2) if len(pair) == 2
+            for m, n in [pair] if m.distance < ratio * n.distance]
+    best = {}
+    for m in good:
+        if m.trainIdx not in best or m.distance < best[m.trainIdx].distance:
+            best[m.trainIdx] = m
+    return list(best.values())
+
+
+def _fit(kp1, d1, tgt, ratio, tol, min_inl):
+    kp2, d2 = _sift().detectAndCompute(tgt, None)
+    good = _ratio_matches(d1, d2, ratio)
+    if len(good) < 4:
+        return None, 0, len(good)
+    src = np.float32([kp1[g.queryIdx].pt for g in good])
+    dst = np.float32([kp2[g.trainIdx].pt for g in good])
+    cv2.setRNGSeed(42)
+    H, inl = cv2.findHomography(src, dst, cv2.RANSAC, tol)
+    n = int(inl.sum()) if inl is not None else 0
+    if H is None or n < min_inl:
+        return None, n, len(good)
+    return H, n, len(good)
+
+
+def _quads_sane(H, bx):
+    """Rejects collapsed or exploded fits for one nested level's glyph boxes: any box not
+    finite, the boxes together spanning less than 20 px wide or tall, or one box more than
+    6x the median box size."""
+    quads = [_apply(H, b["quad"]) for b in bx]
+    if not all(np.all(np.isfinite(q)) for q in quads):
+        return False
+    diags = np.array([np.linalg.norm(q.max(0) - q.min(0)) for q in quads])
+    ext = np.ptp(np.vstack(quads), 0)
+    if ext.min() < 20:
+        return False
+    med = np.median(diags)
+    return not (med > 0 and diags.max() > 6 * med)
