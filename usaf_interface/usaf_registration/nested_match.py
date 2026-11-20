@@ -10,6 +10,9 @@ Templates by nested count: each layer's template holds exactly the levels still 
   1 left -> config 14 (one level) or config 16 (8-9)
 The pattern repeats every 2 groups at 1/4 scale, so a template stands in for other groups
 with its labels shifted by an even number ("4@-2" = config 4 used as groups 2-5).
+
+Layer 1: whole-photo SIFT, photo resized to template density by the big square. A match
+~0.25x the expected size locked onto the inner copy -> moved out one level.
 """
 import json
 from pathlib import Path
@@ -22,6 +25,8 @@ _TEMPLATE_DATA = json.loads((_DIR / "nested_templates.json").read_text())["templ
 LEVELS = {int(c): t["levels"] for c, t in _TEMPLATE_DATA.items()}
 FIRST_GROUP = {int(c): t["first_group"] for c, t in _TEMPLATE_DATA.items()}
 PREF = [3, 4, 14, 17, 16]          # real renders before the synthetic 6-9 ones
+
+MAX_DIM = 7000                     # cap on the resized photo's longer side (px)
 
 _CACHE = {"img": {}, "kd": {}, "tmap": {}, "inner": {}}
 _SIFT = []
@@ -199,3 +204,54 @@ def _quads_sane(H, bx):
         return False
     med = np.median(diags)
     return not (med > 0 and diags.max() > 6 * med)
+
+
+# ---------------------------------------------------------------------------------------
+# matching
+# ---------------------------------------------------------------------------------------
+def _layer_one(self, gray, flip, key, g0):
+    """Whole-photo SIFT for the biggest layer. Returns (H: template px -> photo px, inliers, note).
+    Successful matches are kept per (template image, flip) for the current photo
+    (self._layer_one_cache, reset by nested_scanline_contrast_scores): a label shift ("4@-2")
+    doesn't change the match, so later steps that use the same template image share it."""
+    cache = getattr(self, "_layer_one_cache", None)
+    ck = (_base(key), bool(flip), gray.shape)
+    if cache is not None and ck in cache:
+        return cache[ck]
+    out = _layer_one_match(self, gray, flip, key, g0)
+    if cache is not None:
+        cache[ck] = out
+    return out
+
+
+def _layer_one_match(self, gray, flip, key, g0):
+    sq = self.C.valid_squares[0] if len(self.C.valid_squares) else self.make_dummy_valid_square(gray)
+    s = sq.reshape(-1, 2).astype(float)
+    p_sq, p_side = s.mean(0), float(np.mean([np.linalg.norm(s[i] - s[(i + 1) % 4]) for i in range(4)]))
+    t_sq, t_side = _square(key, flip)
+    sc = min(t_side / p_side, MAX_DIM / max(gray.shape))
+    kp1, d1 = _kd(self, key, flip)
+    for _ in range(3):   # too many photo keypoints overflows OpenCV's matcher -> retry smaller
+        tgt = cv2.resize(gray, None, fx=sc, fy=sc, interpolation=cv2.INTER_LANCZOS4 if sc > 1 else cv2.INTER_AREA)
+        try:
+            H, n, ng = _fit(kp1, d1, tgt, 0.75, 5.0, 8)
+            break
+        except cv2.error:
+            sc *= 0.6
+    else:
+        raise ValueError("SIFT matcher overflow")
+    if H is None:
+        raise ValueError(f"template {key}: {n} inliers / {ng} matches")
+    H = np.diag([1 / sc, 1 / sc, 1]) @ H
+    if not _quads_sane(H, _boxes(key, flip, g0)):
+        raise ValueError(f"template {key}: boxes broken")
+    ratio = _local_scale(H, t_sq) / (p_side / t_side)
+    note = ""
+    if 0.18 <= ratio <= 0.35:       # matched the 4x-smaller inner copy -> move out one level
+        H2 = H @ np.linalg.inv(_inner_copy(key, flip))
+        r2 = _local_scale(H2, t_sq) / (p_side / t_side)
+        off = np.linalg.norm(_apply(H2, t_sq)[0] - p_sq) / p_side
+        if not (0.6 <= r2 <= 1.6 and off < 0.5):
+            raise ValueError(f"template {key}: matched inner copy, re-anchor didn't line up")
+        H, note = H2, f", re-anchored one level out (was {ratio:.2f}x)"
+    return H, n, note
