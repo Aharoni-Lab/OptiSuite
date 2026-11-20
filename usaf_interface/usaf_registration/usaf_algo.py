@@ -33,7 +33,8 @@ def calculate_scanline_contrast_scores(self, img):
 
     pt4_pattern_result = self.count_4pts_pattern(img)
     self.C.pattern_count = len(pt4_pattern_result.boxes)
-    self.yolo_4pt_calculation(pt4_pattern_result)     # sets FLIPED_TARGET
+    if not self.C.FLIP_FIXED:
+        self.yolo_4pt_calculation(pt4_pattern_result)     # sets FLIPED_TARGET
     if self.C.DEBUG_MODE:
         print(f"YOLO detected {self.C.pattern_count} patterns, flipped={self.C.FLIPED_TARGET}")
         plt.figure(figsize=(10, 8))

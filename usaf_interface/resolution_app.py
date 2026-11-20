@@ -55,7 +55,7 @@ class ResolutionApp:
         self.debug_var = tk.BooleanVar(value=False)
         self.model_assist_var = tk.BooleanVar(value=False)
         self.fallback_var = tk.BooleanVar(value=False)
-        self.flip_mode_var = tk.StringVar(value="flipped")
+        self.flip_mode_var = tk.StringVar(value="auto")
         self.status_var = tk.StringVar(value="Add images or folders, then run analysis.")
         self.output_group_var = tk.StringVar(value="n/a")
         self.output_element_var = tk.StringVar(value="n/a")

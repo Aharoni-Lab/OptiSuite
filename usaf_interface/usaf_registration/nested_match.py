@@ -446,6 +446,11 @@ def _digit_crop(img, H, cfg, flip, box, pad=0.25):
     return cv2.warpPerspective(img, M, (ow, oh), flags=cv2.INTER_AREA), pc
 
 
+def _mirrors(self, flip):
+    """Mirror states to try: flip, then the other one, unless FLIP_FIXED pins it."""
+    return (flip,) if self.C.FLIP_FIXED else (flip, not flip)
+
+
 def read_start_group(self, img, gray, flip, nested):
     """
     Biggest group in the photo from its printed group numbers. Layer 1 with a template (its own
@@ -462,7 +467,7 @@ def read_start_group(self, img, gray, flip, nested):
             out["tried"].append(dict(template=cfg, error="no group-number boxes"))
             continue
         H, err = None, None
-        for fl in (flip, not flip):
+        for fl in _mirrors(self, flip):
             try:
                 H, n, _ = _layer_one(self, gray, fl, cfg, FIRST_GROUP[cfg])
                 break
@@ -503,7 +508,7 @@ def nested_scanline_contrast_scores(self, img, gray, normalized_gray):
     (final_score, scanline_map) with every scanline placed by nested matching: the annotated
     box's scanline, projected. Scored by the scanline checker (check_scanline); the per-glyph
     result is in self.C.nested_result["checker"]. Scanlines are drawn onto img (green = resolved).
-    Raises ValueError if the whole-photo (layer 1) match fails with both mirror states.
+    Raises ValueError if the whole-photo (layer 1) match fails (with both mirror states unless FLIP_FIXED).
     """
     method = self.C.NESTED_MATCH
     flip = bool(self.C.FLIPED_TARGET)
@@ -527,7 +532,8 @@ def nested_scanline_contrast_scores(self, img, gray, normalized_gray):
                pattern_count=int(self.C.pattern_count), flip=flip, digits=digits)
     self.C.nested_result = rec
     layers, errs = None, []
-    for fl in (flip, not flip):     # FLIPED_TARGET comes from the YOLO 4-pt direction; if that misses, try the mirror
+    flips = _mirrors(self, flip)    # FLIPED_TARGET comes from the YOLO 4-pt direction; if that misses, try the mirror
+    for fl in flips:
         try:
             layers = nested_match_layers(self, gray, fl, g0, nested, method)
             if fl != flip:
@@ -537,7 +543,7 @@ def nested_scanline_contrast_scores(self, img, gray, normalized_gray):
         except Exception as e:
             errs.append(f"{type(e).__name__}: {e}")
     if layers is None:
-        rec["error"] = f"layer 1 failed: flip={flip}: {errs[0]}; flip={not flip}: {errs[1]}"
+        rec["error"] = "layer 1 failed: " + "; ".join(f"flip={fl}: {e}" for fl, e in zip(flips, errs))
         raise ValueError(f"nested_match: {rec['error']}")
 
     # drop leading layers that are mostly outside the photo (e.g. groups 2-3 cut off by the frame)

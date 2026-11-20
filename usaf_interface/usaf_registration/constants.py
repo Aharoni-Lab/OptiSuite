@@ -9,6 +9,7 @@ class UsafConfig:
         self.DEBUG_MODE = False              # debug log + plots
         self.PREVIEW_MODE = False            # show the scored scanlines
         self.FLIPED_TARGET = True            # true if target is mirrored; set per image from the YOLO keypoints
+        self.FLIP_FIXED = False              # true: use FLIPED_TARGET as given (no YOLO direction, no mirror retry)
         self.SCORE_THRESHOLD = 0.2           # scanline contrast needed (with >= 2 local minima) to call a glyph resolved
         self.SCORE_METHOD = "min"            # "mean", "min", "max", "raw": merge of the vertical and horizontal scores
 

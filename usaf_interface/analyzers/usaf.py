@@ -32,11 +32,13 @@ def _config_scope(reg: UsafRegistration, config: USAFAnalyzerConfig) -> Iterator
         "DEBUG_MODE": C.DEBUG_MODE,
         "PREVIEW_MODE": C.PREVIEW_MODE,
         "FLIPED_TARGET": C.FLIPED_TARGET,
+        "FLIP_FIXED": C.FLIP_FIXED,
     }
     # allow_model_assist / auto_adjust belonged to the old world-table path and no longer do anything
     C.DEBUG_MODE = config.debug_mode
     C.PREVIEW_MODE = config.show_preview
     C.FLIPED_TARGET = config.flipped_target
+    C.FLIP_FIXED = config.flip_mode in ("flipped", "not_flipped")   # user's choice overrides the YOLO direction
     try:
         yield
     finally:
