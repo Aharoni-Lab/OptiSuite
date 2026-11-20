@@ -258,8 +258,10 @@ class USAFAnalyzer(ResolutionAnalyzer):
         resolved_resolution_mm = self.usaf.usaf_resolution_mm(best_focus_group[0], best_focus_group[1])
 
         # calculate contrast and frequency for all elements and store it in a list "curve"
+        # scanline_map is in score order, so it carries each score's group / element
+        labels = [(item["group"], item["element"]) for item in scanline_map.values()]
         for index in range(len(scores)):
-            group, element = self.usaf.C.score_table[index]
+            group, element = labels[index]
             frequency = self.usaf.usaf_lp_per_mm(group, element)
             contrast = float(abs(scores[index]["score"]))
             passed = contrast >= threshold
