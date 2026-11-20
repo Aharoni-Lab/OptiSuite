@@ -365,6 +365,86 @@ def nested_match_layers(self, gray, flip, g0, nested, method="own_template"):
 
 
 # ---------------------------------------------------------------------------------------
+# start group from the printed group numbers
+# ---------------------------------------------------------------------------------------
+DIGIT_TEMPLATES = [3, 4, 17]       # first-layer templates that have group_numbers boxes
+DIGIT_MIN_SCORE = 0.4              # similarity to the best reference digit
+DIGIT_MIN_MARGIN = 0.05            # lead over the next-best digit
+_GLYPH_SIZE = (24, 36)
+_DIGIT_BANK = []
+
+
+def _glyph(gray):
+    """Largest bright blob near the centre -> tight box -> 24x36 zero-mean unit vector, aspect ratio."""
+    g = cv2.GaussianBlur(gray, (3, 3), 0)
+    _, bw = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    n, lab, st, cen = cv2.connectedComponentsWithStats(bw)
+    h, w = gray.shape
+    best, bs = None, 0
+    for i in range(1, n):
+        d = np.hypot(cen[i, 0] - w / 2, cen[i, 1] - h / 2) / max(h, w)
+        s = st[i, 4] * (1 - d) if d < 0.35 else 0
+        if s > bs:
+            best, bs = i, s
+    if best is None:
+        return None
+    x, y, ww, hh = st[best, :4]
+    m = (lab[y:y + hh, x:x + ww] == best).astype(np.float32)
+    v = cv2.resize(m, _GLYPH_SIZE, interpolation=cv2.INTER_AREA).ravel()
+    v = v - v.mean()
+    return v / (np.linalg.norm(v) + 1e-6), ww / max(hh, 1)
+
+
+def _digit_bank(self):
+    """Reference digits: every printed group number on the templates, labelled by its value."""
+    if not _DIGIT_BANK:
+        for cfg in DIGIT_TEMPLATES:
+            t = _template_image(self, cfg, False)
+            for b in _TEMPLATE_DATA[str(cfg)].get("group_numbers", []):
+                x, y, w, h = b["box"]
+                if h >= 30:
+                    r = _glyph(t[max(0, y):y + h, max(0, x):x + w])
+                    if r:
+                        _DIGIT_BANK.append((b["group"], r[0], r[1]))
+    return _DIGIT_BANK
+
+
+def _read_digit(self, crop):
+    """(digit, score, margin) for a BGR/gray crop; digit None if nothing readable."""
+    g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    r = _glyph(g)
+    if r is None:
+        return None, 0.0, 0.0
+    v, ar = r
+    sc = {}
+    for d, ref, rar in _digit_bank(self):
+        sc[d] = max(sc.get(d, -9.0), float(v @ ref) - 0.5 * abs(np.log(ar / rar)))
+    o = sorted(sc.items(), key=lambda kv: -kv[1])
+    return o[0][0], o[0][1], o[0][1] - o[1][1]
+
+
+def _digit_crop(img, H, cfg, flip, box, pad=0.25):
+    """Upright, unmirrored cut-out of a template group-number box from the photo (None if off-photo/tiny)."""
+    w_t = _TEMPLATE_DATA[str(cfg)]["width"]
+    x, y, w, h = box
+    x, y, w, h = x - pad * w, y - pad * h, w * (1 + 2 * pad), h * (1 + 2 * pad)
+    tc = np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], float)
+    if flip:
+        tc[:, 0] = w_t - 1 - tc[:, 0]
+    pc = _apply(H, tc)
+    c = pc.mean(0)
+    if not (0 <= c[0] < img.shape[1] and 0 <= c[1] < img.shape[0]):
+        return None, pc
+    side = np.linalg.norm(pc[3] - pc[0])
+    if side / (1 + 2 * pad) < 10:
+        return None, pc
+    oh = int(np.clip(side, 32, 160))
+    ow = int(round(oh * w / h))
+    M = cv2.getPerspectiveTransform(pc.astype(np.float32), np.float32([[0, 0], [ow - 1, 0], [ow - 1, oh - 1], [0, oh - 1]]))
+    return cv2.warpPerspective(img, M, (ow, oh), flags=cv2.INTER_AREA), pc
+
+
+# ---------------------------------------------------------------------------------------
 # scanline checker
 # ---------------------------------------------------------------------------------------
 def nested_scanline_contrast_scores(self, img, gray, normalized_gray):
