@@ -347,9 +347,28 @@ def nested_match_layers(self, gray, flip, g0, nested, method="own_template"):
     if method not in ("own_template", "parent_crop"):
         raise ValueError(f"nested_match: unknown NESTED_MATCH {method!r} (own_template / parent_crop)")
     spec = [(g0 + 2 * i, nested_template_for(g0 + 2 * i, nested - i)) for i in range(nested)]
-    H, n, note = _layer_one(self, gray, flip, spec[0][1], spec[0][0])
-    layers = [dict(group=spec[0][0], H=H, template=spec[0][1], fallback=False,
-                   desc=f"SIFT template {spec[0][1]} ({n} inliers{note})", info={"inliers": n})]
+    key0 = spec[0][1]
+    try:
+        H, n, note = _layer_one(self, gray, flip, key0, g0)
+    except ValueError as e:
+        if nested != 1:
+            raise
+        # one level in view: the one-level templates can miss on blurry photos, so try the outer level
+        # of the two-level templates (same pattern, more around it to match), relabelled to start at g0
+        H, first_err = None, e
+        for c in (c for c in PREF if LEVELS[c] == 2):
+            key = c if FIRST_GROUP[c] == g0 else f"{c}@{g0 - FIRST_GROUP[c]:+d}"
+            try:
+                H, n, note = _layer_one(self, gray, flip, key, g0)
+            except ValueError:
+                continue
+            note += f"; outer level only, one-level template {key0} failed: {first_err}"
+            key0 = key
+            break
+        if H is None:
+            raise first_err
+    layers = [dict(group=g0, H=H, template=key0, fallback=False,
+                   desc=f"SIFT template {key0} ({n} inliers{note})", info={"inliers": n})]
     stopped = None
     for i in range(1, len(spec)):
         g_in, key_in = spec[i]
