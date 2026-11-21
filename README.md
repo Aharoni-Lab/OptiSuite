@@ -44,6 +44,11 @@ The plate designs are in [`Images/`](Images). Several holder versions are includ
 1. **Camera and stage control.** A PyQt desktop app runs one or more DaHeng cameras (live view,
    exposure, gain, screenshots and recording). It sends move commands over ZeroMQ to the stage
    controller.
+   **Micro-Manager:** the app can also use [Micro-Manager](https://micro-manager.org) through
+   [Pycro-Manager](https://pycro-manager.readthedocs.io) as its camera and stage backend
+   (Backend = Pycro-Manager), so OptiSuite works with hardware Micro-Manager already supports.
+   Micro-Manager can run with its GUI or headless (no GUI). This backend is currently on the
+   `usaf_target` branch.
 2. **Stage routines.** A routine is a list of plate positions. The app moves to each station in turn,
    with soft travel limits, and can pause and resume between steps.
 3. **Autofocus.** Focus is found by scoring image sharpness (Laplacian variance, Tenengrad or
@@ -63,27 +68,11 @@ The plate designs are in [`Images/`](Images). Several holder versions are includ
 | [`Images/`](Images) | Plate designs and photos. |
 | `Python versions/` (other folders) | Older and obsolete versions, kept for reference. |
 
-## Quick start: measure resolution from an image
-
-```bash
-cd USAF_matched_filter_reader
-pip install -r requirements.txt
-python usaf_reader.py my_image.tif                  # 20 % contrast threshold
-python usaf_reader.py my_image.tif --pixel-size 1.1 # µm per pixel at the sample, if known
-```
-
-The results are saved next to the image in `usaf_results/`: an annotated overlay, a
-contrast-vs-frequency plot, and CSV and JSON tables with every element.
-
-<p align="center">
-  <img src="USAF_matched_filter_reader/output/usaf_results/SingleWell_overlay.png" width="380" alt="USAF reader overlay with passing and failing elements marked">
-  <img src="USAF_matched_filter_reader/output/usaf_results/SingleWell_ctf.png" width="380" alt="Measured contrast vs spatial frequency with the fitted curve">
-</p>
-
 ## Hardware
 
 - Motorized XYZ stage with an SC3U controller
 - DaHeng industrial cameras (`gxipy` SDK)
+- Or any camera and stage that Micro-Manager supports, through the Pycro-Manager backend
 - 3D-printed characterization plate with a USAF 1951 target, a PSF slide, a spectrometer and a power meter
 
 ## Status
