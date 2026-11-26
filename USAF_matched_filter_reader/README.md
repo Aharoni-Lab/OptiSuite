@@ -14,6 +14,7 @@ pip install -r requirements.txt
 | `fft_analysis.py` | 2-D FFT of any image: log spectrum, radial average, fx/fy profiles with USAF group frequencies marked |
 | `usaf_reader.py` | Reads a microscope image of the target: group/element identification, contrast per element, resolution limit at a contrast threshold |
 | `ctf_fit.py` | Fits a blur model to the reader's measured contrasts: the frequency where contrast crosses the threshold (with an uncertainty), the blur size and the stray light, per line direction. Used by `usaf_reader.py` |
+| `group_digits.py` | Reads the printed group numbers to settle which groups are in view (e.g. a slide that goes to group 9). Used by `usaf_reader.py` |
 | `validate_usaf_reader.py` | Checks the reader against simulated microscope images with known ground-truth contrast |
 
 ## Reading a microscope image
@@ -55,6 +56,13 @@ A whole-image FFT mixes all elements together and can't say *which* element stil
    are blurred flat, a pair that exists still puts light there (about as much as three solid bars), while empty
    background does not. Each finer pair found moves the labels two groups coarser. If only one pair is visible this
    check isn't possible and the result says the group number was assumed.
+   **Printed group numbers.** Light at the next finer position can also mean the slide simply continues: the
+   standard slide ends at group 7, high-resolution slides go on to group 9. So the printed group numbers are read
+   too (`group_digits.py`). The slide layout is mapped onto each detected group pair, every printed number is cut
+   out upright through that map, and each group number is compared with the slide's own element numbers (1–6, same
+   font, blur and exposure) for the digit each reading predicts. When they clearly favour one reading, it
+   replaces the assumption, and a slide that continues past group 7 is measured up to group 9. When the numbers
+   are too small or too few to read, nothing changes. A pixel size or `--coarsest-group` still takes precedence.
 6. **Guided search**: if a group pair between the detected ones is missing (blurred or saturated), the matched filter
    is run again at only that pair's line widths, inside the coarser pair, at a lower threshold. A hit is kept only if
    at least 4 bar sets agree with the ¼-scale copy of the coarser pair, which rules out digits and noise.

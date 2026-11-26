@@ -15,6 +15,39 @@
   "pixel_size_um_fitted": 2.43054,
   "pixel_size_um_given": null,
   "identification": "layout (mod 12) + assumption that the finest visible groups are the slide's finest",
+  "group_numbers": {
+    "best": null,
+    "readable": 2,
+    "votes": {
+      "-2 groups": 0,
+      "+0 groups": 0,
+      "+2 groups": 0
+    },
+    "references": {
+      "3": 3,
+      "4": 3,
+      "5": 3,
+      "6": 3
+    },
+    "readings": [
+      {
+        "group_under_K0": 4,
+        "scores": {
+          "+0 groups": 0.613,
+          "+2 groups": 0.64
+        },
+        "vote": null
+      },
+      {
+        "group_under_K0": 5,
+        "scores": {
+          "-2 groups": 0.515,
+          "+0 groups": 0.606
+        },
+        "vote": null
+      }
+    ]
+  },
   "rotation_deg": -28.394,
   "polarity": "bright-bars",
   "black_level": 0.0,
