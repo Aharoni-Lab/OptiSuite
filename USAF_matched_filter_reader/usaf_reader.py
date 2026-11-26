@@ -35,6 +35,10 @@ Pipeline
                       finest detected pair is taken as the slide's finest unless a
                       finer pair, even blurred flat, puts light where the layout
                       predicts it; each one found moves the labels 2 groups coarser.
+                      That light can also mean the slide simply goes on to group 9,
+                      so the printed group numbers are then read (group_digits.py,
+                      with the slide's own element numbers as reference digits) and
+                      override the assumption when they clearly agree.
                       Group pairs missing between detected ones are searched again
                       at their line widths with a lower threshold, keeping only hits
                       that fit the 1/4-scale copy of the coarser pair.
@@ -107,12 +111,15 @@ from scipy import ndimage
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ctf_fit  # noqa: E402
+import group_digits  # noqa: E402
 from scipy.spatial import cKDTree
 
 Image.MAX_IMAGE_PIXELS = None
 
-# USAF k index: k = 6*group + element - 1 ; slide spans group -2 .. 7
+# USAF k index: k = 6*group + element - 1 ; the standard slide spans group -2 .. 7,
+# high-resolution slides continue to group 9 (recognised from their printed group numbers)
 K_MIN, K_MAX = 6 * -2 + 0, 6 * 7 + 5
+K_MAX_HIRES = 6 * 9 + 5
 HV_DIST = (5.0, 9.5)        # centre distance between H and V sets of one element, in w
 ADJ_DIST = 12.5             # consecutive elements closer than this (in w) are column neighbours
 
@@ -593,7 +600,7 @@ def predict_missing(elements: list[Element], k_lo: int, k_hi: int,
 
 
 def verify_small(elements: list[Element], px: float, k_lo: int, w_reliable: float = 2.8,
-                 log=print) -> list[Element]:
+                 log=print, k_hi: int = K_MAX) -> list[Element]:
     """
     Line widths of tiny bar sets cannot be measured to better than one lattice step
     (2^(1/6) = 12 %), so their k may be off by one. Predict every element's position
@@ -604,7 +611,7 @@ def verify_small(elements: list[Element], px: float, k_lo: int, w_reliable: floa
     small = [e for e in elements if wpx(e.k) < w_reliable]
     if len(reliable) < 4 or not small:
         return elements
-    pred, _ = predict_positions(reliable, k_lo, K_MAX)
+    pred, _ = predict_positions(reliable, k_lo, k_hi)
     taken = {e.k for e in reliable}
     best_for: dict[int, tuple[float, Element]] = {}
     n_moved = n_drop = 0
@@ -792,7 +799,7 @@ def finer_pair_present(img: np.ndarray, elements: list[Element], phi: float, K0:
 
 
 def check_layout(elements: list[Element], img: np.ndarray, px: float, k_lo: int, polarity: float,
-                 tol: float = 4.0, agree: float = 1.5, log=print) -> list[Element]:
+                 tol: float = 4.0, agree: float = 1.5, log=print, k_hi: int = K_MAX) -> list[Element]:
     """
     Leave-one-out check of every detected element against the slide layout predicted from
     all the others. If one bar set sits far from its predicted position (> tol·w) while the
@@ -802,7 +809,7 @@ def check_layout(elements: list[Element], img: np.ndarray, px: float, k_lo: int,
     wpx = lambda k: line_width_um_k(k) / px
     n_fix = 0
     for e in elements:
-        pred, _ = predict_positions([o for o in elements if o is not e], k_lo, K_MAX)
+        pred, _ = predict_positions([o for o in elements if o is not e], k_lo, k_hi)
         if e.k not in pred:
             continue
         c, hv = pred[e.k]
@@ -1117,10 +1124,43 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
                              "the 'finest visible' assumption. Pass --pixel-size to confirm.")
                 log(f"    -> identification shifted by {2 * shifted} groups")
 
+    # ---- printed group numbers -------------------------------------------
+    # The two steps above can't tell "the detected groups are 2 coarser" from "the slide goes
+    # on to group 9": both put light where the next finer pair would be. The printed group
+    # numbers can. They are read whenever the groups weren't fixed by --pixel-size or
+    # --coarsest-group, and override the assumption only when they clearly agree.
+    k_max = K_MAX
+    digits = None
+    if h is not None and not pixel_size and group_hint is None:
+        r_lo, r_hi = min(e.r for e in elements), max(e.r for e in elements)
+        cands = [K for K in (K0 - 12, K0, K0 + 12) if r_lo + K >= K_MIN and r_hi + K <= K_MAX_HIRES]
+        digits = group_digits.read_group_numbers(img, elements, K0, polarity, cands)
+        best = digits["best"]
+        log(f"    printed group numbers: {digits['readable']} readable, votes {digits['votes']}"
+            f" -> {'no decision' if best is None else f'{(best - K0) // 6:+d} groups'}")
+        if best is not None:
+            notes[:] = [n for n in notes if not (n.startswith("Group number assumed")
+                                                  or n.startswith("An unresolved finer group pair"))]
+            if best != K0:
+                notes.append(f"The printed group numbers show the groups are {abs(best - K0) // 6} "
+                             f"{'finer' if best > K0 else 'coarser'} than the layout alone suggested.")
+                K0 = best
+                method = "layout (mod 12) + printed group numbers"
+            else:
+                method += " (confirmed by the printed group numbers)"
+            # a high-resolution slide: the pair after the finest detected one is there too
+            present, _ = finer_pair_present(img, elements, phi, K0, depth=1)
+            g_fine = (r_hi + K0) // 6
+            if present and r_hi + K0 > K_MAX - 12:
+                k_max = min(K_MAX_HIRES, 6 * (g_fine - g_fine % 2 + 2) + 11)
+                if k_max > K_MAX:
+                    notes.append(f"This slide continues past group 7 (groups up to "
+                                 f"{k_to_ge(k_max)[0]} located from the layout).")
+
     for e in elements:
         e.k = K0 + e.r
-    dropped = [e for e in elements if not (K_MIN <= e.k <= K_MAX)]
-    elements = [e for e in elements if K_MIN <= e.k <= K_MAX]
+    dropped = [e for e in elements if not (K_MIN <= e.k <= k_max)]
+    elements = [e for e in elements if K_MIN <= e.k <= k_max]
     if dropped:
         log(f"    dropped {len(dropped)} pair(s) outside the slide's group range")
     px_fit = pixel_size_for(K0, phi)
@@ -1130,9 +1170,9 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
 
     g_lo = k_to_ge(min(e.k for e in elements))[0]
     k_lo = 6 * (g_lo - g_lo % 2)                       # start of the coarsest detected pair
-    elements = verify_small(elements, px_fit, k_lo, log=log)
-    elements = check_layout(elements, img, px_fit, k_lo, polarity, log=log)
-    extra = predict_missing(elements, k_lo, K_MAX, img.shape)
+    elements = verify_small(elements, px_fit, k_lo, log=log, k_hi=k_max)
+    elements = check_layout(elements, img, px_fit, k_lo, polarity, log=log, k_hi=k_max)
+    extra = predict_missing(elements, k_lo, k_max, img.shape)
     for e in extra:
         w_px = line_width_um_k(e.k) / px_fit
         e.h = snap_predicted(img, e.h, w_px, polarity)
@@ -1338,6 +1378,8 @@ def analyze(img_raw: np.ndarray, contrast: float = 0.2, pixel_size: float | None
         "pixel_size_um_fitted": round(px_fit, 5),
         "pixel_size_um_given": pixel_size,
         "identification": method,
+        "group_numbers": None if digits is None else {k: v for k, v in digits.items() if k != "readings"}
+                         | {"readings": digits["readings"]},
         "rotation_deg": round(frame.angle, 3),
         "polarity": "bright-bars" if polarity > 0 else "dark-bars",
         "black_level": black,
